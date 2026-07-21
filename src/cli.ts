@@ -1,50 +1,24 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cruise, type ICruiseResult } from 'dependency-cruiser';
-import { parseCell, serializeCell, type Cell } from './declaration.js';
-import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
+import { serializeCell, type Cell } from './declaration.js';
+import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage, type ImportEdge } from './crossings.js';
+import { deriveCrossings, checkLeakage } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from './view.js';
 import { assignFiles } from './assign.js';
-import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
-
-const CELLS_DIR = '.cells';
-
-/** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. */
-function loadDeclarations(): Record<string, Cell> {
-  const decls: Record<string, Cell> = {};
-  for (const file of readdirSync(CELLS_DIR)) {
-    if (!file.endsWith('.cell.toml')) continue;
-    const cell = parseCell(readFileSync(join(CELLS_DIR, file), 'utf8'));
-    decls[cell.name] = cell;
-  }
-  return decls;
-}
-
-/** Load the ownership map from `.cells/ownership.toml`. */
-function loadOwnership(): Ownership {
-  return parseOwnership(readFileSync(join(CELLS_DIR, 'ownership.toml'), 'utf8'));
-}
-
-/** Recursively list `.ts` files under a directory (relative paths). */
-function listTsFiles(dir: string): string[] {
-  if (!existsSync(dir)) return []; // a repo may lack src/ or test/ yet
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out.push(...listTsFiles(path));
-    else if (entry.endsWith('.ts')) out.push(path);
-  }
-  return out;
-}
-
-/** All code files on disk (src/ + test/). */
-function listCodeFiles(): string[] {
-  return [...listTsFiles('src'), ...listTsFiles('test')];
-}
+import {
+  CELLS_DIR,
+  loadDeclarations,
+  loadOwnership,
+  listCodeFiles,
+  loadConfig,
+  collectImportEdges,
+  computePayloadSize,
+  neighborsOf,
+  readFiles,
+} from './io.js';
 
 /** `cells validate` — check partition integrity. */
 function cmdValidate(): void {
@@ -60,29 +34,6 @@ function cmdValidate(): void {
     console.log(`${v.kind}: ${v.detail}`);
   }
   process.exit(1);
-}
-
-/** Collect raw import edges (file→file) from src/ + test/ via dependency-cruiser. */
-async function collectImportEdges(): Promise<ImportEdge[]> {
-  const { output } = await cruise(['src/', 'test/'], {
-    tsPreCompilationDeps: true,
-    doNotFollow: { path: 'node_modules' },
-  });
-  const result = output as ICruiseResult;
-  const norm = (p: string): string => p.replace(/^\.\//, '');
-  const edges: ImportEdge[] = [];
-  for (const mod of result.modules ?? []) {
-    for (const dep of mod.dependencies ?? []) {
-      if (dep.couldNotResolve || dep.coreModule) continue; // external / node built-in
-      if (!dep.resolved) continue;
-      edges.push({
-        fromFile: norm(mod.source),
-        toFile: norm(dep.resolved),
-        import: dep.module,
-      });
-    }
-  }
-  return edges;
 }
 
 /** `cells crossings` — derive real cross-cell imports and check for leakage. */
@@ -109,25 +60,6 @@ async function cmdCrossings(): Promise<void> {
     }
     process.exit(1);
   }
-}
-
-/** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes). */
-function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
-  const fileContents: Record<string, string> = {};
-  for (const f of ownedFiles) {
-    try {
-      fileContents[f] = readFileSync(f, 'utf8');
-    } catch {
-      // missing file — validate flags it as dangling; size just skips
-    }
-  }
-  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
-  return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
-}
-
-/** Resolve a cell's neighbor declarations (for payload assembly). */
-function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {
-  return cell.requires.map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
 }
 
 /** `cells list` — partition overview: each cell's files/size/requires + orphans. */
@@ -157,14 +89,9 @@ async function cmdShow(name: string): Promise<void> {
   const crossings = deriveCrossings(await collectImportEdges(), ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
-  process.stdout.write(formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations))));
-}
-
-/** Load `.cells/config.toml` (optional — missing file → defaults). */
-function loadConfig(): CellsConfig {
-  const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS };
-  return parseConfig(readFileSync(path, 'utf8'));
+  process.stdout.write(
+    formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations))),
+  );
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
@@ -177,6 +104,19 @@ function cmdSize(): void {
     return { name, size: computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)) };
   });
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
+}
+
+/** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
+function cmdOwns(file: string): void {
+  const ownership = loadOwnership();
+  const declarations = loadDeclarations();
+  const cell = owningCell(ownership, file);
+  if (!cell) {
+    console.log(`${file} is not owned by any cell (orphan).`);
+    return;
+  }
+  const purpose = declarations[cell]?.purpose ?? '(no declaration)';
+  console.log(`${file} → ${cell} — ${purpose}`);
 }
 
 /** `cells init` — bootstrap a `.cells/` store (idempotent). */
@@ -219,10 +159,7 @@ function cmdPayload(name: string): void {
   }
 
   const ownedFiles = ownership[name] ?? [];
-  const fileContents: Record<string, string> = {};
-  for (const f of ownedFiles) {
-    fileContents[f] = readFileSync(f, 'utf8');
-  }
+  const fileContents = readFiles(ownedFiles);
 
   const neighbors: Cell[] = [];
   for (const n of cell.requires) {
@@ -260,6 +197,13 @@ async function main(): Promise<void> {
     case 'size':
       cmdSize();
       break;
+    case 'owns':
+      if (!args[0]) {
+        console.error('usage: cells owns <file>');
+        process.exit(1);
+      }
+      cmdOwns(args[0]);
+      break;
     case 'show':
       if (!args[0]) {
         console.error('usage: cells show <name>');
@@ -278,7 +222,7 @@ async function main(): Promise<void> {
       cmdAssign(args[0], args.slice(1));
       break;
     default:
-      console.error('usage: cells {init | assign <cell> <file...> | payload <name> | validate | crossings | list | size | show <name>}');
+      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | show <name>}');
       process.exit(1);
   }
 }

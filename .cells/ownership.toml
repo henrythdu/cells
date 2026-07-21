@@ -24,3 +24,6 @@ files = ["src/config.ts", "test/config.test.ts"]
 
 [cli]
 files = ["src/cli.ts"]
+
+[io]
+files = ["src/io.ts"]

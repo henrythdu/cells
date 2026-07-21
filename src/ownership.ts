@@ -41,3 +41,14 @@ export function serializeOwnership(ownership: Ownership): string {
     .map(([cell, files]) => `[${cell}]\nfiles = ${tomlArray(files)}\n`)
     .join('\n');
 }
+
+/**
+ * Reverse lookup: which cell owns `file`? Returns the cell name, or undefined
+ * if the file is unowned (an orphan). A query on the ownership map.
+ */
+export function owningCell(ownership: Ownership, file: string): string | undefined {
+  for (const [cell, files] of Object.entries(ownership)) {
+    if (files.includes(file)) return cell;
+  }
+  return undefined;
+}

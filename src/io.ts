@@ -1,0 +1,95 @@
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { cruise, type ICruiseResult } from 'dependency-cruiser';
+import { parseCell, type Cell } from './declaration.js';
+import { parseOwnership, type Ownership } from './ownership.js';
+import { assemblePayload } from './payload.js';
+import { type ImportEdge } from './crossings.js';
+import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
+import { type CellSize } from './view.js';
+
+export const CELLS_DIR = '.cells';
+
+/** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. */
+export function loadDeclarations(): Record<string, Cell> {
+  const decls: Record<string, Cell> = {};
+  for (const file of readdirSync(CELLS_DIR)) {
+    if (!file.endsWith('.cell.toml')) continue;
+    const cell = parseCell(readFileSync(join(CELLS_DIR, file), 'utf8'));
+    decls[cell.name] = cell;
+  }
+  return decls;
+}
+
+/** Load the ownership map from `.cells/ownership.toml`. */
+export function loadOwnership(): Ownership {
+  return parseOwnership(readFileSync(join(CELLS_DIR, 'ownership.toml'), 'utf8'));
+}
+
+/** Load `.cells/config.toml` (optional — missing file → defaults). */
+export function loadConfig(): CellsConfig {
+  const path = join(CELLS_DIR, 'config.toml');
+  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS };
+  return parseConfig(readFileSync(path, 'utf8'));
+}
+
+/** Read a list of files into a {path→content} map (missing files skipped — validate flags them). */
+export function readFiles(paths: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of paths) {
+    try {
+      out[p] = readFileSync(p, 'utf8');
+    } catch {
+      // missing — validate flags as dangling
+    }
+  }
+  return out;
+}
+
+/** Recursively list `.ts` files under a directory (relative paths). */
+export function listTsFiles(dir: string): string[] {
+  if (!existsSync(dir)) return []; // a repo may lack src/ or test/ yet
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) out.push(...listTsFiles(path));
+    else if (entry.endsWith('.ts')) out.push(path);
+  }
+  return out;
+}
+
+/** All code files on disk (src/ + test/). */
+export function listCodeFiles(): string[] {
+  return [...listTsFiles('src'), ...listTsFiles('test')];
+}
+
+/** Collect raw import edges (file→file) from src/ + test/ via dependency-cruiser. */
+export async function collectImportEdges(): Promise<ImportEdge[]> {
+  const { output } = await cruise(['src/', 'test/'], {
+    tsPreCompilationDeps: true,
+    doNotFollow: { path: 'node_modules' },
+  });
+  const result = output as ICruiseResult;
+  const norm = (p: string): string => p.replace(/^\.\//, '');
+  const edges: ImportEdge[] = [];
+  for (const mod of result.modules ?? []) {
+    for (const dep of mod.dependencies ?? []) {
+      if (dep.couldNotResolve || dep.coreModule) continue; // external / node built-in
+      if (!dep.resolved) continue;
+      edges.push({ fromFile: norm(mod.source), toFile: norm(dep.resolved), import: dep.module });
+    }
+  }
+  return edges;
+}
+
+/** Resolve a cell's neighbor declarations (for payload assembly). */
+export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {
+  return cell.requires.map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
+}
+
+/** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes). */
+export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
+  const fileContents = readFiles(ownedFiles);
+  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
+  return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
+}

@@ -19,17 +19,17 @@ prototype's scope, pieces, order, and acceptance.
 
 **Built (TDD, 31 tests green, tsc clean):** declaration, ownership, payload, validate, crossings, view, assign, **config** + serialization + CLI (`init` · `assign` · `payload <name>` · `validate` · `crossings` · `list` · `size` · `show <name>`).
 
-**Partition (self-checking ✓):** 9 cells — declaration, ownership, payload, validate, crossings, view, assign, config, cli — 17 code files, all owned. `validate` → OK; `crossings` → 0 leakage.
+**Partition (self-checking ✓):** 10 cells — declaration, ownership, payload, validate, crossings, view, assign, config, **io**, cli — 18 code files, all owned. `validate` → OK; `crossings` → 0 leakage.
 
 **All three loops complete:** READ (declare→own→retrieve→validate→derive+leakage→navigate), WRITE (init→assign→serialize), GOVERN (`size` — context-fit warning).
 
 **The one rule = SIZE, as a warning (grilled + research-grounded):** purpose=context-fit (coherence is dev/model's job, not Cells'); metric=payload tokens; ceiling=`max-payload-tokens` default **16000** in `.cells/config.toml` (÷4-of-window dropped — research shows degradation is ABSOLUTE ~32k+, not proportional); estimate=chars/4 (model-agnostic); `size` is non-blocking (exit 0); divide = re-partition via existing `assign` (no divide command). At 16k our cells are all within (tiny); the warning fires on real large cells.
 
-**Watch:** cli is the biggest cell (3078 tok payload) — under ceiling, but the divide candidate if it grows.
+**Divide dogfooded:** split cli — loaders extracted to new `io` cell (cli 3078→2484, io 1342). cli still biggest (commands+dispatch hub) but focused; further split = diminishing returns.
 
 **Deferred:** direction-policy check (#34 — optional layer + allowed-pairs; designed not built).
 
-**Next:** divide-cli dogfood (close the size→divide loop on our own code) · commit checkpoint · Phase 6 (branch/merge — git-for-space).
+**Next:** commit · Phase 6 (branch/merge — git-for-space) · direction-policy (#34).
 
 ---
 

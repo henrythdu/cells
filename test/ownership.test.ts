@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseOwnership, serializeOwnership, type Ownership } from '../src/ownership.js';
+import { parseOwnership, serializeOwnership, owningCell, type Ownership } from '../src/ownership.js';
 
 describe('parseOwnership', () => {
   it('parses a cell→files ownership map', () => {
@@ -31,5 +31,17 @@ describe('serializeOwnership', () => {
 
   it('serializes an empty map to an empty string', () => {
     expect(serializeOwnership({})).toBe('');
+  });
+});
+
+describe('owningCell', () => {
+  it('returns the cell that owns a file', () => {
+    const ownership: Ownership = { parser: ['src/parser.ts'], util: ['src/util.ts'] };
+    expect(owningCell(ownership, 'src/util.ts')).toBe('util');
+  });
+
+  it('returns undefined for an unowned file', () => {
+    const ownership: Ownership = { parser: ['src/parser.ts'] };
+    expect(owningCell(ownership, 'src/orphan.ts')).toBeUndefined();
   });
 });

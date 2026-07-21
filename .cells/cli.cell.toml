@@ -1,4 +1,4 @@
 name = "cli"
-purpose = "CLI entry: wire declarations, ownership, and payload assembler to disk and argv."
+purpose = "CLI entry: dispatch commands; wire the io layer + logic cells to argv."
 provides = ["main"]
-requires = ["declaration", "ownership", "payload", "validate", "crossings", "view", "assign", "config"]
+requires = ["io", "declaration", "ownership", "payload", "validate", "crossings", "view", "assign"]

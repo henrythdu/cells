@@ -1,4 +1,4 @@
 name = "ownership"
-purpose = "Parse the .cells/ownership.toml map (cell name to owned files)."
-provides = ["parseOwnership", "Ownership"]
+purpose = "Own the ownership map: parse, serialize, and reverse-lookup (file→cell)."
+provides = ["parseOwnership", "serializeOwnership", "owningCell", "Ownership"]
 requires = []
