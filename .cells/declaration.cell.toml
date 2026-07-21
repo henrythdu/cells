@@ -1,0 +1,4 @@
+name = "declaration"
+purpose = "Parse a .cell.toml file into a Cell (its membrane + identity)."
+provides = ["parseCell", "Cell"]
+requires = []

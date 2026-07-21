@@ -1,0 +1,4 @@
+name = "crossings"
+purpose = "Derive cross-cell crossings from import edges and detect leakage vs declared requires."
+provides = ["deriveCrossings", "checkLeakage", "Crossing", "Leakage"]
+requires = ["ownership", "declaration"]

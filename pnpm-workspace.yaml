@@ -1,0 +1,8 @@
+allowBuilds:
+  esbuild: set this to true or false
+onlyBuiltDependencies:
+  - esbuild
+
+# pnpm's pre-run deps-check errors on the ignored esbuild build script;
+# vitest runs fine regardless, so skip the check.
+verifyDepsBeforeRun: false

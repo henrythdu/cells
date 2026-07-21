@@ -1,0 +1,4 @@
+name = "ownership"
+purpose = "Parse the .cells/ownership.toml map (cell name to owned files)."
+provides = ["parseOwnership", "Ownership"]
+requires = []

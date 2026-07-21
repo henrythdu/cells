@@ -1,0 +1,4 @@
+name = "view"
+purpose = "Format the partition for human navigation: cell list + single-cell detail."
+provides = ["formatCellList", "formatCellShow"]
+requires = ["declaration", "ownership", "crossings"]

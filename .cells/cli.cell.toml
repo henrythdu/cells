@@ -1,0 +1,4 @@
+name = "cli"
+purpose = "CLI entry: wire declarations, ownership, and payload assembler to disk and argv."
+provides = ["main"]
+requires = ["declaration", "ownership", "payload", "validate", "crossings", "view", "assign", "config"]

@@ -1,0 +1,26 @@
+[declaration]
+files = ["src/declaration.ts", "test/declaration.test.ts"]
+
+[ownership]
+files = ["src/ownership.ts", "test/ownership.test.ts"]
+
+[payload]
+files = ["src/payload.ts", "test/payload.test.ts"]
+
+[validate]
+files = ["src/validate.ts", "test/validate.test.ts"]
+
+[crossings]
+files = ["src/crossings.ts", "test/crossings.test.ts"]
+
+[view]
+files = ["src/view.ts", "test/view.test.ts"]
+
+[assign]
+files = ["src/assign.ts", "test/assign.test.ts"]
+
+[config]
+files = ["src/config.ts", "test/config.test.ts"]
+
+[cli]
+files = ["src/cli.ts"]
