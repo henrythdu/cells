@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   deriveCrossings,
   checkLeakage,
+  computeMetrics,
   type ImportEdge,
   type Crossing,
 } from '../src/crossings.js';
@@ -75,5 +76,27 @@ describe('checkLeakage', () => {
     ];
     const declarations = decls({ parser: ['util'], util: [] });
     expect(checkLeakage(crossings, declarations)).toEqual([]);
+  });
+});
+
+describe('computeMetrics', () => {
+  it('counts distinct-cell fan-in/fan-out and instability', () => {
+    const x = (fromCell: string, toCell: string): Crossing => ({ fromCell, toCell, fromFile: 'f', toFile: 't', import: 'm' });
+    const crossings: Crossing[] = [
+      x('a', 'b'), x('a', 'b'), // dup cell-pair (two files) counts once
+      x('a', 'c'),
+      x('b', 'c'),
+      x('d', 'c'),
+    ];
+    const m = computeMetrics(crossings, ['a', 'b', 'c', 'd']);
+    expect(m.a).toEqual({ fanIn: 0, fanOut: 2, instability: 1 }); // →{b,c}
+    expect(m.b).toEqual({ fanIn: 1, fanOut: 1, instability: 0.5 }); // ←a →c
+    expect(m.c).toEqual({ fanIn: 3, fanOut: 0, instability: 0 }); // ←a,b,d
+    expect(m.d).toEqual({ fanIn: 0, fanOut: 1, instability: 1 }); // →c
+  });
+
+  it('isolated cell → instability 0', () => {
+    const m = computeMetrics([], ['x']);
+    expect(m.x).toEqual({ fanIn: 0, fanOut: 0, instability: 0 });
   });
 });

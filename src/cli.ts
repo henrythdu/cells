@@ -5,7 +5,7 @@ import { serializeCell, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage } from './crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, formatCellGraphAscii, type CellSize } from './view.js';
 import { assignFiles } from './assign.js';
 import {
@@ -65,8 +65,8 @@ async function cmdCrossings(): Promise<void> {
   }
 }
 
-/** `cells list` — partition overview: each cell's files/size/requires + orphans. */
-function cmdList(): void {
+/** `cells list` — partition overview: each cell's files/size/requires/fan-in-out + orphans. */
+async function cmdList(): Promise<void> {
   const declarations = loadDeclarations();
   const ownership = loadOwnership();
   const sizes: Record<string, CellSize> = {};
@@ -74,9 +74,11 @@ function cmdList(): void {
     const cell = declarations[name];
     sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
   }
+  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const orphanFiles = listCodeFiles().filter((f) => !owned.has(f));
-  process.stdout.write(formatCellList(declarations, ownership, sizes, orphanFiles));
+  process.stdout.write(formatCellList(declarations, ownership, sizes, metrics, orphanFiles));
 }
 
 /** `cells show <name>` — one cell's detail with its in/out crossings. */
@@ -92,8 +94,9 @@ async function cmdShow(name: string): Promise<void> {
   const crossings = deriveCrossings(await collectImportEdges(), ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
+  const metrics = computeMetrics(crossings, Object.keys(declarations));
   process.stdout.write(
-    formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations))),
+    formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name]),
   );
 }
 

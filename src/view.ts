@@ -1,6 +1,6 @@
 import type { Cell } from './declaration.js';
 import type { Ownership } from './ownership.js';
-import type { Crossing } from './crossings.js';
+import type { CellMetrics, Crossing } from './crossings.js';
 
 export interface CellSize {
   files: number;
@@ -16,6 +16,7 @@ export function formatCellList(
   declarations: Record<string, Cell>,
   _ownership: Ownership,
   sizes: Record<string, CellSize>,
+  metrics: Record<string, CellMetrics>,
   orphanFiles: string[],
 ): string {
   const names = Object.keys(declarations).sort();
@@ -32,8 +33,10 @@ export function formatCellList(
     const tokStr = s ? `${s.tokens} tok` : '? tok';
     const requires = declarations[name]?.requires ?? [];
     const reqStr = requires.length > 0 ? `→ ${requires.join(', ')}` : '—';
+    const m = metrics[name];
+    const coupling = m ? `${m.fanIn}/${m.fanOut}` : '—';
     lines.push(
-      `  ${name.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${reqStr}`,
+      `  ${name.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`,
     );
   }
   if (orphanFiles.length > 0) {
@@ -54,11 +57,13 @@ export function formatCellShow(
   outCrossings: Crossing[],
   inCrossings: Crossing[],
   size: CellSize,
+  metrics: CellMetrics,
 ): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.provides.length > 0) lines.push(`provides: ${cell.provides.join(', ')}`);
   lines.push(`requires: ${cell.requires.length > 0 ? cell.requires.join(', ') : '—'}`);
+  lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
   lines.push('');
   lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
   for (const f of ownedFiles) lines.push(`  ${f}`);

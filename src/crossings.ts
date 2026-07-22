@@ -95,3 +95,34 @@ export function checkLeakage(
 
   return out;
 }
+
+/** Dependency metrics for a cell — peers of `size`, computed from the crossing graph. */
+export interface CellMetrics {
+  fanIn: number; // # distinct cells that depend on this one (afferent)
+  fanOut: number; // # distinct cells this one depends on (efferent)
+  instability: number; // fanOut / (fanIn + fanOut): 0 stable, 1 unstable; 0 if isolated
+}
+
+/**
+ * Compute fan-in / fan-out / instability per cell from the crossing graph.
+ * Counts distinct cells (a cell-pair reached via many files counts once). Pure.
+ */
+export function computeMetrics(crossings: Crossing[], cells: string[]): Record<string, CellMetrics> {
+  const fanIn = new Map<string, Set<string>>();
+  const fanOut = new Map<string, Set<string>>();
+  for (const c of cells) {
+    fanIn.set(c, new Set());
+    fanOut.set(c, new Set());
+  }
+  for (const { fromCell, toCell } of crossings) {
+    fanOut.get(fromCell)?.add(toCell);
+    fanIn.get(toCell)?.add(fromCell);
+  }
+  const out: Record<string, CellMetrics> = {};
+  for (const c of cells) {
+    const fi = fanIn.get(c)!.size;
+    const fo = fanOut.get(c)!.size;
+    out[c] = { fanIn: fi, fanOut: fo, instability: fi + fo === 0 ? 0 : fo / (fi + fo) };
+  }
+  return out;
+}
