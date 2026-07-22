@@ -18,6 +18,7 @@ import {
   computePayloadSize,
   neighborsOf,
   readFiles,
+  requireCells,
 } from './io.js';
 import { detectCycles, checkDirection, formatStructureReport } from './structure.js';
 
@@ -187,8 +188,11 @@ function cmdPayload(name: string): void {
   console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 4)} tokens]`);
 }
 
+const NEEDS_CELLS = new Set(['assign', 'validate', 'crossings', 'list', 'size', 'structure', 'owns', 'show', 'payload']);
+
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
+  if (cmd !== undefined && NEEDS_CELLS.has(cmd)) requireCells();
   switch (cmd) {
     case 'payload':
       if (!args[0]) {

@@ -11,6 +11,14 @@ import { type CellSize } from './view.js';
 
 export const CELLS_DIR = '.cells';
 
+/** Guard: ensure this is a Cells project (`.cells/` exists). Friendly exit if not. */
+export function requireCells(): void {
+  if (!existsSync(CELLS_DIR)) {
+    console.error(`not a Cells project — no \`${CELLS_DIR}/\` here. Run \`cells init\` first.`);
+    process.exit(1);
+  }
+}
+
 /** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. */
 export function loadDeclarations(): Record<string, Cell> {
   const decls: Record<string, Cell> = {};
