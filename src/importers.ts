@@ -62,17 +62,9 @@ export const depCruiserImporter: Importer = {
   },
 };
 
-/**
- * Python importer — tree-sitter extraction + module→file resolution via ownership.
- * Stub: returns no edges until tree-sitter is wired (Slice 2).
- */
-export const pythonImporter: Importer = {
-  extensions: ['.py'],
-  needsContent: true,
-  async extract(): Promise<ImportEdge[]> {
-    return [];
-  },
-};
+// Python importer lives in ./python.js (tree-sitter extraction + module→file resolution via ownership).
+import { pythonImporter } from './python.js';
+export { pythonImporter };
 
 /** Default importer registry (add a language = add an importer here). */
 export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter];
