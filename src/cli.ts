@@ -73,8 +73,8 @@ function cmdList(): void {
     sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
   }
   const owned = new Set(Object.values(ownership).flat());
-  const orphanCount = listCodeFiles().filter((f) => !owned.has(f)).length;
-  process.stdout.write(formatCellList(declarations, ownership, sizes, orphanCount));
+  const orphanFiles = listCodeFiles().filter((f) => !owned.has(f));
+  process.stdout.write(formatCellList(declarations, ownership, sizes, orphanFiles));
 }
 
 /** `cells show <name>` — one cell's detail with its in/out crossings. */

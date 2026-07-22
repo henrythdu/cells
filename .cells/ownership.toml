@@ -30,3 +30,6 @@ files = ["src/io.ts"]
 
 [structure]
 files = ["src/structure.ts", "test/structure.test.ts"]
+
+[ignore]
+files = ["src/ignore.ts", "test/ignore.test.ts"]

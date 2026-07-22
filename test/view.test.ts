@@ -19,19 +19,22 @@ const sizes: Record<string, CellSize> = {
 
 describe('formatCellList', () => {
   it('lists each cell with file count, size, and its requires', () => {
-    const out = formatCellList(decls, ownership, sizes, 0);
+    const out = formatCellList(decls, ownership, sizes, []);
     expect(out).toContain('declaration');
     expect(out).toContain('cli');
     expect(out).toMatch(/cli[\s\S]*2/); // cli owns 2 files
     expect(out).toMatch(/cli[\s\S]*declaration/); // cli requires declaration
   });
 
-  it('reports the orphan count', () => {
-    expect(formatCellList(decls, ownership, sizes, 3)).toContain('3 orphan');
+  it('reports the orphan count and lists unowned files', () => {
+    const out = formatCellList(decls, ownership, sizes, ['src/orphan.ts', 'examples/demo.ts']);
+    expect(out).toContain('2 orphan');
+    expect(out).toContain('src/orphan.ts');
+    expect(out).toContain('examples/demo.ts');
   });
 
   it('reports zero orphans cleanly', () => {
-    expect(formatCellList(decls, ownership, sizes, 0)).toContain('0 orphan');
+    expect(formatCellList(decls, ownership, sizes, [])).toContain('0 orphan');
   });
 });
 

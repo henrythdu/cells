@@ -16,15 +16,15 @@ export function formatCellList(
   declarations: Record<string, Cell>,
   _ownership: Ownership,
   sizes: Record<string, CellSize>,
-  orphanCount: number,
+  orphanFiles: string[],
 ): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const width = Math.max(...names.map((n) => n.length), 4);
-  const orphans = orphanCount === 1 ? 'orphan' : 'orphans';
+  const orphans = orphanFiles.length === 1 ? 'orphan' : 'orphans';
 
   const lines: string[] = [
-    `${names.length} cells · ${totalFiles} files · ${orphanCount} ${orphans}`,
+    `${names.length} cells · ${totalFiles} files · ${orphanFiles.length} ${orphans}`,
   ];
   for (const name of names) {
     const s = sizes[name];
@@ -35,6 +35,11 @@ export function formatCellList(
     lines.push(
       `  ${name.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${reqStr}`,
     );
+  }
+  if (orphanFiles.length > 0) {
+    lines.push('');
+    lines.push('unowned (assign or add to .cells/ignore):');
+    for (const f of orphanFiles.sort()) lines.push(`  ${f}`);
   }
   return `${lines.join('\n')}\n`;
 }

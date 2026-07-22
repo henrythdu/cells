@@ -4,7 +4,6 @@ import type { Ownership } from './ownership.js';
 export type ViolationKind =
   | 'duplicate' // a file owned by 2+ cells (violates non-overlap)
   | 'dangling' // an owned file missing from disk
-  | 'orphan' // a code file owned by no cell (flagged, not fatal)
   | 'undeclared-cell' // ownership references a cell with no declaration
   | 'unknown-require'; // a cell requires a cell with no declaration
 
@@ -18,7 +17,8 @@ export interface Violation {
  * the list of code files on disk (the CLI does the IO), returns violations.
  *
  * Non-overlap is the structural invariant; the rest surface the partition's
- * health (orphans are expected during gradual cell-ification — flagged, not fatal).
+ * health. (Unowned files are NOT a violation — they're neutral visibility,
+ * surfaced by `list`; `.cells/ignore` declares intentional cell-free files.)
  */
 export function validatePartition(
   ownership: Ownership,
@@ -52,21 +52,14 @@ export function validatePartition(
     }
   }
 
-  // 3. orphan: code file owned by no cell.
-  for (const file of codeFiles) {
-    if (!owned.has(file)) {
-      violations.push({ kind: 'orphan', detail: `${file} not owned by any cell` });
-    }
-  }
-
-  // 4. undeclared-cell: ownership key with no declaration.
+  // 3. undeclared-cell: ownership key with no declaration.
   for (const cell of Object.keys(ownership)) {
     if (!(cell in declarations)) {
       violations.push({ kind: 'undeclared-cell', detail: `${cell} has no declaration` });
     }
   }
 
-  // 5. unknown-require: a cell requires a cell with no declaration.
+  // 4. unknown-require: a cell requires a cell with no declaration.
   for (const [cell, decl] of Object.entries(declarations)) {
     for (const req of decl.requires) {
       if (!(req in declarations)) {

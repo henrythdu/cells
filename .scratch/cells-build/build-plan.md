@@ -17,9 +17,9 @@ prototype's scope, pieces, order, and acceptance.
 
 ## Status (as of this session)
 
-**Built (TDD, 53 tests green, tsc clean):** declaration, ownership, payload, validate, crossings, view, assign, **config**, **structure** + serialization + CLI (`init` · `assign` · `payload <name>` · `validate` · `crossings` · `list` · `size` · `structure` · `show <name>`).
+**Built (TDD, 60 tests green, tsc clean):** declaration, ownership, payload, validate, crossings, view, assign, **config**, **structure**, **ignore** + serialization + CLI (`init` · `assign` · `payload <name>` · `validate` · `crossings` · `list` · `size` · `structure` · `show <name>`).
 
-**Partition (self-checking ✓):** 11 cells — declaration, ownership, payload, validate, crossings, view, assign, config, **io**, **structure**, cli — 20 code files, all owned. `validate` → OK; `crossings` → 0 leakage; `structure` → ADP acyclic.
+**Partition (self-checking ✓):** 12 cells — declaration, ownership, payload, validate, crossings, view, assign, config, **io**, **ignore**, **structure**, cli — 22 code files, all owned. `validate` → OK; `crossings` → 0 leakage; `structure` → ADP acyclic + Direction OK ([detail, rule, data] layering applied).
 
 **All three loops complete:** READ (declare→own→retrieve→validate→derive+leakage→navigate), WRITE (init→assign→serialize), GOVERN (`size` — context-fit warning + `structure` — ADP/direction warnings).
 
@@ -27,11 +27,13 @@ prototype's scope, pieces, order, and acceptance.
 
 **Divide dogfooded:** split cli — loaders extracted to new `io` cell (cli 3078→2484, io 1342). cli still biggest (commands+dispatch hub) but focused; further split = diminishing returns.
 
-**Direction-policy BUILT as `structure` (#34):** one new command — ADP (cycle detection via SCC on the real crossing graph; catches cycles of ANY length) + Direction (layer-order high→low warnings; edges should run low→high / DIP). Both warnings, exit 0. Layers in `.cells/config.toml` (`layers = [...]`, index 0 = lowest) + per-cell `layer` tag; opt-in (no tag → skipped). Currently OFF on our code (structure → "Direction: skipped"). Analyzed a clean Clean-Arch layering [detail, rule, data] for our 11 cells → every edge goes low→high or same → 0 violations; applying it is the next dogfood. New pure `structure` cell (requires crossings + declaration only — layerOrder passed in as a param).
+**Direction-policy BUILT as `structure` (#34):** one new command — ADP (cycle detection via SCC on the real crossing graph; catches cycles of ANY length) + Direction (layer-order high→low warnings; edges should run low→high / DIP). Both warnings, exit 0. Layers in `.cells/config.toml` (`layers = [...]`, index 0 = lowest) + per-cell `layer` tag; opt-in (no tag → skipped). Direction APPLIED live: `layers = ["detail", "rule", "data"]` + `layer` on all 12 cells → 0 violations (every real edge low→high or same); negative-demo proven (flip crossings → flagged the predicted high→low edges). New pure `structure` cell (requires crossings + declaration only — layerOrder passed in as a param).
 
 **Phase 6 (branch/merge — git-for-space) KILLED:** grilled out. git already branches `.cells/` (plain tracked files); a spatial branch would only *desync* partition from code (strictly worse — real divides change code, so code+partition must branch together = git's job) and reintroduce the context confusion Cells exists to kill ("which partition am I on?"). "git for space" is already satisfied by git itself. No real use case survived the grill.
 
-**Next:** commit · apply direction layering [detail, rule, data] to own code (dogfood) · dogfood on a real external codebase.
+**Orphan visibility + `.cells/ignore` (workflow grill):** orphans are NOT violations (intent-dependent; Cells is content-agnostic) — `validate` dropped its orphan check (keeps duplicate/dangling/undeclared-cell/unknown-require). New `.cells/ignore` (gitignore-style globs via `minimatch`; new pure `ignore` cell) declares intentionally cell-free files, respected at ONE seam (`io.listCodeFiles`). `list` now *lists* undecided orphans (visibility), not just counts. Moment-3 placement = the model's job (via `assign`), not a Cells recommender; no working-cell state, no enforcement gate (visibility > enforcement, reaffirmed).
+
+**Next:** commit · dogfood on a real external codebase (the true test of the payload/visibility thesis).
 
 ---
 

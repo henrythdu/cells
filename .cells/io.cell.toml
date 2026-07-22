@@ -1,6 +1,6 @@
 name = "io"
 purpose = "Read Cells state from disk + dependency-cruiser: declarations, ownership, config, code files, import edges, payload sizes."
 provides = ["loadDeclarations", "loadOwnership", "loadConfig", "readFiles", "listCodeFiles", "collectImportEdges", "neighborsOf", "computePayloadSize", "CELLS_DIR"]
-requires = ["declaration", "ownership", "payload", "crossings", "config", "view"]
+requires = ["declaration", "ownership", "payload", "crossings", "config", "view", "ignore"]
 
 layer = "detail"

@@ -5,6 +5,7 @@ import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { type ImportEdge } from './crossings.js';
+import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
 import { type CellSize } from './view.js';
 
@@ -58,9 +59,13 @@ export function listTsFiles(dir: string): string[] {
   return out;
 }
 
-/** All code files on disk (src/ + test/). */
+/** All code files on disk (src/ + test/), excluding `.cells/ignore` matches. */
 export function listCodeFiles(): string[] {
-  return [...listTsFiles('src'), ...listTsFiles('test')];
+  const all = [...listTsFiles('src'), ...listTsFiles('test')];
+  const ignorePath = join(CELLS_DIR, 'ignore');
+  if (!existsSync(ignorePath)) return all;
+  const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
+  return all.filter((f) => !isIgnored(f, patterns));
 }
 
 /** Collect raw import edges (file→file) from src/ + test/ via dependency-cruiser. */

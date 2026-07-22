@@ -28,11 +28,10 @@ describe('validatePartition', () => {
     expect(v.some((x) => x.kind === 'duplicate' && x.detail.includes('src/shared.ts'))).toBe(true);
   });
 
-  it('flags a code file owned by no cell (orphan)', () => {
+  it('does NOT flag unowned files (orphans are visibility, not violations)', () => {
     const ownership: Ownership = { parser: ['src/parser.ts'] };
     const declarations = decls({ parser: [] });
     const codeFiles = ['src/parser.ts', 'src/orphan.ts'];
-    const v = validatePartition(ownership, declarations, codeFiles);
-    expect(v.some((x) => x.kind === 'orphan' && x.detail.includes('src/orphan.ts'))).toBe(true);
+    expect(validatePartition(ownership, declarations, codeFiles)).toEqual([]);
   });
 });

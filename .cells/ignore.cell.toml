@@ -1,0 +1,4 @@
+name = "ignore"
+purpose = "Parse .cells/ignore (gitignore-style globs) + match paths. Declares intentionally cell-free files (examples, scripts, scratch) so they neither count as code nor surface as orphans."
+provides = ["parseIgnore", "isIgnored"]
+requires = []
