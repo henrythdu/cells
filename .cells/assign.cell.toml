@@ -1,5 +1,5 @@
 name = "assign"
-purpose = "Mutate the partition: move files between cells (the write side of the workflow)."
+purpose = "Mutate the partition: reassign file ownership between cells (the write side of the workflow)."
 provides = ["assignFiles"]
 requires = ["ownership"]
 

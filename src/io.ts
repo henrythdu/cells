@@ -4,10 +4,10 @@ import { cruise, type ICruiseResult } from 'dependency-cruiser';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload } from './payload.js';
-import { type ImportEdge } from './crossings.js';
+import type { ImportEdge } from './crossings.js';
 import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
-import { type CellSize } from './view.js';
+import type { CellSize } from './view.js';
 
 export const CELLS_DIR = '.cells';
 
@@ -38,7 +38,7 @@ export function loadOwnership(): Ownership {
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: [] };
+  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: [], codeDirs: ['src', 'test'], codeExts: ['.ts'] };
   return parseConfig(readFileSync(path, 'utf8'));
 }
 
@@ -55,21 +55,22 @@ export function readFiles(paths: string[]): Record<string, string> {
   return out;
 }
 
-/** Recursively list `.ts` files under a directory (relative paths). */
-export function listTsFiles(dir: string): string[] {
-  if (!existsSync(dir)) return []; // a repo may lack src/ or test/ yet
+/** Recursively list files under a directory whose extension is in `exts` (relative paths). */
+export function listFiles(dir: string, exts: string[]): string[] {
+  if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out.push(...listTsFiles(path));
-    else if (entry.endsWith('.ts')) out.push(path);
+    if (statSync(path).isDirectory()) out.push(...listFiles(path, exts));
+    else if (exts.some((e) => entry.endsWith(e))) out.push(path);
   }
   return out;
 }
 
-/** All code files on disk (src/ + test/), excluding `.cells/ignore` matches. */
+/** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches. */
 export function listCodeFiles(): string[] {
-  const all = [...listTsFiles('src'), ...listTsFiles('test')];
+  const { codeDirs, codeExts } = loadConfig();
+  const all = codeDirs.flatMap((dir) => listFiles(dir, codeExts));
   const ignorePath = join(CELLS_DIR, 'ignore');
   if (!existsSync(ignorePath)) return all;
   const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));

@@ -32,13 +32,13 @@ Cells is **for the model**: its job is to give an LLM a clean, bounded, self-des
 
 ```bash
 cells init                          # create .cells/ with an empty ownership map
-cells assign parser src/parser.ts   # move a file into a cell (stubs its declaration)
+cells assign parser src/parser.ts   # assign a file to a cell (records ownership; stubs the declaration)
 $EDITOR .cells/parser.cell.toml     # author the membrane: purpose / provides / requires
 cells validate                      # check partition integrity
 cells list                          # see the whole partition
 ```
 
-`assign` records ownership **and** creates a declaration stub if the cell is new. Files are *moved* (non-overlapping) — a file lives in exactly one cell.
+`assign` records ownership **and** creates a declaration stub if the cell is new. Ownership is *non-overlapping* — a file belongs to exactly one cell (the file itself isn't relocated on disk; only its owning cell changes).
 
 ---
 
@@ -47,7 +47,7 @@ cells list                          # see the whole partition
 | command | what it does |
 | --- | --- |
 | `cells init` | bootstrap `.cells/` (idempotent) |
-| `cells assign <cell> <file...>` | move file(s) into a cell; stub its declaration if new |
+| `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list` | partition overview: each cell's files / size / requires + any unowned files |
 | `cells show <name>` | one cell's membrane + its in/out crossings + size |
@@ -95,6 +95,8 @@ files = ["src/cli.ts", "test/cli.test.ts"]
 ```toml
 max-payload-tokens = 16000                                 # context-fit ceiling (default 16000)
 layers = ["infrastructure", "application", "domain"]       # optional; index 0 = lowest
+code-dirs = ["src", "test"]                                # dirs scanned for code (default)
+code-exts = [".ts"]                                        # extensions counted (default; set per language)
 ```
 
 ### `ignore` — intentionally cell-free files
@@ -105,6 +107,12 @@ gitignore-style globs. Matched files aren't counted as code and never surface as
 examples/**
 *.tmp
 ```
+
+### Language support
+
+**Partition, payload, size, validate, and owns** are language-agnostic — set `code-dirs` and `code-exts` in `config.toml` to point Cells at your code (e.g. `["lib", "cmd"]` + `[".go"]`).
+
+**Crossings and structure** (leakage, ADP, direction) currently analyze TypeScript/JavaScript imports via dependency-cruiser. On other languages they report no crossings until a language-specific importer is added (on the roadmap).
 
 ---
 

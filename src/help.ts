@@ -34,7 +34,7 @@ WORKING IN A CELLS PROJECT (for agents)
 
 COMMANDS
   init                     bootstrap .cells/ (idempotent)
-  assign <cell> <file...>  move files into a cell; stub its declaration if new
+  assign <cell> <file...>  assign files to a cell (records ownership; stubs if new)
   owns <file>              which cell owns this file? (reverse lookup)
   list                     partition overview: cells, sizes, requires, unowned files
   show <name>              one cell: membrane + in/out crossings + size
@@ -56,8 +56,13 @@ RULES
 FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
   ownership.toml     the file → cell map (tracked)
-  config.toml        max-payload-tokens, layers[] (index 0 = lowest)
+  config.toml        max-payload-tokens, layers[] (index 0 = lowest),
+                     code-dirs[], code-exts[] (per language; default src/test, .ts)
   ignore             gitignore-style patterns for intentionally cell-free files
+
+LANGUAGES: partition/payload/size/validate/owns are language-agnostic — set code-dirs + code-exts
+in config.toml. crossings/structure analyze TS/JS imports only (dependency-cruiser); on other
+languages they report none until an importer is added.
 
 Drop into any repo with a .cells/ dir and follow the loop above.
 `;
