@@ -68,11 +68,13 @@ These are **cell metadata, peers of `size`** — shown wherever size is (a colum
 
 **Risks (real)**
 
-1. **The reframe is Python-flavored.** file-path = module-path holds for Python (and JS relative imports). It does **not** hold for:
-   - **Go** — imports are *package-level*, not file-level. There's no file→module mapping; Cells' file-atomic model strains. Go likely needs a different resolution model (or stays unsupported).
-   - **Rust** — modules come from `mod` declarations + `path` attributes, not 1:1 with file paths. Deriving the module-namespace needs the mod-tree, not just paths.
-   - **C/C++** — `#include` is file-relative (works), but macro/include graphs are messy.
-   So *"derive namespace from path"* is a per-language rule, clean for Python, messy elsewhere. The design holds (each importer owns its resolution), but **"all languages" is over-promising** — path-is-module languages (Python, TS, JS) are the clean fit; package/mod languages need more.
+1. **Per-language namespace-derivation varies in difficulty (not a fundamental mismatch).** tree-sitter extracts imports in *every* language it has a grammar for (Python/TS/JS/Go/Rust/C/…), so **extraction is universal**. The namespace-match architecture is universal too — only the rule "owned-file → module/package-path" differs per language:
+   - **Python**: `src/domain/symbol.py` → `src.domain.symbol` (path = module).
+   - **Rust**: `use crate::domain::symbol` → `src/domain/symbol.rs` (`::`→`/`, `crate`→src root; non-standard `mod`/`#[path]` layouts need `mod`-tree parsing).
+   - **Go**: `import ".../internal/domain"` → the cell owning `internal/domain/*.go` (directory = package).
+   - **C**: `#include "foo.h"` → resolve relative to the file / include paths.
+   All derivable; each rule lives in that language's importer — the expected per-language cost. **Not** "Python-only": one architecture, N derivation rules of varying size.
+   The one genuine wrinkle (**Go**): imports are *package-level* (a directory), coarser than Cells' file-atomic ownership. Fine in practice — a Go cell usually *is* a package's files, so crossings land package→package = cell→cell; splitting a package across cells trips the namespace-collision `validate` warning.
 
 2. **tree-sitter is a native-addon dependency.** `node-tree-sitter` + grammars are `.node` native addons → build/prebuilt-binary friction across platforms and Node versions. Increases Cells' native-dep surface (alongside dep-cruiser). Prebuilts usually exist, but CI/portability must be verified. This is the main *practical* risk.
 
@@ -84,9 +86,9 @@ These are **cell metadata, peers of `size`** — shown wherever size is (a colum
 
 **Open questions to resolve before/while building**
 
-- Which languages first? **Python** (dogfooded, clean fit). Then TS is already done (dep-cruiser). Go/Rust deferred until their resolution model is designed.
+- Which languages first? **Python** (dogfooded, clean fit). TS already done (dep-cruiser). Go/Rust/C fit the **same architecture** — each just needs its own namespace-derivation rule; add when needed.
 - Is "direction visible via instability" satisfying, or do users eventually want an explicit flagged SDP violation? (Current grill answer: visible is enough.)
 - Relationship to the existing `structure` command (ADP + manual-`layers` Direction): ADP (cycles) stays valid; manual-layers coexists with descriptive instability — possible future simplification (drop manual-layers if instability suffices). Out of scope now.
 
 **Bottom line**
-The design is sound and simple for **path-is-module languages (Python/TS/JS)** — which covers the dogfood target and most repos. The architecture (uniform importer interface + namespace-match resolution + free descriptive metrics) is worth building. The honest caveat: it is **not** a universal "every language" solution — Go/Rust/C need per-language resolution work that this design defers. Build Python first; generalize the path-is-module pattern; treat package/mod languages as separate efforts.
+The design is sound, simple, and **general**: tree-sitter gives universal extraction; the namespace-match resolution composes with file→cell ownership to yield cell crossings for any statically-importable language (the core pipeline: *file imports (tree-sitter) + file→cell (ownership) → cell relationships*). Per-language cost = writing that language's namespace-derivation rule (Python trivial, Rust/Go moderate). Build Python first; add languages as needed — each new language is an importer, not an architecture change.
