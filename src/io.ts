@@ -79,11 +79,19 @@ export function listCodeFiles(): string[] {
 
 /** Collect raw import edges (file→file) from src/ + test/ via dependency-cruiser. */
 export async function collectImportEdges(): Promise<ImportEdge[]> {
-  const { output } = await cruise(['src/', 'test/'], {
-    tsPreCompilationDeps: true,
-    doNotFollow: { path: 'node_modules' },
-  });
-  const result = output as ICruiseResult;
+  const { codeDirs } = loadConfig();
+  const dirs = codeDirs.map((d) => (d.endsWith('/') ? d : `${d}/`));
+  let result: ICruiseResult;
+  try {
+    const { output } = await cruise(dirs, {
+      tsPreCompilationDeps: true,
+      doNotFollow: { path: 'node_modules' },
+    });
+    result = output as ICruiseResult;
+  } catch {
+    // dep-cruiser is TS/JS-only; on other languages (or missing dirs) crossings are unavailable — degrade to none.
+    return [];
+  }
   const norm = (p: string): string => p.replace(/^\.\//, '');
   const edges: ImportEdge[] = [];
   for (const mod of result.modules ?? []) {
