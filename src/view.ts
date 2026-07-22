@@ -101,3 +101,16 @@ export function formatSizeReport(
   );
   return `${lines.join('\n')}\n`;
 }
+
+/**
+ * Format the cell graph as a Mermaid flowchart (for HUMAN visualization — renders
+ * natively in GitHub READMEs; the model reads `list`/`crossings` instead).
+ * Dedupes file-level crossings to unique cell->cell edges. Pure.
+ */
+export function formatCellGraph(crossings: Crossing[]): string {
+  const edges = new Set<string>();
+  for (const c of crossings) edges.add(`${c.fromCell} --> ${c.toCell}`);
+  const lines = ['flowchart LR'];
+  for (const e of [...edges].sort()) lines.push(`  ${e}`);
+  return `${lines.join('\n')}\n`;
+}

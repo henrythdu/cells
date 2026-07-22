@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from '../src/view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, type CellSize } from '../src/view.js';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 import type { Crossing } from '../src/crossings.js';
@@ -96,5 +96,24 @@ describe('formatSizeReport', () => {
     const out = formatSizeReport(entries, 16000);
     expect(out).toContain('within ceiling');
     expect(out).not.toContain('⚠');
+  });
+});
+
+describe('formatCellGraph', () => {
+  it('emits a Mermaid flowchart of unique cell->cell edges', () => {
+    const crossings: Crossing[] = [
+      { fromCell: 'cli', toCell: 'io', fromFile: 'f', toFile: 't', import: 'i' },
+      { fromCell: 'cli', toCell: 'io', fromFile: 'g', toFile: 'u', import: 'j' }, // dup pair -> one edge
+      { fromCell: 'io', toCell: 'config', fromFile: 'f', toFile: 't', import: 'i' },
+    ];
+    const out = formatCellGraph(crossings);
+    expect(out).toContain('flowchart LR');
+    expect(out).toContain('cli --> io');
+    expect(out).toContain('io --> config');
+    expect(out.split('cli --> io').length).toBe(2); // deduped: appears exactly once
+  });
+
+  it('handles empty crossings', () => {
+    expect(formatCellGraph([])).toBe('flowchart LR\n');
   });
 });

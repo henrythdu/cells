@@ -6,7 +6,7 @@ import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, type CellSize } from './view.js';
 import { assignFiles } from './assign.js';
 import {
   CELLS_DIR,
@@ -119,6 +119,13 @@ async function cmdStructure(): Promise<void> {
   process.stdout.write(formatStructureReport(cycles, violations, config.layers.length > 0));
 }
 
+/** `cells graph` — render the cell graph as Mermaid (human visualization). */
+async function cmdGraph(): Promise<void> {
+  const ownership = loadOwnership();
+  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  process.stdout.write(formatCellGraph(crossings));
+}
+
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
 function cmdOwns(file: string): void {
   const ownership = loadOwnership();
@@ -188,7 +195,7 @@ function cmdPayload(name: string): void {
   console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 4)} tokens]`);
 }
 
-const NEEDS_CELLS = new Set(['assign', 'validate', 'crossings', 'list', 'size', 'structure', 'owns', 'show', 'payload']);
+const NEEDS_CELLS = new Set(['assign', 'validate', 'crossings', 'list', 'size', 'structure', 'graph', 'owns', 'show', 'payload']);
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
@@ -216,6 +223,9 @@ async function main(): Promise<void> {
     case 'structure':
       await cmdStructure();
       break;
+    case 'graph':
+      await cmdGraph();
+      break;
     case 'owns':
       if (!args[0]) {
         console.error('usage: cells owns <file>');
@@ -241,7 +251,7 @@ async function main(): Promise<void> {
       cmdAssign(args[0], args.slice(1));
       break;
     default:
-      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | show <name>}');
+      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph | show <name>}');
       process.exit(1);
   }
 }
