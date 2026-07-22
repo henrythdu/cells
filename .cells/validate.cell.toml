@@ -2,3 +2,5 @@ name = "validate"
 purpose = "Check partition integrity: single-valued, dangling, orphan, undeclared-cell, unknown-require."
 provides = ["validatePartition", "Violation"]
 requires = ["ownership", "declaration"]
+
+layer = "rule"

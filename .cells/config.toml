@@ -1,1 +1,3 @@
 max-payload-tokens = 16000
+
+layers = ["detail", "rule", "data"]
