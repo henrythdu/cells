@@ -17,6 +17,7 @@ Cells is **for the model**: its job is to give an LLM a clean, bounded, self-des
 | **Membrane** | a cell's declaration — `name`, `purpose`, `provides`, `requires`. What you read first to understand a cell. |
 | **Crossing** | a real dependency from one cell's code into another's (derived from imports). The seams between cells. |
 | **Payload** | what a model consumes to work a cell — its membrane + owned files + its neighbors' membranes. Measured in tokens. |
+| **Metrics** | per-cell **fan-in** / **fan-out** (distinct cells it's depended-on-by / depends-on) and **instability** I = fan-out ÷ (fan-in + fan-out): 0 = stable, 1 = unstable. Shown in `list` and `show`; derived from crossings, free. |
 
 **Three storage truths:**
 
@@ -49,8 +50,8 @@ cells list                          # see the whole partition
 | `cells init` | bootstrap `.cells/` (idempotent) |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
-| `cells list` | partition overview: each cell's files / size / requires + any unowned files |
-| `cells show <name>` | one cell's membrane + its in/out crossings + size |
+| `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
+| `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
 | `cells validate` | partition integrity (duplicates, dangling refs, undeclared cells, unknown requires) |
 | `cells crossings` | derived cross-cell imports + **leakage** check |
@@ -112,7 +113,13 @@ examples/**
 
 **Partition, payload, size, validate, and owns** are language-agnostic — set `code-dirs` and `code-exts` in `config.toml` to point Cells at your code (e.g. `["lib", "cmd"]` + `[".go"]`).
 
-**Crossings and structure** (leakage, ADP, direction) currently analyze TypeScript/JavaScript imports via dependency-cruiser. On other languages they report no crossings until a language-specific importer is added (on the roadmap).
+**Crossings and structure** (leakage, ADP, direction, metrics) analyze *real imports*:
+
+- **TypeScript/JavaScript** via `dependency-cruiser` (source-based; handles path aliases, `.js`→`.ts`).
+- **Python** via `tree-sitter` (WASM; bundled grammar, no native build).
+- Other languages need an importer — one per language, selected automatically by file extension.
+
+Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading. (Dogfooded on a 50-file Python repo — 56 real crossings, accurate fan-in/fan-out.)
 
 ---
 
@@ -156,8 +163,8 @@ pnpm build        # tsc → dist/
 npm link          # makes `cells` available globally (live symlink into dist/)
 ```
 
-Requires Node (ESM). Runtime dependencies: `smol-toml`, `dependency-cruiser`, `minimatch`.
+Requires Node (ESM). Runtime dependencies: `smol-toml`, `dependency-cruiser`, `minimatch`, `web-tree-sitter` (Python grammar WASM bundled in `grammars/`).
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 12 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 14 cells. Run `cells list` to see.*

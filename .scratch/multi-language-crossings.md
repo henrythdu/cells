@@ -1,5 +1,21 @@
 # Multi-Language Crossing Support — Design
 
+## Status: BUILT (slices 1–3)
+
+Implemented & verified on real repos (Cells TS + a 50-file Python repo):
+
+- **Slice 1** — `Importer` interface + extension router (`src/importers.ts`); dep-cruiser extracted as the TS importer (behavior preserved).
+- **Slice 2** — Python importer (`src/python.ts`): web-tree-sitter parses imports; resolves module→file via a map derived from ownership. PID_Inference crossings went 0 → **56 real edges**.
+- **Slice 3** — `computeMetrics` (fan-in/fan-out/instability) in `crossings.ts`; shown as a `fi/fo` column in `cells list` and a `deps:` line in `cells show`. No new command, no gate.
+
+**Key pivot from this design (tree-sitter binding):** native `tree-sitter` 0.25.0 is **dead on Node 24** — no abi-137 prebuild, and source-compile fails (Node 24's V8 headers require C++20, which its `binding.gyp` doesn't pass). The WASM route works only with a **matching grammar**: `web-tree-sitter` 0.26.11 + the **official** `tree-sitter-python` v0.25.0 release `.wasm` (bundled in `grammars/` — static asset, no native build, distributable). The `tree-sitter-wasms` npm package is useless (caps at 0.1.x = old ABI). See memory 155.
+
+**LSP — not needed (resolved).** Relative imports are deterministic package-arithmetic (`.` = file's package; each extra dot up one level; append module) — exactly what an LSP does internally, in ~15 lines. An LSP would add project-setup friction (server + deps installed) + heavy JSON-RPC for no gain. LSP only earns its place for the hard out-of-scope cases (path aliases, dynamic imports).
+
+**Deferred — Slice 4** (namespace-collision `validate` warning): lower priority; rarely fires. Skipped per decision.
+
+---
+
 ## Context
 
 Cells' core (partition, payload, size, validate, list, owns) is already language-agnostic — the configurable census (`code-dirs` / `code-exts`) unblocked Python with zero code change (verified in the PID_Inference dogfood). Exactly **one** subsystem is language-coupled: **crossing extraction** (`collectImportEdges` → dependency-cruiser, TS/JS-only). This design covers making crossings — and the metrics that derive from them — work across languages.

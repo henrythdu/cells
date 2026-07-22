@@ -15,6 +15,8 @@ THE MODEL
   crossing    a real dependency from one cell into another (derived from imports).
   payload     what you consume to work a cell: its membrane + owned files + its
               neighbors' membranes. Measured in tokens (~chars/4).
+  fan-in/out  cells depending on this one / cells it depends on. instability
+              I = fan-out/(fan-in+fan-out): 0 stable, 1 unstable. In list + show.
 
   ownership is TRACKED (ownership.toml); declarations are AUTHORED (*.cell.toml);
   crossings are DERIVED from real imports. Principle: visibility over enforcement.
@@ -36,8 +38,8 @@ COMMANDS
   init                     bootstrap .cells/ (idempotent)
   assign <cell> <file...>  assign files to a cell (records ownership; stubs if new)
   owns <file>              which cell owns this file? (reverse lookup)
-  list                     partition overview: cells, sizes, requires, unowned files
-  show <name>              one cell: membrane + in/out crossings + size
+  list                     partition overview: cells, sizes, fan-in/out, requires, orphans
+  show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size
   payload <name>           print a cell's full payload (the context to work it)
   validate                 integrity: duplicates, dangling, undeclared, unknown-require
   crossings                derived cross-cell imports + leakage check
@@ -61,8 +63,10 @@ FILES (.cells/)
   ignore             gitignore-style patterns for intentionally cell-free files
 
 LANGUAGES: partition/payload/size/validate/owns are language-agnostic — set code-dirs + code-exts
-in config.toml. crossings/structure analyze TS/JS imports only (dependency-cruiser); on other
-languages they report none until an importer is added.
+in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser, Python via
+tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
+uses ownership (a module->file map from owned files), not the filesystem — runs on source you're
+just reading, nothing to build or install.
 
 Drop into any repo with a .cells/ dir and follow the loop above.
 `;
