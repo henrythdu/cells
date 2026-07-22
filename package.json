@@ -3,6 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "bin": {
+    "cells": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "description": "Code organized into context-bounded cells for LLMs coding alongside humans.",
   "scripts": {
     "build": "tsc",
