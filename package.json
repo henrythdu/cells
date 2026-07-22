@@ -14,6 +14,7 @@
   "description": "Code organized into context-bounded cells for LLMs coding alongside humans.",
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
