@@ -19,6 +19,7 @@ import {
   neighborsOf,
   readFiles,
 } from './io.js';
+import { detectCycles, checkDirection, formatStructureReport } from './structure.js';
 
 /** `cells validate` — check partition integrity. */
 function cmdValidate(): void {
@@ -104,6 +105,17 @@ function cmdSize(): void {
     return { name, size: computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)) };
   });
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
+}
+
+/** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0). */
+async function cmdStructure(): Promise<void> {
+  const declarations = loadDeclarations();
+  const ownership = loadOwnership();
+  const config = loadConfig();
+  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const cycles = detectCycles(crossings);
+  const violations = checkDirection(crossings, declarations, config.layers);
+  process.stdout.write(formatStructureReport(cycles, violations, config.layers.length > 0));
 }
 
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
@@ -197,6 +209,9 @@ async function main(): Promise<void> {
     case 'size':
       cmdSize();
       break;
+    case 'structure':
+      await cmdStructure();
+      break;
     case 'owns':
       if (!args[0]) {
         console.error('usage: cells owns <file>');
@@ -222,7 +237,7 @@ async function main(): Promise<void> {
       cmdAssign(args[0], args.slice(1));
       break;
     default:
-      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | show <name>}');
+      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | show <name>}');
       process.exit(1);
   }
 }

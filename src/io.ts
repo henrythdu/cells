@@ -29,7 +29,7 @@ export function loadOwnership(): Ownership {
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS };
+  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: [] };
   return parseConfig(readFileSync(path, 'utf8'));
 }
 

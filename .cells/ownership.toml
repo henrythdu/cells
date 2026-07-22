@@ -27,3 +27,6 @@ files = ["src/cli.ts"]
 
 [io]
 files = ["src/io.ts"]
+
+[structure]
+files = ["src/structure.ts", "test/structure.test.ts"]

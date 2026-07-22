@@ -2,6 +2,7 @@ import { parse as parseToml } from 'smol-toml';
 
 export interface CellsConfig {
   maxPayloadTokens: number;
+  layers: string[]; // ordered layer names, index 0 = lowest (Clean-Arch direction policy)
 }
 
 /**
@@ -15,13 +16,16 @@ export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
 /**
  * Parse `.cells/config.toml`. Missing/empty → defaults. Pure.
- * TOML key is kebab-case (`max-payload-tokens`).
+ * TOML keys are kebab-case where multi-word (`max-payload-tokens`); `layers`
+ * is a single-word ordered array of layer names (low → high).
  */
 export function parseConfig(content: string): CellsConfig {
-  const raw = parseToml(content) as { 'max-payload-tokens'?: unknown };
+  const raw = parseToml(content) as { 'max-payload-tokens'?: unknown; layers?: unknown };
   const maxPayloadTokens = raw['max-payload-tokens'];
+  const layers = raw.layers;
   return {
     maxPayloadTokens:
       typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
+    layers: Array.isArray(layers) ? (layers as string[]) : [],
   };
 }

@@ -9,6 +9,7 @@ export interface Cell {
   purpose: string;
   provides: string[]; // declared surface; validated later by crossing-capture
   requires: string[]; // neighbor CELL names (not symbols)
+  layer?: string; // optional Clean-Arch layer name (for direction policy)
 }
 
 /**
@@ -22,6 +23,7 @@ export function parseCell(content: string): Cell {
     purpose: unknown;
     provides: unknown;
     requires: unknown;
+    layer?: unknown;
   };
 
   return {
@@ -29,6 +31,7 @@ export function parseCell(content: string): Cell {
     purpose: raw.purpose as string,
     provides: raw.provides as string[],
     requires: raw.requires as string[],
+    layer: typeof raw.layer === 'string' ? raw.layer : undefined,
   };
 }
 
@@ -47,10 +50,12 @@ function tomlArray(arr: string[]): string {
  * Round-trips: parseCell(serializeCell(cell)) ≡ cell.
  */
 export function serializeCell(cell: Cell): string {
-  return [
+  const lines = [
     `name = ${tomlString(cell.name)}`,
     `purpose = ${tomlString(cell.purpose)}`,
     `provides = ${tomlArray(cell.provides)}`,
     `requires = ${tomlArray(cell.requires)}`,
-  ].join('\n') + '\n';
+  ];
+  if (cell.layer) lines.push(`layer = ${tomlString(cell.layer)}`);
+  return lines.join('\n') + '\n';
 }

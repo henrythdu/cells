@@ -20,6 +20,24 @@ describe('parseCell', () => {
       requires: ['ownership'],
     });
   });
+
+  it('parses an optional layer tag', () => {
+    const toml = [
+      'name = "domain"',
+      'purpose = "core policy"',
+      'provides = ["decide"]',
+      'requires = []',
+      'layer = "domain"',
+      '',
+    ].join('\n');
+    expect(parseCell(toml)).toEqual({
+      name: 'domain',
+      purpose: 'core policy',
+      provides: ['decide'],
+      requires: [],
+      layer: 'domain',
+    });
+  });
 });
 
 describe('serializeCell', () => {
@@ -35,6 +53,11 @@ describe('serializeCell', () => {
 
   it('escapes embedded quotes in purpose', () => {
     const cell: Cell = { name: 'c', purpose: 'say "hi"', provides: [], requires: [] };
+    expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
+
+  it('round-trips a layer tag', () => {
+    const cell: Cell = { name: 'domain', purpose: 'p', provides: ['decide'], requires: [], layer: 'domain' };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
 });

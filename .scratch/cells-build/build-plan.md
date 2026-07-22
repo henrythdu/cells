@@ -17,19 +17,21 @@ prototype's scope, pieces, order, and acceptance.
 
 ## Status (as of this session)
 
-**Built (TDD, 31 tests green, tsc clean):** declaration, ownership, payload, validate, crossings, view, assign, **config** + serialization + CLI (`init` · `assign` · `payload <name>` · `validate` · `crossings` · `list` · `size` · `show <name>`).
+**Built (TDD, 53 tests green, tsc clean):** declaration, ownership, payload, validate, crossings, view, assign, **config**, **structure** + serialization + CLI (`init` · `assign` · `payload <name>` · `validate` · `crossings` · `list` · `size` · `structure` · `show <name>`).
 
-**Partition (self-checking ✓):** 10 cells — declaration, ownership, payload, validate, crossings, view, assign, config, **io**, cli — 18 code files, all owned. `validate` → OK; `crossings` → 0 leakage.
+**Partition (self-checking ✓):** 11 cells — declaration, ownership, payload, validate, crossings, view, assign, config, **io**, **structure**, cli — 20 code files, all owned. `validate` → OK; `crossings` → 0 leakage; `structure` → ADP acyclic.
 
-**All three loops complete:** READ (declare→own→retrieve→validate→derive+leakage→navigate), WRITE (init→assign→serialize), GOVERN (`size` — context-fit warning).
+**All three loops complete:** READ (declare→own→retrieve→validate→derive+leakage→navigate), WRITE (init→assign→serialize), GOVERN (`size` — context-fit warning + `structure` — ADP/direction warnings).
 
 **The one rule = SIZE, as a warning (grilled + research-grounded):** purpose=context-fit (coherence is dev/model's job, not Cells'); metric=payload tokens; ceiling=`max-payload-tokens` default **16000** in `.cells/config.toml` (÷4-of-window dropped — research shows degradation is ABSOLUTE ~32k+, not proportional); estimate=chars/4 (model-agnostic); `size` is non-blocking (exit 0); divide = re-partition via existing `assign` (no divide command). At 16k our cells are all within (tiny); the warning fires on real large cells.
 
 **Divide dogfooded:** split cli — loaders extracted to new `io` cell (cli 3078→2484, io 1342). cli still biggest (commands+dispatch hub) but focused; further split = diminishing returns.
 
-**Deferred:** direction-policy check (#34 — optional layer + allowed-pairs; designed not built).
+**Direction-policy BUILT as `structure` (#34):** one new command — ADP (cycle detection via SCC on the real crossing graph; catches cycles of ANY length) + Direction (layer-order high→low warnings; edges should run low→high / DIP). Both warnings, exit 0. Layers in `.cells/config.toml` (`layers = [...]`, index 0 = lowest) + per-cell `layer` tag; opt-in (no tag → skipped). Currently OFF on our code (structure → "Direction: skipped"). Analyzed a clean Clean-Arch layering [detail, rule, data] for our 11 cells → every edge goes low→high or same → 0 violations; applying it is the next dogfood. New pure `structure` cell (requires crossings + declaration only — layerOrder passed in as a param).
 
-**Next:** commit · Phase 6 (branch/merge — git-for-space) · direction-policy (#34).
+**Phase 6 (branch/merge — git-for-space) KILLED:** grilled out. git already branches `.cells/` (plain tracked files); a spatial branch would only *desync* partition from code (strictly worse — real divides change code, so code+partition must branch together = git's job) and reintroduce the context confusion Cells exists to kill ("which partition am I on?"). "git for space" is already satisfied by git itself. No real use case survived the grill.
+
+**Next:** commit · apply direction layering [detail, rule, data] to own code (dogfood) · dogfood on a real external codebase.
 
 ---
 

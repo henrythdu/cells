@@ -1,0 +1,4 @@
+name = "structure"
+purpose = "Structure governance: ADP (cycle detection via strongly-connected components) + Direction (layer-order high->low warnings). Pure checks on the crossing graph."
+provides = ["detectCycles", "checkDirection", "formatStructureReport"]
+requires = ["crossings", "declaration"]
