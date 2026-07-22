@@ -6,7 +6,7 @@ import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, type CellSize } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, formatCellGraphAscii, type CellSize } from './view.js';
 import { assignFiles } from './assign.js';
 import {
   CELLS_DIR,
@@ -119,11 +119,11 @@ async function cmdStructure(): Promise<void> {
   process.stdout.write(formatStructureReport(cycles, violations, config.layers.length > 0));
 }
 
-/** `cells graph` — render the cell graph as Mermaid (human visualization). */
-async function cmdGraph(): Promise<void> {
+/** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
+async function cmdGraph(mermaid: boolean): Promise<void> {
   const ownership = loadOwnership();
   const crossings = deriveCrossings(await collectImportEdges(), ownership);
-  process.stdout.write(formatCellGraph(crossings));
+  process.stdout.write(mermaid ? formatCellGraph(crossings) : formatCellGraphAscii(crossings));
 }
 
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
       await cmdStructure();
       break;
     case 'graph':
-      await cmdGraph();
+      await cmdGraph(args.includes('--mermaid'));
       break;
     case 'owns':
       if (!args[0]) {
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
       cmdAssign(args[0], args.slice(1));
       break;
     default:
-      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph | show <name>}');
+      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}');
       process.exit(1);
   }
 }

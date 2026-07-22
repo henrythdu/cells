@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, type CellSize } from '../src/view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, formatCellGraphAscii, type CellSize } from '../src/view.js';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 import type { Crossing } from '../src/crossings.js';
@@ -115,5 +115,32 @@ describe('formatCellGraph', () => {
 
   it('handles empty crossings', () => {
     expect(formatCellGraph([])).toBe('flowchart LR\n');
+  });
+});
+
+describe('formatCellGraphAscii', () => {
+  const e = (fromCell: string, toCell: string): Crossing => ({
+    fromCell, toCell, fromFile: 'f', toFile: 't', import: 'i',
+  });
+
+  it('renders a chain as a tree (last-child connectors)', () => {
+    expect(formatCellGraphAscii([e('a', 'b'), e('b', 'c')])).toBe('a\n└── b\n    └── c\n');
+  });
+
+  it('renders multiple children with ├── / └──', () => {
+    expect(formatCellGraphAscii([e('a', 'b'), e('a', 'c')])).toBe('a\n├── b\n└── c\n');
+  });
+
+  it('marks shared dependents with ↩ (dedup, no re-expansion)', () => {
+    const out = formatCellGraphAscii([e('a', 'b'), e('a', 'c'), e('b', 'd'), e('c', 'd')]);
+    expect(out).toBe('a\n├── b\n│   └── d\n└── c\n    └── d ↩\n');
+  });
+
+  it('renders multiple roots', () => {
+    expect(formatCellGraphAscii([e('a', 'b'), e('c', 'd')])).toBe('a\n└── b\nc\n└── d\n');
+  });
+
+  it('returns empty for no crossings', () => {
+    expect(formatCellGraphAscii([])).toBe('');
   });
 });
