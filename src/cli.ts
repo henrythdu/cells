@@ -223,7 +223,7 @@ async function main(): Promise<void> {
       await cmdCrossings();
       break;
     case 'list':
-      cmdList();
+      await cmdList();
       break;
     case 'size':
       cmdSize();

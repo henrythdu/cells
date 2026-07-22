@@ -13,11 +13,19 @@ async function getParser(): Promise<Parser> {
       await Parser.init();
       // The WASM ships as a static asset in grammars/ (no native build → distributable).
       const wasm = join(dirname(fileURLToPath(import.meta.url)), '..', 'grammars', 'tree-sitter-python.wasm');
-      const lang = await Language.load(readFileSync(wasm));
+      let lang: Language;
+      try {
+        lang = await Language.load(readFileSync(wasm));
+      } catch {
+        throw new Error(`Failed to load Python grammar WASM at ${wasm} — ensure the 'grammars/' directory is bundled with cells.`);
+      }
       const parser = new Parser();
       parser.setLanguage(lang);
       return parser;
-    })();
+    })().catch((err) => {
+      parserPromise = null; // don't cache the rejection — allow retry on the next call
+      throw err;
+    });
   }
   return parserPromise;
 }
@@ -94,7 +102,8 @@ function resolveEdges(desc: ImportDesc, sourcePath: string, moduleToFile: Map<st
   } else {
     const pkg = filePackage(sourcePath).split('.');
     // `.` = current package; each extra dot goes up one level.
-    const keep = Math.max(0, pkg.length - (desc.dots - 1));
+    const keep = pkg.length - (desc.dots - 1);
+    if (keep < 0) return []; // relative import goes above the root — invalid; skip (avoid false edges).
     const targetPkg = pkg.slice(0, keep);
     base = desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
   }
@@ -126,8 +135,12 @@ export const pythonImporter: Importer = {
       if (!f.path.endsWith('.py')) continue;
       const tree = parser.parse(f.content);
       if (!tree) continue;
-      for (const desc of extractImports(tree.rootNode)) {
-        edges.push(...resolveEdges(desc, f.path, moduleToFile));
+      try {
+        for (const desc of extractImports(tree.rootNode)) {
+          edges.push(...resolveEdges(desc, f.path, moduleToFile));
+        }
+      } finally {
+        tree.delete(); // web-tree-sitter Trees are WASM-backed — free each one to avoid leaking.
       }
     }
     return edges;

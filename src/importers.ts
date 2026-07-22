@@ -92,9 +92,12 @@ export async function collectImportEdges(): Promise<ImportEdge[]> {
   } else {
     files = paths.map((p) => ({ path: p, content: '' }));
   }
+  // Run importers concurrently; each is independent (disjoint extensions). One importer's
+  // failure degrades to no edges rather than aborting the whole collection.
+  const results = await Promise.all(
+    selected.map((imp) => imp.extract({ codeDirs, files, ownership }).catch(() => [])),
+  );
   const edges: ImportEdge[] = [];
-  for (const imp of selected) {
-    edges.push(...(await imp.extract({ codeDirs, files, ownership })));
-  }
+  for (const result of results) edges.push(...result);
   return edges;
 }

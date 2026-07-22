@@ -5,4 +5,4 @@ provides = [
   "Importer interface + DEFAULT_IMPORTERS registry (dep-cruiser, python)",
   "selectImporters(exts, importers) — pure dispatch by extension",
 ]
-requires = ["io", "crossings"]
+requires = ["io", "ownership", "crossings"]
