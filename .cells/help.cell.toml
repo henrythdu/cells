@@ -1,0 +1,4 @@
+name = "help"
+purpose = "The tool's self-documentation: the `cells help` orientation text that onboards a model/human dropped into any Cells repo. Ships with the CLI (the README lives only in the Cells repo; this travels everywhere)."
+provides = ["HELP"]
+requires = []

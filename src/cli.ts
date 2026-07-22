@@ -21,6 +21,7 @@ import {
   requireCells,
 } from './io.js';
 import { detectCycles, checkDirection, formatStructureReport } from './structure.js';
+import { HELP } from './help.js';
 
 /** `cells validate` — check partition integrity. */
 function cmdValidate(): void {
@@ -199,7 +200,11 @@ const NEEDS_CELLS = new Set(['assign', 'validate', 'crossings', 'list', 'size', 
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
-  if (cmd !== undefined && NEEDS_CELLS.has(cmd)) requireCells();
+  if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (NEEDS_CELLS.has(cmd)) requireCells();
   switch (cmd) {
     case 'payload':
       if (!args[0]) {
@@ -251,7 +256,7 @@ async function main(): Promise<void> {
       cmdAssign(args[0], args.slice(1));
       break;
     default:
-      console.error('usage: cells {init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}');
+      console.error('usage: cells {help | init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}');
       process.exit(1);
   }
 }

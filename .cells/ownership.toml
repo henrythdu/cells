@@ -33,3 +33,6 @@ files = ["src/structure.ts", "test/structure.test.ts"]
 
 [ignore]
 files = ["src/ignore.ts", "test/ignore.test.ts"]
+
+[help]
+files = ["src/help.ts"]
