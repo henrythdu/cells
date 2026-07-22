@@ -36,3 +36,6 @@ files = ["src/ignore.ts", "test/ignore.test.ts"]
 
 [help]
 files = ["src/help.ts"]
+
+[importers]
+files = ["src/importers.ts", "test/importers.test.ts"]

@@ -1,10 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { cruise, type ICruiseResult } from 'dependency-cruiser';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload } from './payload.js';
-import type { ImportEdge } from './crossings.js';
 import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
 import type { CellSize } from './view.js';
@@ -77,32 +75,6 @@ export function listCodeFiles(): string[] {
   return all.filter((f) => !isIgnored(f, patterns));
 }
 
-/** Collect raw import edges (file→file) from src/ + test/ via dependency-cruiser. */
-export async function collectImportEdges(): Promise<ImportEdge[]> {
-  const { codeDirs } = loadConfig();
-  const dirs = codeDirs.map((d) => (d.endsWith('/') ? d : `${d}/`));
-  let result: ICruiseResult;
-  try {
-    const { output } = await cruise(dirs, {
-      tsPreCompilationDeps: true,
-      doNotFollow: { path: 'node_modules' },
-    });
-    result = output as ICruiseResult;
-  } catch {
-    // dep-cruiser is TS/JS-only; on other languages (or missing dirs) crossings are unavailable — degrade to none.
-    return [];
-  }
-  const norm = (p: string): string => p.replace(/^\.\//, '');
-  const edges: ImportEdge[] = [];
-  for (const mod of result.modules ?? []) {
-    for (const dep of mod.dependencies ?? []) {
-      if (dep.couldNotResolve || dep.coreModule) continue; // external / node built-in
-      if (!dep.resolved) continue;
-      edges.push({ fromFile: norm(mod.source), toFile: norm(dep.resolved), import: dep.module });
-    }
-  }
-  return edges;
-}
 
 /** Resolve a cell's neighbor declarations (for payload assembly). */
 export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {

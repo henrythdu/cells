@@ -14,12 +14,12 @@ import {
   loadOwnership,
   listCodeFiles,
   loadConfig,
-  collectImportEdges,
   computePayloadSize,
   neighborsOf,
   readFiles,
   requireCells,
 } from './io.js';
+import { collectImportEdges } from './importers.js';
 import { detectCycles, checkDirection, formatStructureReport } from './structure.js';
 import { HELP } from './help.js';
 
