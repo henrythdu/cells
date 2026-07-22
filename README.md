@@ -62,7 +62,7 @@ cells list                          # see the whole partition
 
 ## The `.cells/` directory
 
-```
+```text
 .cells/
   <name>.cell.toml     # declarations (authored) — one per cell
   ownership.toml       # file → cell map (tracked)
@@ -103,7 +103,7 @@ code-exts = [".ts"]                                        # extensions counted 
 
 gitignore-style globs. Matched files aren't counted as code and never surface as orphans (examples, scratch, scripts):
 
-```
+```text
 examples/**
 *.tmp
 ```
