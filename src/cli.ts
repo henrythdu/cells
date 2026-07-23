@@ -16,7 +16,8 @@ import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, formatCellGraph, formatCellGraphAscii, type CellSize } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from './view.js';
+import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles } from './assign.js';
 import {
   CELLS_DIR,

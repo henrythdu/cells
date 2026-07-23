@@ -10,6 +10,7 @@ requires = [
   "validate",
   "crossings",
   "view",
+  "graph",
   "assign",
   "structure",
   "help",

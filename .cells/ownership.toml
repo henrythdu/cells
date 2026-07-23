@@ -42,3 +42,6 @@ files = ["src/importers.ts", "test/importers.test.ts", "src/python.ts", "test/py
 
 [toml]
 files = ["src/toml.ts", "test/toml.test.ts"]
+
+[graph]
+files = ["src/graph.ts", "test/graph.test.ts"]

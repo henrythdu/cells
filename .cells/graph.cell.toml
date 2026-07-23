@@ -1,0 +1,6 @@
+name = "graph"
+purpose = "Render the cell dependency graph for humans: a Mermaid flowchart (renders in GitHub READMEs) + an ASCII tree (in-terminal default). Dedupes file-level crossings to cell->cell edges. Pure formatting, like view."
+provides = ["formatCellGraph", "formatCellGraphAscii"]
+requires = ["crossings"]
+
+layer = "rule"
