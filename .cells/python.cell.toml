@@ -1,4 +1,4 @@
 name = "python"
-purpose = "Python importer: extract file→file import edges via tree-sitter (bundled WASM grammar) + module→file resolution through ownership. One language implementation of the Importer contract, which lives in the crossings cell. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
+purpose = "Python importer: extract file→file import edges via tree-sitter (bundled WASM grammar) + module→file resolution through ownership (absolute + relative `.`/`..` imports). One language implementation of the Importer contract (in the crossings cell), built on the shared tree-sitter engine. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
 provides = ["pythonImporter", "fileToModule"]
-requires = ["crossings", "ownership"]
+requires = ["crossings", "tree-sitter", "ownership"]

@@ -48,3 +48,9 @@ files = ["src/graph.ts", "test/graph.test.ts"]
 
 [python]
 files = ["src/python.ts", "test/python.test.ts"]
+
+[rust]
+files = ["src/rust.ts", "test/rust.test.ts"]
+
+[tree-sitter]
+files = ["src/tree-sitter.ts"]

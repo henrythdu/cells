@@ -1,33 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Parser, Language, type Node } from 'web-tree-sitter';
-import type { ImportEdge, Importer } from './crossings.js';
-
-// --- grammar singleton (lazy: init web-tree-sitter + load the bundled python WASM once) ---
-let parserPromise: Promise<Parser> | null = null;
-async function getParser(): Promise<Parser> {
-  if (!parserPromise) {
-    parserPromise = (async () => {
-      await Parser.init();
-      // The WASM ships as a static asset in grammars/ (no native build → distributable).
-      const wasm = join(dirname(fileURLToPath(import.meta.url)), '..', 'grammars', 'tree-sitter-python.wasm');
-      let lang: Language;
-      try {
-        lang = await Language.load(readFileSync(wasm));
-      } catch {
-        throw new Error(`Failed to load Python grammar WASM at ${wasm} — ensure the 'grammars/' directory is bundled with cells.`);
-      }
-      const parser = new Parser();
-      parser.setLanguage(lang);
-      return parser;
-    })().catch((err) => {
-      parserPromise = null; // don't cache the rejection — allow retry on the next call
-      throw err;
-    });
-  }
-  return parserPromise;
-}
+import type { Node } from 'web-tree-sitter';
+import type { ImportEdge } from './crossings.js';
+import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → python module path ---
 
@@ -120,28 +93,10 @@ function resolveEdges(desc: ImportDesc, sourcePath: string, moduleToFile: Map<st
 }
 
 /** Python importer — tree-sitter extraction + module→file resolution via ownership. */
-export const pythonImporter: Importer = {
+export const pythonImporter = createTreeSitterImporter({
   extensions: ['.py'],
-  needsContent: true,
-  async extract({ files }): Promise<ImportEdge[]> {
-    // Build module-path → file from ownership (the reframe: resolve via ownership, not the filesystem).
-    const moduleToFile = new Map<string, string>();
-    for (const f of files) moduleToFile.set(fileToModule(f.path), f.path);
-
-    const parser = await getParser();
-    const edges: ImportEdge[] = [];
-    for (const f of files) {
-      if (!f.path.endsWith('.py')) continue;
-      const tree = parser.parse(f.content);
-      if (!tree) continue;
-      try {
-        for (const desc of extractImports(tree.rootNode)) {
-          edges.push(...resolveEdges(desc, f.path, moduleToFile));
-        }
-      } finally {
-        tree.delete(); // web-tree-sitter Trees are WASM-backed — free each one to avoid leaking.
-      }
-    }
-    return edges;
-  },
-};
+  wasmBasename: 'tree-sitter-python.wasm',
+  fileToModule,
+  extractEdges: (root, sourcePath, _importerModule, moduleToFile) =>
+    extractImports(root).flatMap((desc) => resolveEdges(desc, sourcePath, moduleToFile)),
+});

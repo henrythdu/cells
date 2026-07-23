@@ -1,0 +1,4 @@
+name = "tree-sitter"
+purpose = "Shared tree-sitter importer engine: a grammar-WASM singleton cache (getGrammarParser) + a factory (createTreeSitterImporter) that owns the parse loop (build module->file map, parse each file, de-dupe, free each WASM Tree). Each language importer supplies only its module-derivation, AST extraction, and resolution; this is the language-agnostic scaffolding they share. Adding a language no longer copies the WASM-loading boilerplate."
+provides = ["getGrammarParser", "createTreeSitterImporter"]
+requires = ["crossings"]

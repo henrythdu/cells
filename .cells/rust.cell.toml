@@ -1,0 +1,4 @@
+name = "rust"
+purpose = "Rust importer: extract file→file import edges via tree-sitter (bundled WASM grammar) — recursively expands `use` clauses (groups, aliases, wildcards) and resolves crate::/super::/self:: to files via ownership. One language implementation of the Importer contract (in the crossings cell), built on the shared tree-sitter engine; registered in importers' DEFAULT_IMPORTERS."
+provides = ["rustImporter", "fileToModule", "resolveImportPath"]
+requires = ["crossings", "tree-sitter", "ownership"]

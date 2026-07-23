@@ -1,34 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Parser, Language, type Node } from 'web-tree-sitter';
-import type { ImportEdge, Importer } from './crossings.js';
-
-// --- grammar singleton (lazy: init web-tree-sitter + load the bundled rust WASM once) ---
-let parserPromise: Promise<Parser> | null = null;
-async function getParser(): Promise<Parser> {
-  if (!parserPromise) {
-    parserPromise = (async () => {
-      await Parser.init();
-      // The WASM ships as a static asset in grammars/ (built with tree-sitter-cli 0.26.11 → ABI-matched
-      // to web-tree-sitter; the prebuilt tree-sitter-wasms pack is OLD-CLI/incompatible — see memory 155).
-      const wasm = join(dirname(fileURLToPath(import.meta.url)), '..', 'grammars', 'tree-sitter-rust.wasm');
-      let lang: Language;
-      try {
-        lang = await Language.load(readFileSync(wasm));
-      } catch {
-        throw new Error(`Failed to load Rust grammar WASM at ${wasm} — ensure the 'grammars/' directory is bundled with cells.`);
-      }
-      const parser = new Parser();
-      parser.setLanguage(lang);
-      return parser;
-    })().catch((err) => {
-      parserPromise = null; // don't cache the rejection — allow retry on the next call
-      throw err;
-    });
-  }
-  return parserPromise;
-}
+import type { Node } from 'web-tree-sitter';
+import type { ImportEdge } from './crossings.js';
+import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → Rust module path ---
 
@@ -91,7 +63,7 @@ function extractImports(root: Node): string[] {
 
 /** Resolve a Rust use path to a source file via the module→file map.
  *  `crate::` = absolute; `super::`/`self::` = relative to the importer; else = external (null).
- *  Matches the longest module prefix (a use names a module OR an item in one). Pure. */
+ *  Matches the module OR module-minus-last-item (a use names a module OR an item in one). Pure. */
 export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>): string | null {
   let abs: string;
   if (imp === 'crate' || imp.startsWith('crate::')) {
@@ -120,34 +92,16 @@ export function resolveImportPath(imp: string, importerModule: string, moduleToF
 }
 
 /** Rust importer — tree-sitter extraction + module→file resolution via ownership. */
-export const rustImporter: Importer = {
+export const rustImporter = createTreeSitterImporter({
   extensions: ['.rs'],
-  needsContent: true,
-  async extract({ files }): Promise<ImportEdge[]> {
-    // Build module-path → file from the census (resolve via the file list, like Python).
-    const moduleToFile = new Map<string, string>();
-    for (const f of files) if (f.path.endsWith('.rs')) moduleToFile.set(fileToModule(f.path), f.path);
-
-    const parser = await getParser();
+  wasmBasename: 'tree-sitter-rust.wasm',
+  fileToModule,
+  extractEdges: (root, sourcePath, importerModule, moduleToFile) => {
     const edges: ImportEdge[] = [];
-    for (const f of files) {
-      if (!f.path.endsWith('.rs')) continue;
-      const importerModule = fileToModule(f.path);
-      const tree = parser.parse(f.content);
-      if (!tree) continue;
-      try {
-        const seen = new Set<string>();
-        for (const imp of extractImports(tree.rootNode)) {
-          const toFile = resolveImportPath(imp, importerModule, moduleToFile);
-          if (toFile && toFile !== f.path && !seen.has(toFile)) {
-            seen.add(toFile);
-            edges.push({ fromFile: f.path, toFile, import: imp });
-          }
-        }
-      } finally {
-        tree.delete(); // web-tree-sitter Trees are WASM-backed — free each one to avoid leaking.
-      }
+    for (const imp of extractImports(root)) {
+      const toFile = resolveImportPath(imp, importerModule, moduleToFile);
+      if (toFile && toFile !== sourcePath) edges.push({ fromFile: sourcePath, toFile, import: imp });
     }
     return edges;
   },
-};
+});

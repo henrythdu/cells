@@ -1,8 +1,9 @@
 name = "importers"
-purpose = "The language-coupled seam: collect file→file import edges by dispatching to a per-language importer selected by file extension. TS/JS via dep-cruiser (source-based, handles aliases/.js→.ts); other languages via tree-sitter. This is the ONLY place that knows about specific languages — everything downstream consumes generic ImportEdge[]. Resolution of an import to a file uses ownership (e.g. a module→file map derived from owned files), not filesystem heuristics."
+purpose = "The language-coupled seam: collect file→file import edges by dispatching to a per-language importer selected by file extension. TS/JS via dep-cruiser (source-based, handles aliases/.js→.ts); Python + Rust via tree-sitter (bundled WASM grammars). This is the ONLY place that knows about specific languages — everything downstream consumes generic ImportEdge[]. Resolution of an import to a file uses ownership (e.g. a module→file map derived from owned files), not filesystem heuristics."
 provides = [
   "collectImportEdges() — the single entry point cli/crossings/structure/graph call",
-  "DEFAULT_IMPORTERS registry (dep-cruiser + python) + depCruiserImporter",
+  "DEFAULT_IMPORTERS registry (dep-cruiser + python + rust) + depCruiserImporter",
   "selectImporters(exts, importers) — pure dispatch by extension",
+  "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
 ]
-requires = ["io", "ownership", "crossings", "python"]
+requires = ["io", "crossings", "python", "rust"]
