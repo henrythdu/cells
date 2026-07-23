@@ -89,6 +89,12 @@ describe('formatCellShow', () => {
     expect(out2).toContain('fan-out 2');
     expect(out2).toContain('instability 0.67');
   });
+
+  it('shows the layer when set; omits the line when layerless', () => {
+    const layered = formatCellShow({ ...cell, layer: 1 }, owned, out, inc, size, metrics);
+    expect(layered).toContain('layer: 1');
+    expect(out2).not.toMatch(/^layer:/m); // the `cell` fixture (validate) has no layer
+  });
 });
 
 describe('formatSizeReport', () => {

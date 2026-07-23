@@ -58,6 +58,7 @@ export function formatCellShow(
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.provides.length > 0) lines.push(`provides: ${cell.provides.join(', ')}`);
   lines.push(`requires: ${cell.requires.length > 0 ? cell.requires.join(', ') : '—'}`);
+  if (cell.layer !== undefined) lines.push(`layer: ${cell.layer}`);
   lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
   lines.push('');
   lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
