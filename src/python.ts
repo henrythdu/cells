@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Parser, Language, type Node } from 'web-tree-sitter';
-import type { ImportEdge } from './crossings.js';
-import type { Importer } from './importers.js';
+import type { ImportEdge, Importer } from './crossings.js';
 
 // --- grammar singleton (lazy: init web-tree-sitter + load the bundled python WASM once) ---
 let parserPromise: Promise<Parser> | null = null;

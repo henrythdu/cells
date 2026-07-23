@@ -1,6 +1,6 @@
 name = "crossings"
 purpose = "Derive cross-cell crossings from import edges and detect leakage vs declared requires."
-provides = ["deriveCrossings", "checkLeakage", "Crossing", "Leakage"]
+provides = ["deriveCrossings", "checkLeakage", "computeMetrics", "ImportEdge", "Crossing", "CellMetrics", "Leakage", "Importer", "SourceFile", "ImportContext"]
 requires = ["ownership", "declaration"]
 
 layer = "rule"

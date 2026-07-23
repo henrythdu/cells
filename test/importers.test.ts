@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { selectImporters, pythonImporter, type Importer } from '../src/importers.js';
+import { selectImporters, pythonImporter } from '../src/importers.js';
+import type { Importer } from '../src/crossings.js';
 
 describe('importer selection', () => {
   it('selects only importers whose extensions are present', () => {

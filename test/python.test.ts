@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pythonImporter } from '../src/python.js';
-import type { SourceFile } from '../src/importers.js';
+import type { SourceFile } from '../src/crossings.js';
 import type { Ownership } from '../src/ownership.js';
 
 const files: SourceFile[] = [
