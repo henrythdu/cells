@@ -68,8 +68,8 @@ FILES (.cells/)
   ignore             gitignore-style patterns for intentionally cell-free files
 
 LANGUAGES: partition/payload/size/validate/owns are language-agnostic — set code-dirs + code-exts
-in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser, Python via
-tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
+in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python and
+Rust via tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
 uses ownership (a module->file map from owned files), not the filesystem — runs on source you're
 just reading, nothing to build or install.
 

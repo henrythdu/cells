@@ -16,7 +16,7 @@ describe('importer selection', () => {
     expect(selectImporters(['.go'], [ts])).toEqual([]);
   });
 
-  it('python importer is registered but stubbed (no edges until tree-sitter)', async () => {
+  it('python importer is registered with the .py extension', async () => {
     expect(pythonImporter.extensions).toContain('.py');
     const edges = await pythonImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
     expect(edges).toEqual([]);

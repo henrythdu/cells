@@ -122,9 +122,10 @@ examples/**
 
 - **TypeScript/JavaScript** via `dependency-cruiser` (source-based; handles path aliases, `.js`→`.ts`).
 - **Python** via `tree-sitter` (WASM; bundled grammar, no native build).
+- **Rust** via `tree-sitter` (WASM; handles `use`/`super`/`self`, groups, re-exports).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
-Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading. (Dogfooded on a 50-file Python repo — 56 real crossings, accurate fan-in/fan-out.)
+Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading. (Dogfooded on a 50-file Python repo — 56 crossings; and a 61-file Rust repo — 62 crossings, `structure` surfaced a real UI/app cycle.)
 
 ---
 
@@ -178,7 +179,7 @@ pnpm install      # installs deps + builds dist/ via prepare
 npm link          # live symlink into dist/ for local edits
 ```
 
-Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python grammar WASM bundled in `grammars/`) are installed automatically.
+Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python + Rust grammar WASMs bundled in `grammars/`) are installed automatically.
 
 ---
 

@@ -32,12 +32,13 @@ export const depCruiserImporter: Importer = {
   },
 };
 
-// Python importer lives in ./python.js (tree-sitter extraction + module→file resolution via ownership).
+// Python importer lives in ./python.js; Rust importer in ./rust.js (tree-sitter extraction + module→file resolution via ownership).
 import { pythonImporter } from './python.js';
-export { pythonImporter };
+import { rustImporter } from './rust.js';
+export { pythonImporter, rustImporter };
 
 /** Default importer registry (add a language = add an importer here). */
-export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter];
+export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter];
 
 /** Which importers run for the given extensions. Pure — unit-testable. */
 export function selectImporters(exts: readonly string[], importers: readonly Importer[]): Importer[] {
