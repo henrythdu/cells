@@ -149,10 +149,11 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 1. **Orient** — `cells list`: see the cells, their sizes, and any unowned files.
 2. **Zoom in** — `cells show <name>`: a cell's membrane + what it depends on / what depends on it.
 3. **Retrieve** — `cells payload <name>`: the full context (membrane + code + neighbors) to work that cell.
-4. **Work** — edit the cell's files. Stay within its membrane.
-5. **Place new code** — a new file needs a home. Read `list`, decide which cell (it's *your* judgment, not Cells'), then `cells assign <cell> <file>`. (Unowned files aren't violations — `list` shows them as a reminder; `.cells/ignore` hides the intentional ones.)
-6. **Check** — `cells validate` (integrity) · `cells crossings` (leakage) · `cells size` (context-fit) · `cells structure` (cycles / direction).
-7. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
+4. **Assess** — `cells impact <name>`: blast radius — who transitively depends on this cell? Weigh the risk *before* editing (a core cell can break many; a leaf is safe to change).
+5. **Work** — edit the cell's files. Stay within its membrane.
+6. **Place new code** — a new file needs a home. Read `list`, decide which cell (it's *your* judgment, not Cells'), then `cells assign <cell> <file>`. (Unowned files aren't violations — `list` shows them as a reminder; `.cells/ignore` hides the intentional ones.)
+7. **Check** — `cells validate` (integrity) · `cells crossings` (leakage) · `cells size` (context-fit) · `cells structure` (cycles / direction).
+8. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
 
 **Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool.
 

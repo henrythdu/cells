@@ -25,11 +25,12 @@ WORKING IN A CELLS PROJECT (for agents)
   1. orient       cells list            see the cells, their sizes, any unowned files
   2. zoom in      cells show <name>     a cell's membrane + in/out crossings + size
   3. retrieve     cells payload <name>  the full context (membrane + code + neighbors)
-  4. work         edit the cell's files; stay within its membrane
-  5. place code   new file? read list, pick a cell (your judgment), then
+  4. assess       cells impact <name>   blast radius: who transitively depends on this? weigh before editing
+  5. work         edit the cell's files; stay within its membrane
+  6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
-  6. check        cells validate (integrity) · crossings (leakage) · size · structure
-  7. navigate     cells graph (deps at a glance) · cells owns <file>
+  7. check        cells validate (integrity) · crossings (leakage) · size · structure
+  8. navigate     cells graph (deps at a glance) · cells owns <file>
 
   A cell past the ceiling? Split its files across new cells with assign
   (no separate divide command — assign IS the repartition tool).
