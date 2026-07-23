@@ -210,7 +210,29 @@ function cmdPayload(name: string): void {
   console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 4)} tokens]`);
 }
 
-const NEEDS_CELLS = new Set(['assign', 'validate', 'crossings', 'list', 'size', 'structure', 'graph', 'owns', 'show', 'payload']);
+interface Command {
+  readonly usage: string;
+  readonly minArgs: number;
+  readonly needsCells: boolean;
+  readonly run: (args: string[]) => void | Promise<void>;
+}
+
+const USAGE = 'usage: cells {help | init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}';
+
+/** Declarative command dispatch — add a command by adding one row, not a case. */
+const COMMANDS: Record<string, Command> = {
+  payload:   { usage: 'cells payload <name>',          minArgs: 1, needsCells: true,  run: (a) => cmdPayload(a[0]) },
+  validate:  { usage: 'cells validate',                minArgs: 0, needsCells: true,  run: () => cmdValidate() },
+  crossings: { usage: 'cells crossings',               minArgs: 0, needsCells: true,  run: () => cmdCrossings() },
+  list:      { usage: 'cells list',                    minArgs: 0, needsCells: true,  run: () => cmdList() },
+  size:      { usage: 'cells size',                    minArgs: 0, needsCells: true,  run: () => cmdSize() },
+  structure: { usage: 'cells structure',               minArgs: 0, needsCells: true,  run: () => cmdStructure() },
+  graph:     { usage: 'cells graph [--mermaid]',       minArgs: 0, needsCells: true,  run: (a) => cmdGraph(a.includes('--mermaid')) },
+  owns:      { usage: 'cells owns <file>',             minArgs: 1, needsCells: true,  run: (a) => cmdOwns(a[0]) },
+  show:      { usage: 'cells show <name>',             minArgs: 1, needsCells: true,  run: (a) => cmdShow(a[0]) },
+  init:      { usage: 'cells init',                    minArgs: 0, needsCells: false, run: () => cmdInit() },
+  assign:    { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true,  run: (a) => cmdAssign(a[0], a.slice(1)) },
+};
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
@@ -222,61 +244,18 @@ async function main(): Promise<void> {
     process.stdout.write(`cells ${readVersion()}\n`);
     return;
   }
-  if (NEEDS_CELLS.has(cmd)) requireCells();
-  switch (cmd) {
-    case 'payload':
-      if (!args[0]) {
-        console.error('usage: cells payload <name>');
-        process.exit(1);
-      }
-      cmdPayload(args[0]);
-      break;
-    case 'validate':
-      cmdValidate();
-      break;
-    case 'crossings':
-      await cmdCrossings();
-      break;
-    case 'list':
-      await cmdList();
-      break;
-    case 'size':
-      cmdSize();
-      break;
-    case 'structure':
-      await cmdStructure();
-      break;
-    case 'graph':
-      await cmdGraph(args.includes('--mermaid'));
-      break;
-    case 'owns':
-      if (!args[0]) {
-        console.error('usage: cells owns <file>');
-        process.exit(1);
-      }
-      cmdOwns(args[0]);
-      break;
-    case 'show':
-      if (!args[0]) {
-        console.error('usage: cells show <name>');
-        process.exit(1);
-      }
-      await cmdShow(args[0]);
-      break;
-    case 'init':
-      cmdInit();
-      break;
-    case 'assign':
-      if (args.length < 2) {
-        console.error('usage: cells assign <cell> <file...>');
-        process.exit(1);
-      }
-      cmdAssign(args[0], args.slice(1));
-      break;
-    default:
-      console.error('usage: cells {help | init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}');
-      process.exit(1);
+
+  const command = COMMANDS[cmd];
+  if (!command) {
+    console.error(USAGE);
+    process.exit(1);
   }
+  if (command.needsCells) requireCells();
+  if (args.length < command.minArgs) {
+    console.error(`usage: ${command.usage}`);
+    process.exit(1);
+  }
+  await command.run(args);
 }
 
 main().catch((err) => {
