@@ -1,12 +1,7 @@
 import type { Cell } from './declaration.js';
 import type { Ownership } from './ownership.js';
 import type { CellMetrics, Crossing } from './crossings.js';
-
-export interface CellSize {
-  files: number;
-  chars: number;
-  tokens: number;
-}
+import type { CellSize } from './payload.js';
 
 /**
  * Format the partition overview: one row per cell (file count, ~tokens,

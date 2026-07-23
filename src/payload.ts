@@ -1,5 +1,12 @@
 import type { Cell } from './declaration.js';
 
+/** Size of a cell's payload: file count, raw chars, ~tokens. */
+export interface CellSize {
+  files: number;
+  chars: number;
+  tokens: number;
+}
+
 /**
  * Assemble a cell's completeness payload as a single markdown document:
  * the cell's declaration + full owned source + neighbor membranes (surfaces only).

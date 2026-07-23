@@ -10,6 +10,6 @@ provides = [
   "computePayloadSize",
   "CELLS_DIR",
 ]
-requires = ["declaration", "ownership", "payload", "config", "view", "ignore"]
+requires = ["declaration", "ownership", "payload", "config", "ignore"]
 
 layer = "detail"

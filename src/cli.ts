@@ -13,10 +13,10 @@ function readVersion(): string {
 }
 import { serializeCell, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell } from './ownership.js';
-import { assemblePayload } from './payload.js';
+import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles } from './assign.js';
 import {

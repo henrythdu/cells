@@ -2,10 +2,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
-import { assemblePayload } from './payload.js';
+import { assemblePayload, type CellSize } from './payload.js';
 import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
-import type { CellSize } from './view.js';
 
 export const CELLS_DIR = '.cells';
 
