@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectImporters, pythonImporter } from '../src/importers.js';
+import { selectImporters, uncoveredImporterExts, pythonImporter } from '../src/importers.js';
 import type { Importer } from '../src/crossings.js';
 
 describe('importer selection', () => {
@@ -20,5 +20,24 @@ describe('importer selection', () => {
     expect(pythonImporter.extensions).toContain('.py');
     const edges = await pythonImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
     expect(edges).toEqual([]);
+  });
+});
+
+describe('uncoveredImporterExts', () => {
+  it('returns extensions no importer covers', () => {
+    const ts: Importer = { extensions: ['.ts'], async extract() { return []; } };
+    const py: Importer = { extensions: ['.py'], async extract() { return []; } };
+    expect(uncoveredImporterExts(['.rs'], [ts, py])).toEqual(['.rs']);
+    expect(uncoveredImporterExts(['.ts', '.py'], [ts, py])).toEqual([]);
+  });
+
+  it('sorts and dedupes the uncovered extensions', () => {
+    const ts: Importer = { extensions: ['.ts'], async extract() { return []; } };
+    expect(uncoveredImporterExts(['.ts', '.rs', '.go', '.rs'], [ts])).toEqual(['.go', '.rs']);
+  });
+
+  it('returns [] when every extension is covered', () => {
+    const ts: Importer = { extensions: ['.ts', '.js'], async extract() { return []; } };
+    expect(uncoveredImporterExts(['.ts', '.js'], [ts])).toEqual([]);
   });
 });

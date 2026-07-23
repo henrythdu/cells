@@ -45,16 +45,25 @@ export function selectImporters(exts: readonly string[], importers: readonly Imp
   return importers.filter((imp) => imp.extensions.some((e) => present.has(e)));
 }
 
+/** Extensions present in the census that NO importer handles. Non-empty means the
+ * crossings graph is BLIND for those files — crossings/impact/structure/graph are
+ * unverified. Sorted + deduped. Pure — unit-testable. */
+export function uncoveredImporterExts(exts: readonly string[], importers: readonly Importer[]): string[] {
+  const covered = new Set(importers.flatMap((i) => i.extensions));
+  return [...new Set(exts)].filter((e) => !covered.has(e)).sort();
+}
+
 /**
  * Collect raw file→file import edges by dispatching to importers by extension.
  * The only language-coupled seam in Cells; everything downstream consumes ImportEdge[].
  */
-export async function collectImportEdges(): Promise<ImportEdge[]> {
+export async function collectImportEdges(): Promise<{ edges: ImportEdge[]; uncoveredExts: string[] }> {
   const { codeDirs } = loadConfig();
   const ownership = loadOwnership();
   const paths = listCodeFiles();
   const exts = Array.from(new Set(paths.map((p) => extname(p))));
   const selected = selectImporters(exts, DEFAULT_IMPORTERS);
+  const uncoveredExts = uncoveredImporterExts(exts, DEFAULT_IMPORTERS);
   let files: SourceFile[];
   if (selected.some((i) => i.needsContent)) {
     const contents = readFiles(paths);
@@ -69,5 +78,5 @@ export async function collectImportEdges(): Promise<ImportEdge[]> {
   );
   const edges: ImportEdge[] = [];
   for (const result of results) edges.push(...result);
-  return edges;
+  return { edges, uncoveredExts };
 }

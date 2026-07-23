@@ -50,11 +50,20 @@ function cmdValidate(): void {
   process.exit(1);
 }
 
+/** Warn (stderr) when census files exist that no importer handles — the
+ * crossings-derived output may be BLIND. Goes to stderr so machine output (stdout) stays clean. */
+function warnIfBlind(uncoveredExts: string[]): void {
+  if (uncoveredExts.length > 0) {
+    console.error(`⚠ no importer for ${uncoveredExts.join(', ')} — crossings/impact/structure/graph are BLIND (unverified). Partition/size/validate are unaffected.`);
+  }
+}
+
 /** `cells crossings` — derive real cross-cell imports and check for leakage. */
 async function cmdCrossings(): Promise<void> {
   const ownership = loadOwnership();
   const declarations = loadDeclarations();
-  const edges = await collectImportEdges();
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
   const leakage = checkLeakage(crossings, declarations);
 
@@ -85,7 +94,9 @@ async function cmdList(): Promise<void> {
     const cell = declarations[name];
     sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
   }
-  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const crossings = deriveCrossings(edges, ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const orphanFiles = listCodeFiles().filter((f) => !owned.has(f));
@@ -102,7 +113,9 @@ async function cmdShow(name: string): Promise<void> {
     process.exit(1);
   }
   const ownedFiles = ownership[name] ?? [];
-  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const crossings = deriveCrossings(edges, ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
@@ -128,7 +141,9 @@ async function cmdStructure(): Promise<void> {
   const declarations = loadDeclarations();
   const ownership = loadOwnership();
   const config = loadConfig();
-  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const crossings = deriveCrossings(edges, ownership);
   const cycles = detectCycles(crossings);
   const violations = checkDirection(crossings, declarations);
   const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
@@ -144,14 +159,18 @@ async function cmdImpact(name: string): Promise<void> {
     console.error(`error: no cell named "${name}"`);
     process.exit(1);
   }
-  const crossings = deriveCrossings(await collectImportEdges(), loadOwnership());
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const crossings = deriveCrossings(edges, loadOwnership());
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
 
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
 async function cmdGraph(mermaid: boolean): Promise<void> {
   const ownership = loadOwnership();
-  const crossings = deriveCrossings(await collectImportEdges(), ownership);
+  const { edges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const crossings = deriveCrossings(edges, ownership);
   process.stdout.write(mermaid ? formatCellGraph(crossings) : formatCellGraphAscii(crossings));
 }
 
