@@ -44,7 +44,7 @@ COMMANDS
   validate                 integrity: duplicates, dangling, undeclared, unknown-require
   crossings                derived cross-cell imports + leakage check
   size                     context-fit: each payload vs the ceiling (warning)
-  structure                ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
+  structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)

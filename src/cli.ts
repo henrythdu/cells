@@ -31,7 +31,7 @@ import {
   requireCells,
 } from './io.js';
 import { collectImportEdges } from './importers.js';
-import { detectCycles, checkDirection, formatStructureReport } from './structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview } from './structure.js';
 import { HELP } from './help.js';
 
 /** `cells validate` — check partition integrity. */
@@ -132,7 +132,9 @@ async function cmdStructure(): Promise<void> {
   const cycles = detectCycles(crossings);
   const violations = checkDirection(crossings, declarations);
   const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
-  process.stdout.write(formatStructureReport(cycles, violations, anyLayered, config.layers));
+  const report = formatStructureReport(cycles, violations, anyLayered, config.layers);
+  const overview = formatLayerOverview(declarations, config.layers);
+  process.stdout.write(overview ? `${overview}\n${report}` : report);
 }
 
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */

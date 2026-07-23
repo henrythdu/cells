@@ -109,6 +109,37 @@ export function checkDirection(
 }
 
 /**
+ * Render the layer model: cells grouped by tier (0 = core → higher = peripheral),
+ * then the layerless ones. Returns '' when no cell declares a layer (nothing to
+ * show). Pure.
+ */
+export function formatLayerOverview(
+  declarations: Record<string, Cell>,
+  layerLabels: Record<number, string> = {},
+): string {
+  const byLayer = new Map<number, string[]>();
+  const layerless: string[] = [];
+  for (const [name, cell] of Object.entries(declarations)) {
+    if (cell.layer === undefined) {
+      layerless.push(name);
+    } else {
+      const arr = byLayer.get(cell.layer) ?? [];
+      arr.push(name);
+      byLayer.set(cell.layer, arr);
+    }
+  }
+  if (byLayer.size === 0) return '';
+
+  const lines: string[] = ['Layers (0 = core; higher = peripheral):'];
+  for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
+    const lbl = layerLabels[layer] ? ` (${layerLabels[layer]})` : '';
+    lines.push(`  ${layer}${lbl}: ${[...byLayer.get(layer)!].sort().join(', ')}`);
+  }
+  if (layerless.length > 0) lines.push(`  — (layerless): ${layerless.sort().join(', ')}`);
+  return lines.join('\n') + '\n';
+}
+
+/**
  * Format the structure report: ADP section + Direction section.
  * `layersConfigured` controls the Direction section's message when no layers
  * are set. Pure.

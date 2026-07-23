@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, checkDirection, formatStructureReport } from '../src/structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -118,5 +118,32 @@ describe('formatStructureReport', () => {
       { 0: 'domain', 2: 'ui' },
     );
     expect(out).toContain('core [domain (0)] → periph [ui (2)]');
+  });
+});
+
+describe('formatLayerOverview', () => {
+  it('groups cells by tier (0 = core → higher = peripheral), layerless last', () => {
+    const decls: Record<string, Cell> = {
+      domain: { name: 'domain', purpose: '', provides: [], requires: [], layer: 0 },
+      infra: { name: 'infra', purpose: '', provides: [], requires: [], layer: 2 },
+      app: { name: 'app', purpose: '', provides: [], requires: [], layer: 1 },
+      util: { name: 'util', purpose: '', provides: [], requires: [] }, // layerless
+    };
+    const out = formatLayerOverview(decls);
+    expect(out).toContain('Layers (0 = core; higher = peripheral):');
+    expect(out).toMatch(/0:.*domain/); // core tier
+    expect(out).toMatch(/1:.*app/);
+    expect(out).toMatch(/2:.*infra/); // peripheral
+    expect(out).toMatch(/— \(layerless\):.*util/);
+  });
+
+  it('labels tiers via the legend when provided', () => {
+    const decls: Record<string, Cell> = { a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 } };
+    expect(formatLayerOverview(decls, { 0: 'domain' })).toContain('0 (domain): a');
+  });
+
+  it('returns "" when no cell declares a layer', () => {
+    const decls: Record<string, Cell> = { a: { name: 'a', purpose: '', provides: [], requires: [] } };
+    expect(formatLayerOverview(decls)).toBe('');
   });
 });
