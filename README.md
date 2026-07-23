@@ -29,6 +29,29 @@ Cells is **for the model**: its job is to give an LLM a clean, bounded, self-des
 
 ---
 
+## Install
+
+**For users** — one command, from GitHub:
+
+```bash
+npm install -g github:henrythdu/cells
+```
+
+npm fetches the repo, builds `dist/` via the `prepare` script, and links the `cells` command. Requires Node (ESM).
+
+**From source** (development):
+
+```bash
+git clone https://github.com/henrythdu/cells.git
+cd cells
+pnpm install      # installs deps + builds dist/ via prepare
+npm link          # live symlink into dist/ for local edits
+```
+
+Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python + Rust grammar WASMs bundled in `grammars/`) are installed automatically.
+
+---
+
 ## Quickstart
 
 ```bash
@@ -160,27 +183,4 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ---
 
-## Install
-
-**For users** — one command, from GitHub:
-
-```bash
-npm install -g github:henrythdu/cells
-```
-
-npm fetches the repo, builds `dist/` via the `prepare` script, and links the `cells` command. Requires Node (ESM).
-
-**From source** (development):
-
-```bash
-git clone https://github.com/henrythdu/cells.git
-cd cells
-pnpm install      # installs deps + builds dist/ via prepare
-npm link          # live symlink into dist/ for local edits
-```
-
-Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python + Rust grammar WASMs bundled in `grammars/`) are installed automatically.
-
----
-
-*Cells dogfoods itself: this codebase is partitioned into 14 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 17 cells. Run `cells list` to see.*
