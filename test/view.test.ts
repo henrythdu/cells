@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport, type CellSize } from '../src/view.js';
+import { formatCellList, formatCellShow, formatSizeReport } from '../src/view.js';
+import type { CellSize } from '../src/payload.js';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 import type { CellMetrics, Crossing } from '../src/crossings.js';
