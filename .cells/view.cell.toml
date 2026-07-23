@@ -3,4 +3,4 @@ purpose = "Format the partition for human navigation: cell list + single-cell de
 provides = ["formatCellList", "formatCellShow", "formatSizeReport"]
 requires = ["declaration", "ownership", "crossings", "payload"]
 
-layer = "rule"
+layer = 1

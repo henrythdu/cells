@@ -13,7 +13,7 @@ const c = (fromCell: string, toCell: string): Crossing => ({
 });
 
 /** Build a minimal cell with an optional layer. */
-const cell = (name: string, layer?: string): Cell => ({
+const cell = (name: string, layer?: number): Cell => ({
   name,
   purpose: '',
   provides: [],
@@ -53,55 +53,44 @@ describe('detectCycles', () => {
 });
 
 describe('checkDirection', () => {
-  const order = ['core', 'app', 'domain']; // index 0 = lowest
-
-  it('returns [] when no layers are configured', () => {
-    expect(checkDirection([c('a', 'b')], { a: cell('a'), b: cell('b') }, [])).toEqual([]);
-  });
-
-  it('flags a high→low edge', () => {
-    const decls = { domain: cell('domain', 'domain'), infra: cell('infra', 'core') };
-    expect(checkDirection([c('domain', 'infra')], decls, order)).toEqual([
-      { fromCell: 'domain', fromLayer: 'domain', toCell: 'infra', toLayer: 'core' },
+  it('flags an edge to a higher layer (core → peripheral)', () => {
+    const decls = { core: cell('core', 0), periph: cell('periph', 2) };
+    expect(checkDirection([c('core', 'periph')], decls)).toEqual([
+      { fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 },
     ]);
   });
 
-  it('allows a low→high edge', () => {
-    const decls = { domain: cell('domain', 'domain'), infra: cell('infra', 'core') };
-    expect(checkDirection([c('infra', 'domain')], decls, order)).toEqual([]);
+  it('allows an edge to a lower layer (peripheral → core)', () => {
+    const decls = { core: cell('core', 0), periph: cell('periph', 2) };
+    expect(checkDirection([c('periph', 'core')], decls)).toEqual([]);
   });
 
   it('allows a same-layer edge', () => {
-    const decls = { a: cell('a', 'app'), b: cell('b', 'app') };
-    expect(checkDirection([c('a', 'b')], decls, order)).toEqual([]);
+    const decls = { a: cell('a', 1), b: cell('b', 1) };
+    expect(checkDirection([c('a', 'b')], decls)).toEqual([]);
   });
 
-  it('skips an edge where a cell has no layer tag', () => {
-    const decls = { a: cell('a'), b: cell('b', 'core') };
-    expect(checkDirection([c('a', 'b')], decls, order)).toEqual([]);
-  });
-
-  it('skips an edge where a layer is not in the order', () => {
-    const decls = { a: cell('a', 'weird'), b: cell('b', 'core') };
-    expect(checkDirection([c('a', 'b')], decls, order)).toEqual([]);
+  it('skips an edge where a cell has no layer (layerless = exempt)', () => {
+    const decls = { a: cell('a'), b: cell('b', 0) };
+    expect(checkDirection([c('a', 'b')], decls)).toEqual([]);
   });
 
   it('dedupes multiple crossings between the same cell pair', () => {
-    const decls = { domain: cell('domain', 'domain'), infra: cell('infra', 'core') };
-    expect(checkDirection([c('domain', 'infra'), c('domain', 'infra')], decls, order)).toHaveLength(1);
+    const decls = { core: cell('core', 0), periph: cell('periph', 2) };
+    expect(checkDirection([c('core', 'periph'), c('core', 'periph')], decls)).toHaveLength(1);
   });
 });
 
 describe('formatStructureReport', () => {
   it('clean, layers configured', () => {
     expect(formatStructureReport([], [], true)).toBe(
-      'ADP: acyclic — no circular dependencies.\nDirection: OK — no high→low edges.\n',
+      'ADP: acyclic — no circular dependencies.\nDirection: OK — no edges point to a higher layer.\n',
     );
   });
 
   it('clean, no layers configured', () => {
     expect(formatStructureReport([], [], false)).toBe(
-      'ADP: acyclic — no circular dependencies.\nDirection: (skipped — no layers configured in .cells/config.toml).\n',
+      'ADP: acyclic — no circular dependencies.\nDirection: (skipped — no cells declare a layer).\n',
     );
   });
 
@@ -111,13 +100,23 @@ describe('formatStructureReport', () => {
     expect(out).toContain('cli ↔ io ↔ view');
   });
 
-  it('reports a direction violation', () => {
+  it('reports a direction violation (raw numbers when no legend)', () => {
     const out = formatStructureReport(
       [],
-      [{ fromCell: 'domain', fromLayer: 'domain', toCell: 'infra', toLayer: 'core' }],
+      [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }],
       true,
     );
     expect(out).toContain('Direction: 1 violation(s):');
-    expect(out).toContain('domain [domain] → infra [core]');
+    expect(out).toContain('core [0] → periph [2]');
+  });
+
+  it('labels a violation via the legend when provided', () => {
+    const out = formatStructureReport(
+      [],
+      [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }],
+      true,
+      { 0: 'domain', 2: 'ui' },
+    );
+    expect(out).toContain('core [domain (0)] → periph [ui (2)]');
   });
 });

@@ -10,7 +10,7 @@ export interface Cell {
   purpose: string;
   provides: string[]; // declared surface; validated later by crossing-capture
   requires: string[]; // neighbor CELL names (not symbols)
-  layer?: string; // optional Clean-Arch layer name (for direction policy)
+  layer?: number; // tier rank (higher = more foundational; high→low = violation). Omit = layerless.
 }
 
 /**
@@ -32,7 +32,7 @@ export function parseCell(content: string): Cell {
     purpose: raw.purpose as string,
     provides: raw.provides as string[],
     requires: raw.requires as string[],
-    layer: typeof raw.layer === 'string' ? raw.layer : undefined,
+    layer: typeof raw.layer === 'number' ? raw.layer : undefined,
   };
 }
 
@@ -47,6 +47,6 @@ export function serializeCell(cell: Cell): string {
     `provides = ${tomlArray(cell.provides)}`,
     `requires = ${tomlArray(cell.requires)}`,
   ];
-  if (cell.layer) lines.push(`layer = ${tomlString(cell.layer)}`);
+  if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
   return lines.join('\n') + '\n';
 }

@@ -3,4 +3,4 @@ purpose = "Render the cell dependency graph for humans: a Mermaid flowchart (ren
 provides = ["formatCellGraph", "formatCellGraphAscii"]
 requires = ["crossings"]
 
-layer = "rule"
+layer = 1

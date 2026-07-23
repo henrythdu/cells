@@ -7,7 +7,7 @@ describe('parseConfig', () => {
   it('reads max-payload-tokens', () => {
     expect(parseConfig('max-payload-tokens = 8000\n')).toEqual({
       maxPayloadTokens: 8000,
-      layers: [],
+      layers: {},
       ...DEFAULT_DIRS,
     });
   });
@@ -15,7 +15,7 @@ describe('parseConfig', () => {
   it('falls back to defaults when empty', () => {
     expect(parseConfig('')).toEqual({
       maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
-      layers: [],
+      layers: {},
       ...DEFAULT_DIRS,
     });
   });
@@ -24,10 +24,11 @@ describe('parseConfig', () => {
     expect(DEFAULT_MAX_PAYLOAD_TOKENS).toBe(16000);
   });
 
-  it('reads layers (ordered, index 0 = lowest)', () => {
-    expect(parseConfig('layers = ["infrastructure", "application", "domain"]\n')).toEqual({
+  it('reads layers legend (rank → label)', () => {
+    const toml = '[layers]\n0 = "detail"\n10 = "domain"\n';
+    expect(parseConfig(toml)).toEqual({
       maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
-      layers: ['infrastructure', 'application', 'domain'],
+      layers: { 0: 'detail', 10: 'domain' },
       ...DEFAULT_DIRS,
     });
   });
@@ -36,7 +37,7 @@ describe('parseConfig', () => {
     const toml = 'code-dirs = ["lib", "cmd"]\ncode-exts = [".go"]\n';
     expect(parseConfig(toml)).toEqual({
       maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
-      layers: [],
+      layers: {},
       codeDirs: ['lib', 'cmd'],
       codeExts: ['.go'],
     });

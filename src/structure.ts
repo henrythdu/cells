@@ -5,8 +5,8 @@ import type { Cell } from './declaration.js';
  * Structure governance — two Clean-Architecture principles as pure checks on
  * the crossing graph:
  *   - ADP (Acyclic Dependencies Principle): the cell graph must have no cycles.
- *   - Direction: edges should run low→high (details plug into policy); a
- *     high→low edge is a Dependency-Inversion smell.
+ *   - Direction: edges should run toward the core (layer 0); an edge to a
+ *     higher layer (core→peripheral) is a Dependency-Inversion smell.
  * Both are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
  */
 
@@ -74,51 +74,35 @@ export function detectCycles(crossings: Crossing[]): Cycle[] {
     .sort((x, y) => x.cells[0].localeCompare(y.cells[0]));
 }
 
-/** A direction violation — a high-level cell depending on a lower-level one. */
+/** A direction violation — a higher-layer cell depending on a lower-layer one. */
 export interface DirectionViolation {
   fromCell: string;
-  fromLayer: string;
+  fromLayer: number;
   toCell: string;
-  toLayer: string;
+  toLayer: number;
 }
 
 /**
- * Check edge direction against a layer order (index 0 = lowest).
- * Flags edges where fromCell's layer ranks HIGHER than toCell's (high→low).
- * Skips: untagged cells, layers not in the order, and the empty-order case
- * (no layers configured). Dedupes multiple crossings between the same pair.
- * Pure.
+ * Check edge direction against each cell's numeric `layer` (0 = core/foundation;
+ * higher = more peripheral). Dependencies must point TOWARD 0 (peripheral→core);
+ * an edge to a HIGHER layer (core→peripheral) is the violation. Skips any edge
+ * with a layerless endpoint. Dedupes multiple crossings between the same pair. Pure.
  */
 export function checkDirection(
   crossings: Crossing[],
   declarations: Record<string, Cell>,
-  layerOrder: string[],
 ): DirectionViolation[] {
-  if (layerOrder.length === 0) return [];
-  const rank = (layer: string | undefined): number | undefined => {
-    if (!layer) return undefined;
-    const i = layerOrder.indexOf(layer);
-    return i === -1 ? undefined : i;
-  };
-
   const seen = new Set<string>();
   const out: DirectionViolation[] = [];
   for (const c of crossings) {
     const fromLayer = declarations[c.fromCell]?.layer;
     const toLayer = declarations[c.toCell]?.layer;
-    const fromRank = rank(fromLayer);
-    const toRank = rank(toLayer);
-    if (fromRank === undefined || toRank === undefined) continue;
-    if (fromRank > toRank) {
+    if (fromLayer === undefined || toLayer === undefined) continue;
+    if (fromLayer < toLayer) {
       const key = `${c.fromCell}->${c.toCell}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({
-        fromCell: c.fromCell,
-        fromLayer: fromLayer!,
-        toCell: c.toCell,
-        toLayer: toLayer!,
-      });
+      out.push({ fromCell: c.fromCell, fromLayer, toCell: c.toCell, toLayer });
     }
   }
   return out;
@@ -133,7 +117,9 @@ export function formatStructureReport(
   cycles: Cycle[],
   violations: DirectionViolation[],
   layersConfigured: boolean,
+  layerLabels: Record<number, string> = {},
 ): string {
+  const fmt = (n: number): string => (layerLabels[n] ? `${layerLabels[n]} (${n})` : `${n}`);
   const lines: string[] = [];
 
   if (cycles.length === 0) {
@@ -144,13 +130,13 @@ export function formatStructureReport(
   }
 
   if (!layersConfigured) {
-    lines.push('Direction: (skipped — no layers configured in .cells/config.toml).');
+    lines.push('Direction: (skipped — no cells declare a layer).');
   } else if (violations.length === 0) {
-    lines.push('Direction: OK — no high→low edges.');
+    lines.push('Direction: OK — no edges point to a higher layer.');
   } else {
     lines.push(`Direction: ${violations.length} violation(s):`);
     for (const v of violations) {
-      lines.push(`  ⚠ ${v.fromCell} [${v.fromLayer}] → ${v.toCell} [${v.toLayer}] (high→low)`);
+      lines.push(`  ⚠ ${v.fromCell} [${fmt(v.fromLayer)}] → ${v.toCell} [${fmt(v.toLayer)}] (→ higher layer)`);
     }
   }
 

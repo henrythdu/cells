@@ -3,4 +3,4 @@ purpose = "Structure governance: ADP (cycle detection via strongly-connected com
 provides = ["detectCycles", "checkDirection", "formatStructureReport"]
 requires = ["crossings", "declaration"]
 
-layer = "rule"
+layer = 1

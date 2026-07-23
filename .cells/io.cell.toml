@@ -12,4 +12,4 @@ provides = [
 ]
 requires = ["declaration", "ownership", "payload", "config", "ignore"]
 
-layer = "detail"
+layer = 2

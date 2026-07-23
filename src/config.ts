@@ -2,7 +2,7 @@ import { parse as parseToml } from 'smol-toml';
 
 export interface CellsConfig {
   maxPayloadTokens: number;
-  layers: string[]; // ordered layer names, index 0 = lowest (Clean-Arch direction policy)
+  layers: Record<number, string>; // optional legend: tier rank → label (output readability). Empty = show raw numbers.
   codeDirs: string[]; // directories scanned for code (default: src, test)
   codeExts: string[]; // extensions counted as code (default: .ts) — set per language
 }
@@ -28,13 +28,20 @@ export function parseConfig(content: string): CellsConfig {
     'code-exts'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
-  const layers = raw.layers;
+  const layersRaw = raw.layers;
+  const layers: Record<number, string> = {};
+  if (layersRaw && typeof layersRaw === 'object' && !Array.isArray(layersRaw)) {
+    for (const [k, v] of Object.entries(layersRaw as Record<string, unknown>)) {
+      const n = Number(k);
+      if (Number.isInteger(n) && typeof v === 'string') layers[n] = v;
+    }
+  }
   const codeDirs = raw['code-dirs'];
   const codeExts = raw['code-exts'];
   return {
     maxPayloadTokens:
       typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
-    layers: Array.isArray(layers) ? (layers as string[]) : [],
+    layers,
     codeDirs: Array.isArray(codeDirs) ? (codeDirs as string[]) : ['src', 'test'],
     codeExts: Array.isArray(codeExts) ? (codeExts as string[]) : ['.ts'],
   };

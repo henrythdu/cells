@@ -16,4 +16,4 @@ requires = [
   "help",
 ]
 
-layer = "detail"
+layer = 2

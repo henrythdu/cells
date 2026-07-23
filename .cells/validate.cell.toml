@@ -3,4 +3,4 @@ purpose = "Check partition integrity: single-valued, dangling, orphan, undeclare
 provides = ["validatePartition", "Violation"]
 requires = ["ownership", "declaration"]
 
-layer = "rule"
+layer = 1

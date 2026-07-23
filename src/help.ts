@@ -44,7 +44,7 @@ COMMANDS
   validate                 integrity: duplicates, dangling, undeclared, unknown-require
   crossings                derived cross-cell imports + leakage check
   size                     context-fit: each payload vs the ceiling (warning)
-  structure                ADP (no cycles) + Direction (no high→low edges) (warnings)
+  structure                ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)
@@ -53,14 +53,14 @@ RULES
   leakage    GATE (exit 1)   import a cell you don't require, or require one unused
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
   size       warning         payload over max-payload-tokens (default 16000)
-  structure  warning         a cycle, or a high→low layer edge
+  structure  warning         a cycle, or an edge to a higher layer
   orphans    visibility      unowned files aren't violations; list shows them,
                              .cells/ignore hides the intentional ones
 
 FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
   ownership.toml     the file → cell map (tracked)
-  config.toml        max-payload-tokens, layers[] (index 0 = lowest),
+  config.toml        max-payload-tokens, [layers] legend (optional; 0 = core),
                      code-dirs[], code-exts[] (per language; default src/test, .ts)
   ignore             gitignore-style patterns for intentionally cell-free files
 

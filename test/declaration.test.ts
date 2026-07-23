@@ -27,7 +27,7 @@ describe('parseCell', () => {
       'purpose = "core policy"',
       'provides = ["decide"]',
       'requires = []',
-      'layer = "domain"',
+      'layer = 2',
       '',
     ].join('\n');
     expect(parseCell(toml)).toEqual({
@@ -35,7 +35,7 @@ describe('parseCell', () => {
       purpose: 'core policy',
       provides: ['decide'],
       requires: [],
-      layer: 'domain',
+      layer: 2,
     });
   });
 });
@@ -57,7 +57,7 @@ describe('serializeCell', () => {
   });
 
   it('round-trips a layer tag', () => {
-    const cell: Cell = { name: 'domain', purpose: 'p', provides: ['decide'], requires: [], layer: 'domain' };
+    const cell: Cell = { name: 'domain', purpose: 'p', provides: ['decide'], requires: [], layer: 2 };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
 });

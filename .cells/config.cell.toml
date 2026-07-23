@@ -3,4 +3,4 @@ purpose = "Parse project settings (.cells/config.toml); holds the payload-size c
 provides = ["parseConfig", "DEFAULT_MAX_PAYLOAD_TOKENS"]
 requires = []
 
-layer = "data"
+layer = 0

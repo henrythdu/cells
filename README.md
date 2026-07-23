@@ -56,7 +56,7 @@ cells list                          # see the whole partition
 | `cells validate` | partition integrity (duplicates, dangling refs, undeclared cells, unknown requires) |
 | `cells crossings` | derived cross-cell imports + **leakage** check |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning) |
-| `cells structure` | ADP (no cycles) + Direction (no high→low layer edges) — warnings |
+| `cells structure` | ADP (no cycles) + Direction (no edges to a higher layer) — warnings |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 
 ---
@@ -78,7 +78,7 @@ name = "parser"
 purpose = "Turn a .cell declaration file into a checked Cell AST."
 provides = ["parseCell", "Cell"]    # declared surface
 requires = ["token", "diagnostic"]  # neighbor CELL names
-layer = "domain"                    # optional — for direction policy
+layer = 0                         # optional — 0 = core; higher = more peripheral (direction)
 ```
 
 ### `ownership.toml` — the file→cell map
@@ -95,7 +95,10 @@ files = ["src/cli.ts", "test/cli.test.ts"]
 
 ```toml
 max-payload-tokens = 16000                                 # context-fit ceiling (default 16000)
-layers = ["infrastructure", "application", "domain"]       # optional; index 0 = lowest
+# [layers]                              # optional legend (rank → label); 0 = core, higher = peripheral
+# 0 = "domain"
+# 1 = "application"
+# 2 = "infrastructure"
 code-dirs = ["src", "test"]                                # dirs scanned for code (default)
 code-exts = [".ts"]                                        # extensions counted (default; set per language)
 ```
@@ -130,7 +133,7 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Leakage** | **gate** (exit 1) | a cell imports another it doesn't `require` (undeclared), or `requires` one it never imports (stale) |
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
 | **Size** | warning (exit 0) | a cell's payload exceeds `max-payload-tokens` (default 16000) — consider dividing |
-| **Structure** | warning (exit 0) | a cycle (ADP), or a high→low layer edge (Direction) |
+| **Structure** | warning (exit 0) | a cycle (ADP), or an edge to a higher layer (Direction) |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
 **Payload = tokens**, estimated at chars/4 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.

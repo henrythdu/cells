@@ -130,8 +130,9 @@ async function cmdStructure(): Promise<void> {
   const config = loadConfig();
   const crossings = deriveCrossings(await collectImportEdges(), ownership);
   const cycles = detectCycles(crossings);
-  const violations = checkDirection(crossings, declarations, config.layers);
-  process.stdout.write(formatStructureReport(cycles, violations, config.layers.length > 0));
+  const violations = checkDirection(crossings, declarations);
+  const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
+  process.stdout.write(formatStructureReport(cycles, violations, anyLayered, config.layers));
 }
 
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */

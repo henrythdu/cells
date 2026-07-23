@@ -3,4 +3,4 @@ purpose = "Parse a .cell.toml file into a Cell (its membrane + identity)."
 provides = ["parseCell", "Cell"]
 requires = ["toml"]
 
-layer = "data"
+layer = 0
