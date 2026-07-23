@@ -1,6 +1,15 @@
 name = "io"
 purpose = "Read Cells state from disk: declarations, ownership, config, code files, payload sizes. (Import-edge collection lives in the importers cell.)"
-provides = ["loadDeclarations", "loadOwnership", "loadConfig", "readFiles", "listCodeFiles", "neighborsOf", "computePayloadSize", "CELLS_DIR"]
+provides = [
+  "loadDeclarations",
+  "loadOwnership",
+  "loadConfig",
+  "readFiles",
+  "listCodeFiles",
+  "neighborsOf",
+  "computePayloadSize",
+  "CELLS_DIR",
+]
 requires = ["declaration", "ownership", "payload", "config", "view", "ignore"]
 
 layer = "detail"
