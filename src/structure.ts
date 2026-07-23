@@ -173,3 +173,65 @@ export function formatStructureReport(
 
   return lines.join('\n') + '\n';
 }
+
+/** A cell's change-impact: who transitively depends on it, by hop distance. */
+export interface Impact {
+  cell: string;
+  affected: { cell: string; distance: number }[]; // 1 = direct dependent
+}
+
+/**
+ * Compute the blast radius of changing `cell`: every cell that transitively
+ * depends on it, via reverse-reachability over the crossing graph (a→b means a
+ * depends on b, so b's dependents are traced backward). `distance` is the min
+ * hop count (1 = direct). Cycles are safe (visited set). Pure.
+ */
+export function computeImpact(crossings: Crossing[], cell: string): Impact {
+  const dependents = new Map<string, Set<string>>();
+  for (const c of crossings) {
+    const arr = dependents.get(c.toCell) ?? new Set<string>();
+    arr.add(c.fromCell);
+    dependents.set(c.toCell, arr);
+  }
+
+  const dist = new Map<string, number>([[cell, 0]]);
+  const queue: string[] = [cell];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const dep of dependents.get(cur) ?? []) {
+      if (!dist.has(dep)) {
+        dist.set(dep, (dist.get(cur) ?? 0) + 1);
+        queue.push(dep);
+      }
+    }
+  }
+
+  const affected = [...dist.entries()]
+    .filter(([c]) => c !== cell)
+    .map(([c, d]) => ({ cell: c, distance: d }))
+    .sort((a, b) => a.distance - b.distance || a.cell.localeCompare(b.cell));
+  return { cell, affected };
+}
+
+/**
+ * Render a change-impact report: affected cells grouped by hop distance
+ * (direct, then 2 hops, 3 hops...), or a leaf message when nothing depends on
+ * the cell. Pure.
+ */
+export function formatImpactReport(impact: Impact): string {
+  if (impact.affected.length === 0) {
+    return `${impact.cell} is a leaf — nothing depends on it (safe to change).\n`;
+  }
+  const byDistance = new Map<number, string[]>();
+  for (const a of impact.affected) {
+    const arr = byDistance.get(a.distance) ?? [];
+    arr.push(a.cell);
+    byDistance.set(a.distance, arr);
+  }
+  const lines = [`Impact: changing ${impact.cell} affects ${impact.affected.length} cell(s):`];
+  for (const d of [...byDistance.keys()].sort((a, b) => a - b)) {
+    const label = d === 1 ? 'direct' : `${d} hops`;
+    lines.push(`  ${label}: ${byDistance.get(d)!.sort().join(', ')}`);
+  }
+  return lines.join('\n') + '\n';
+}

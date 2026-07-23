@@ -41,6 +41,7 @@ COMMANDS
   owns <file>              which cell owns this file? (reverse lookup)
   list                     partition overview: cells, sizes, fan-in/out, requires, orphans
   show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size
+  impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
   validate                 integrity: duplicates, dangling, undeclared, unknown-require
   crossings                derived cross-cell imports + leakage check

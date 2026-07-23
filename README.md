@@ -53,6 +53,7 @@ cells list                          # see the whole partition
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
 | `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |
+| `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
 | `cells validate` | partition integrity (duplicates, dangling refs, undeclared cells, unknown requires) |
 | `cells crossings` | derived cross-cell imports + **leakage** check |

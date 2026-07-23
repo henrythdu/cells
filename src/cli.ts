@@ -31,7 +31,7 @@ import {
   requireCells,
 } from './io.js';
 import { collectImportEdges } from './importers.js';
-import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview } from './structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
 /** `cells validate` — check partition integrity. */
@@ -137,6 +137,17 @@ async function cmdStructure(): Promise<void> {
   process.stdout.write(overview ? `${overview}\n${report}` : report);
 }
 
+/** `cells impact <name>` — blast radius: who transitively depends on this cell? */
+async function cmdImpact(name: string): Promise<void> {
+  const declarations = loadDeclarations();
+  if (!declarations[name]) {
+    console.error(`error: no cell named "${name}"`);
+    process.exit(1);
+  }
+  const crossings = deriveCrossings(await collectImportEdges(), loadOwnership());
+  process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
+}
+
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
 async function cmdGraph(mermaid: boolean): Promise<void> {
   const ownership = loadOwnership();
@@ -233,7 +244,7 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}';
+const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -246,6 +257,7 @@ const COMMANDS: Record<string, Command> = {
   graph:     { usage: 'cells graph [--mermaid]',       minArgs: 0, needsCells: true,  run: (a) => cmdGraph(a.includes('--mermaid')) },
   owns:      { usage: 'cells owns <file>',             minArgs: 1, needsCells: true,  run: (a) => cmdOwns(a[0]) },
   show:      { usage: 'cells show <name>',             minArgs: 1, needsCells: true,  run: (a) => cmdShow(a[0]) },
+  impact:    { usage: 'cells impact <name>',         minArgs: 1, needsCells: true,  run: (a) => cmdImpact(a[0]) },
   init:      { usage: 'cells init',                    minArgs: 0, needsCells: false, run: () => cmdInit() },
   assign:    { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true,  run: (a) => cmdAssign(a[0], a.slice(1)) },
   unassign:  { usage: 'cells unassign <file...>',     minArgs: 1, needsCells: true,  run: (a) => cmdUnassign(a) },

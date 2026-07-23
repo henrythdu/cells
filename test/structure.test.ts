@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview } from '../src/structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -145,5 +145,65 @@ describe('formatLayerOverview', () => {
   it('returns "" when no cell declares a layer', () => {
     const decls: Record<string, Cell> = { a: { name: 'a', purpose: '', provides: [], requires: [] } };
     expect(formatLayerOverview(decls)).toBe('');
+  });
+});
+
+describe('computeImpact', () => {
+  it('returns the direct dependent (1 hop)', () => {
+    // a→b: a depends on b, so changing b impacts a
+    expect(computeImpact([c('a', 'b')], 'b')).toEqual({
+      cell: 'b',
+      affected: [{ cell: 'a', distance: 1 }],
+    });
+  });
+
+  it('walks transitively (chain a→b→c: changing c impacts b then a)', () => {
+    expect(computeImpact([c('a', 'b'), c('b', 'c')], 'c')).toEqual({
+      cell: 'c',
+      affected: [
+        { cell: 'b', distance: 1 },
+        { cell: 'a', distance: 2 },
+      ],
+    });
+  });
+
+  it('reports a leaf (nothing depends on it) as empty', () => {
+    expect(computeImpact([c('a', 'b')], 'a')).toEqual({ cell: 'a', affected: [] });
+  });
+
+  it('dedupes a diamond (a reached at its min distance, once)', () => {
+    // a→b, a→c, b→d, c→d: changing d impacts b,c (direct) then a (2 hops, once)
+    const impact = computeImpact([c('a', 'b'), c('a', 'c'), c('b', 'd'), c('c', 'd')], 'd');
+    expect(impact.affected).toEqual([
+      { cell: 'b', distance: 1 },
+      { cell: 'c', distance: 1 },
+      { cell: 'a', distance: 2 },
+    ]);
+  });
+
+  it('is safe under a cycle (no infinite loop)', () => {
+    const impact = computeImpact([c('a', 'b'), c('b', 'a')], 'a');
+    expect(impact.affected).toEqual([{ cell: 'b', distance: 1 }]);
+  });
+});
+
+describe('formatImpactReport', () => {
+  it('prints a leaf message when nothing depends on the cell', () => {
+    expect(formatImpactReport({ cell: 'a', affected: [] })).toBe(
+      'a is a leaf — nothing depends on it (safe to change).\n',
+    );
+  });
+
+  it('groups affected cells by hop distance', () => {
+    const out = formatImpactReport({
+      cell: 'c',
+      affected: [
+        { cell: 'b', distance: 1 },
+        { cell: 'a', distance: 2 },
+      ],
+    });
+    expect(out).toContain('Impact: changing c affects 2 cell(s):');
+    expect(out).toContain('direct: b');
+    expect(out).toContain('2 hops: a');
   });
 });
