@@ -155,15 +155,24 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ## Install
 
-From source (this repo):
+**For users** — one command, from GitHub:
 
 ```bash
-pnpm install
-pnpm build        # tsc → dist/
-npm link          # makes `cells` available globally (live symlink into dist/)
+npm install -g github:henrythdu/cells
 ```
 
-Requires Node (ESM). Runtime dependencies: `smol-toml`, `dependency-cruiser`, `minimatch`, `web-tree-sitter` (Python grammar WASM bundled in `grammars/`).
+npm fetches the repo, builds `dist/` via the `prepare` script, and links the `cells` command. Requires Node (ESM).
+
+**From source** (development):
+
+```bash
+git clone https://github.com/henrythdu/cells.git
+cd cells
+pnpm install      # installs deps + builds dist/ via prepare
+npm link          # live symlink into dist/ for local edits
+```
+
+Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python grammar WASM bundled in `grammars/`) are installed automatically.
 
 ---
 
