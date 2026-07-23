@@ -37,6 +37,7 @@ WORKING IN A CELLS PROJECT (for agents)
 COMMANDS
   init                     bootstrap .cells/ (idempotent)
   assign <cell> <file...>  assign files to a cell (records ownership; stubs if new)
+  unassign <file...>       remove files from their cell (→ orphan)
   owns <file>              which cell owns this file? (reverse lookup)
   list                     partition overview: cells, sizes, fan-in/out, requires, orphans
   show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size

@@ -18,7 +18,7 @@ import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { assignFiles } from './assign.js';
+import { assignFiles, unassignFiles } from './assign.js';
 import {
   CELLS_DIR,
   loadDeclarations,
@@ -186,6 +186,19 @@ function cmdAssign(cell: string, files: string[]): void {
   }
 }
 
+/** `cells unassign <file...>` — remove files from their cell (→ orphan). */
+function cmdUnassign(files: string[]): void {
+  const ownership = loadOwnership();
+  const ownedBefore = new Set(Object.values(ownership).flat());
+  const removed = files.filter((f) => ownedBefore.has(f));
+  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(unassignFiles(ownership, files)));
+  if (removed.length === 0) {
+    console.log('No changes — none of those files were owned.');
+    return;
+  }
+  console.log(`Unassigned ${removed.length} file(s) — now orphan.`);
+}
+
 /** `cells payload <name>` — assemble and print a cell's payload to stdout. */
 function cmdPayload(name: string): void {
   const decls = loadDeclarations();
@@ -220,7 +233,7 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign <cell> <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}';
+const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -235,6 +248,7 @@ const COMMANDS: Record<string, Command> = {
   show:      { usage: 'cells show <name>',             minArgs: 1, needsCells: true,  run: (a) => cmdShow(a[0]) },
   init:      { usage: 'cells init',                    minArgs: 0, needsCells: false, run: () => cmdInit() },
   assign:    { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true,  run: (a) => cmdAssign(a[0], a.slice(1)) },
+  unassign:  { usage: 'cells unassign <file...>',     minArgs: 1, needsCells: true,  run: (a) => cmdUnassign(a) },
 };
 
 async function main(): Promise<void> {

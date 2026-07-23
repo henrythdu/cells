@@ -1,6 +1,6 @@
 name = "assign"
-purpose = "Mutate the partition: reassign file ownership between cells (the write side of the workflow)."
-provides = ["assignFiles"]
+purpose = "Mutate the partition: assign/reassign file ownership between cells, or remove files to orphan (the write side of the workflow)."
+provides = ["assignFiles", "unassignFiles"]
 requires = ["ownership"]
 
 layer = 1

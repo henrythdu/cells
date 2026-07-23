@@ -49,6 +49,7 @@ cells list                          # see the whole partition
 | --- | --- |
 | `cells init` | bootstrap `.cells/` (idempotent) |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
+| `cells unassign <file...>` | remove file(s) from their cell (→ orphan) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
 | `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |

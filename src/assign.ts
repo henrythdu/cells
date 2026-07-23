@@ -15,3 +15,18 @@ export function assignFiles(ownership: Ownership, cell: string, files: string[])
   next[cell] = [...new Set([...existing, ...files])];
   return next;
 }
+
+/**
+ * Remove `files` from any cell that owns them → orphan (unowned). Pure: returns
+ * a new map. A cell left with no files drops out of the map; its `.cell.toml`
+ * declaration is untouched (ownership ≠ declaration).
+ */
+export function unassignFiles(ownership: Ownership, files: string[]): Ownership {
+  const remove = new Set(files);
+  const next: Ownership = {};
+  for (const [cell, owned] of Object.entries(ownership)) {
+    const kept = owned.filter((f) => !remove.has(f));
+    if (kept.length > 0) next[cell] = kept; // drop cells left empty
+  }
+  return next;
+}
