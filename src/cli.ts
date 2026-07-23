@@ -1,6 +1,16 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** Installed version, read lazily from package.json (works in dev + when npm-installed). */
+function readVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')) as { version: string }).version;
+  } catch {
+    return 'unknown';
+  }
+}
 import { serializeCell, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload } from './payload.js';
@@ -205,6 +215,10 @@ async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
     process.stdout.write(HELP);
+    return;
+  }
+  if (cmd === '--version' || cmd === '-v') {
+    process.stdout.write(`cells ${readVersion()}\n`);
     return;
   }
   if (NEEDS_CELLS.has(cmd)) requireCells();

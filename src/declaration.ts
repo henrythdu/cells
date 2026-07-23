@@ -1,4 +1,5 @@
 import { parse as parseToml } from 'smol-toml';
+import { tomlString, tomlArray } from './toml.js';
 
 /**
  * A cell's declaration — its membrane (the contract) + identity.
@@ -33,16 +34,6 @@ export function parseCell(content: string): Cell {
     requires: raw.requires as string[],
     layer: typeof raw.layer === 'string' ? raw.layer : undefined,
   };
-}
-
-/** Quote a string for TOML (escape backslash + double-quote). */
-function tomlString(s: string): string {
-  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-}
-
-/** Format a string array as a TOML inline array. */
-function tomlArray(arr: string[]): string {
-  return '[' + arr.map(tomlString).join(', ') + ']';
 }
 
 /**

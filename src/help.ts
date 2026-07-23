@@ -46,6 +46,8 @@ COMMANDS
   size                     context-fit: each payload vs the ceiling (warning)
   structure                ADP (no cycles) + Direction (no high→low edges) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
+  help                     this text (also --help, -h)
+  --version                print the installed version (also -v)
 
 RULES
   leakage    GATE (exit 1)   import a cell you don't require, or require one unused

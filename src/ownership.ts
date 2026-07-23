@@ -1,4 +1,5 @@
 import { parse as parseToml } from 'smol-toml';
+import { tomlString, tomlArray } from './toml.js';
 
 /**
  * Ownership map: cell name → owned file paths.
@@ -19,16 +20,6 @@ export function parseOwnership(content: string): Ownership {
     result[cell] = (val.files as string[]) ?? [];
   }
   return result;
-}
-
-/** Quote a string for TOML (escape backslash + double-quote). */
-function tomlString(s: string): string {
-  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-}
-
-/** Format a string array as a TOML inline array. */
-function tomlArray(arr: string[]): string {
-  return '[' + arr.map(tomlString).join(', ') + ']';
 }
 
 /**

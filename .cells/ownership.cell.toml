@@ -1,6 +1,6 @@
 name = "ownership"
 purpose = "Own the ownership map: parse, serialize, and reverse-lookup (file→cell)."
 provides = ["parseOwnership", "serializeOwnership", "owningCell", "Ownership"]
-requires = []
+requires = ["toml"]
 
 layer = "data"
