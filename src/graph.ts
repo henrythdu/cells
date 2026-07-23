@@ -26,8 +26,8 @@ export function formatCellGraphAscii(crossings: Crossing[]): string {
     nodes.add(c.fromCell);
     nodes.add(c.toCell);
     incoming.add(c.toCell);
-    if (!adj.has(c.fromCell)) adj.set(c.fromCell, []);
-    const deps = adj.get(c.fromCell)!;
+    const deps = adj.get(c.fromCell) ?? [];
+    adj.set(c.fromCell, deps);
     if (!deps.includes(c.toCell)) deps.push(c.toCell);
   }
   for (const deps of adj.values()) deps.sort();
