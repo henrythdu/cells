@@ -12,10 +12,10 @@ function readVersion(): string {
   }
 }
 import { serializeCell, type Cell } from './declaration.js';
-import { serializeOwnership, owningCell } from './ownership.js';
+import { serializeOwnership, owningCell, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage, computeMetrics } from './crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles, unassignFiles } from './assign.js';
@@ -29,6 +29,8 @@ import {
   neighborsOf,
   readFiles,
   requireCells,
+  isGitRepo,
+  withHeadTree,
 } from './io.js';
 import { collectImportEdges } from './importers.js';
 import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
@@ -58,9 +60,22 @@ function warnIfBlind(uncoveredExts: string[]): void {
   }
 }
 
-/** `cells crossings` — derive real cross-cell imports and check for leakage. */
-async function cmdCrossings(): Promise<void> {
+/** `cells crossings [--diff]` — real cross-cell imports + leakage; `--diff` shows what your
+ *  uncommitted edits added/removed (working tree vs HEAD). */
+async function cmdCrossings(diff = false): Promise<void> {
   const ownership = loadOwnership();
+  if (diff) {
+    if (!isGitRepo()) {
+      console.error('⚠ --diff needs a git repo — showing current crossings instead.');
+    } else {
+      const delta = await computeCrossingsDelta(ownership);
+      if (delta === null) console.error('⚠ no HEAD to diff against — showing current crossings instead.');
+      else {
+        showCrossingsDelta(delta);
+        return;
+      }
+    }
+  }
   const declarations = loadDeclarations();
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
@@ -83,6 +98,29 @@ async function cmdCrossings(): Promise<void> {
     }
     process.exit(1);
   }
+}
+
+/** Derive the crossings delta (working tree vs HEAD); null if HEAD can't be read (no commits). */
+async function computeCrossingsDelta(ownership: Ownership): Promise<CrossingsDelta | null> {
+  const { edges: workEdges, uncoveredExts } = await collectImportEdges();
+  warnIfBlind(uncoveredExts);
+  const working = deriveCrossings(workEdges, ownership);
+  return withHeadTree(async (headDir) => {
+    const { edges: headEdges } = await collectImportEdges(headDir);
+    return diffCrossings(working, deriveCrossings(headEdges, ownership));
+  });
+}
+
+/** Render a crossings delta: +/− edges, then a summary. */
+function showCrossingsDelta(delta: CrossingsDelta): void {
+  if (delta.added.length === 0 && delta.removed.length === 0) {
+    console.log('No crossing changes since HEAD.');
+    return;
+  }
+  console.log('Crossings delta (working tree vs HEAD):');
+  for (const c of delta.added) console.log(`  + ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  for (const c of delta.removed) console.log(`  − ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  console.log(`${delta.added.length} added, ${delta.removed.length} removed.`);
 }
 
 /** `cells list` — partition overview: each cell's files/size/requires/fan-in-out + orphans. */
@@ -263,13 +301,13 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings [--diff] | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
   payload:   { usage: 'cells payload <name>',          minArgs: 1, needsCells: true,  run: (a) => cmdPayload(a[0]) },
   validate:  { usage: 'cells validate',                minArgs: 0, needsCells: true,  run: () => cmdValidate() },
-  crossings: { usage: 'cells crossings',               minArgs: 0, needsCells: true,  run: () => cmdCrossings() },
+  crossings: { usage: 'cells crossings [--diff]',      minArgs: 0, needsCells: true,  run: (a) => cmdCrossings(a.includes('--diff')) },
   list:      { usage: 'cells list',                    minArgs: 0, needsCells: true,  run: () => cmdList() },
   size:      { usage: 'cells size',                    minArgs: 0, needsCells: true,  run: () => cmdSize() },
   structure: { usage: 'cells structure',               minArgs: 0, needsCells: true,  run: () => cmdStructure() },

@@ -3,6 +3,7 @@ import {
   deriveCrossings,
   checkLeakage,
   computeMetrics,
+  diffCrossings,
   type ImportEdge,
   type Crossing,
 } from '../src/crossings.js';
@@ -98,5 +99,40 @@ describe('computeMetrics', () => {
   it('isolated cell → instability 0', () => {
     const m = computeMetrics([], ['x']);
     expect(m.x).toEqual({ fanIn: 0, fanOut: 0, instability: 0 });
+  });
+});
+
+describe('diffCrossings', () => {
+  const x = (fromCell: string, toCell: string, fromFile: string, toFile: string): Crossing => ({
+    fromCell, toCell, fromFile, toFile, import: 'm',
+  });
+
+  it('added = in working not head; removed = in head not working', () => {
+    const head = [x('a', 'b', 'a.ts', 'b.ts'), x('a', 'c', 'a.ts', 'c.ts')];
+    const working = [x('a', 'b', 'a.ts', 'b.ts'), x('a', 'd', 'a.ts', 'd.ts')];
+    const delta = diffCrossings(working, head);
+    expect(delta.added).toEqual([x('a', 'd', 'a.ts', 'd.ts')]);
+    expect(delta.removed).toEqual([x('a', 'c', 'a.ts', 'c.ts')]);
+  });
+
+  it('unchanged edges appear in neither', () => {
+    const same = [x('a', 'b', 'a.ts', 'b.ts')];
+    expect(diffCrossings(same, same)).toEqual({ added: [], removed: [] });
+  });
+
+  it('keys by file-edge, not just cell-pair (a→b via two files is two edges)', () => {
+    const head = [x('a', 'b', 'a.ts', 'b.ts')];
+    const working = [x('a', 'b', 'a.ts', 'b.ts'), x('a', 'b', 'a2.ts', 'b.ts')];
+    const delta = diffCrossings(working, head);
+    expect(delta.added).toEqual([x('a', 'b', 'a2.ts', 'b.ts')]);
+    expect(delta.removed).toEqual([]);
+  });
+
+  it('dedupes identical edges and sorts for stable output', () => {
+    const head: Crossing[] = [];
+    const working = [x('b', 'a', 'b.ts', 'a.ts'), x('a', 'c', 'a.ts', 'c.ts'), x('b', 'a', 'b.ts', 'a.ts')];
+    const delta = diffCrossings(working, head);
+    // deduped (b→a once) + sorted by fromCell then toCell: a→c, b→a
+    expect(delta.added).toEqual([x('a', 'c', 'a.ts', 'c.ts'), x('b', 'a', 'b.ts', 'a.ts')]);
   });
 });

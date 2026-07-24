@@ -28,6 +28,9 @@ export interface ImportContext {
   codeDirs: string[];
   files: SourceFile[];
   ownership: Ownership;
+  /** Where code lives ('.' = the working repo). Set to a HEAD-tree dir for `crossings --diff`;
+   *  importers that cruise the FS (dep-cruiser) remap their output paths to repo-relative. */
+  baseDir?: string;
 }
 
 /**
@@ -154,4 +157,32 @@ export function computeMetrics(crossings: Crossing[], cells: string[]): Record<s
     out[c] = { fanIn: fi, fanOut: fo, instability: fi + fo === 0 ? 0 : fo / (fi + fo) };
   }
   return out;
+}
+
+/** A change in crossings between two states (working tree vs HEAD). */
+export interface CrossingsDelta {
+  added: Crossing[];
+  removed: Crossing[];
+}
+
+/** Identity of a crossing edge (cells are constant under fixed ownership). */
+function crossingKey(c: Crossing): string {
+  return `${c.fromFile}\0${c.toFile}\0${c.import}`;
+}
+
+/**
+ * Diff two crossing sets: added = in `working` not `head`; removed = vice versa.
+ * Keyed by file-edge; de-duped; sorted for stable output. Pure — unit-testable.
+ */
+export function diffCrossings(working: Crossing[], head: Crossing[]): CrossingsDelta {
+  const workMap = new Map(working.map((c) => [crossingKey(c), c]));
+  const headMap = new Map(head.map((c) => [crossingKey(c), c]));
+  const sortFn = (a: Crossing, b: Crossing) =>
+    a.fromCell.localeCompare(b.fromCell) ||
+    a.toCell.localeCompare(b.toCell) ||
+    a.fromFile.localeCompare(b.fromFile) ||
+    a.toFile.localeCompare(b.toFile);
+  const added = [...workMap.values()].filter((c) => !headMap.has(crossingKey(c))).sort(sortFn);
+  const removed = [...headMap.values()].filter((c) => !workMap.has(crossingKey(c))).sort(sortFn);
+  return { added, removed };
 }

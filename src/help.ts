@@ -29,7 +29,7 @@ WORKING IN A CELLS PROJECT (for agents)
   5. work         edit the cell's files; stay within its membrane
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
-  7. check        cells validate (integrity) · crossings (leakage) · size · structure
+  7. check        cells validate (integrity) · crossings (leakage) · crossings --diff (delta) · size · structure
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
   A cell past the ceiling? Split its files across new cells with assign
@@ -45,7 +45,7 @@ COMMANDS
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
   validate                 integrity: duplicates, dangling, undeclared, unknown-require
-  crossings                derived cross-cell imports + leakage check
+  crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
   size                     context-fit: each payload vs the ceiling (warning)
   structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)

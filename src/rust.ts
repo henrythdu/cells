@@ -68,7 +68,10 @@ function extractImports(root: Node): string[] {
 /** Classify a use path + resolve it to an absolute module path.
  *  `crate::` is already absolute; `self::`/`super::` are relative to the importer;
  *  anything else is an external crate (std, serde, …) → null. Pure. */
-function absoluteModulePath(imp: string, importerModule: string): string | null {
+function absoluteModulePath(
+	imp: string,
+	importerModule: string,
+): string | null {
 	if (imp === "crate" || imp.startsWith("crate::")) return imp;
 	if (imp === "self" || imp.startsWith("self::")) {
 		const rest = imp === "self" ? "" : imp.slice("self::".length);

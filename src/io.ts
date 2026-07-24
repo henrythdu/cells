@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { execSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
@@ -40,11 +42,13 @@ export function loadConfig(): CellsConfig {
 }
 
 /** Read a list of files into a {path→content} map (missing files skipped — validate flags them). */
-export function readFiles(paths: string[]): Record<string, string> {
+/** Read files into a {path→content} map (missing files skipped — validate flags them).
+ *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
+export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
   const out: Record<string, string> = {};
   for (const p of paths) {
     try {
-      out[p] = readFileSync(p, 'utf8');
+      out[p] = readFileSync(join(baseDir, p), 'utf8');
     } catch {
       // missing — validate flags as dangling
     }
@@ -65,9 +69,12 @@ export function listFiles(dir: string, exts: string[]): string[] {
 }
 
 /** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches. */
-export function listCodeFiles(): string[] {
+/** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches.
+ *  `baseDir` reads code from elsewhere (e.g. an extracted HEAD tree); paths stay repo-relative
+ *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */
+export function listCodeFiles(baseDir = '.'): string[] {
   const { codeDirs, codeExts } = loadConfig();
-  const all = codeDirs.flatMap((dir) => listFiles(dir, codeExts));
+  const all = codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f)));
   const ignorePath = join(CELLS_DIR, 'ignore');
   if (!existsSync(ignorePath)) return all;
   const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
@@ -85,4 +92,39 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
   const fileContents = readFiles(ownedFiles);
   const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
   return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
+}
+
+// --- git (for `crossings --diff`: derive crossings at HEAD vs the working tree) ---
+
+/** Is the working tree inside a git repo? */
+export function isGitRepo(): boolean {
+  try {
+    execSync('git rev-parse --is-inside-work-tree', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Extract the HEAD tree (tracked files only) into `dir`. False if there's no HEAD yet
+ *  (fresh repo) or git/tar is unavailable — callers degrade gracefully. */
+export function extractHeadTree(dir: string): boolean {
+  try {
+    execSync(`git archive HEAD | tar -x -C "${dir}"`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Run `fn` against a throwaway copy of the HEAD tree; always clean up.
+ *  Returns null if HEAD can't be read (no commits / git broken) so callers can degrade. */
+export async function withHeadTree<T>(fn: (headDir: string) => Promise<T> | T): Promise<T | null> {
+  const dir = mkdtempSync(join(tmpdir(), 'cells-head-'));
+  try {
+    if (!extractHeadTree(dir)) return null;
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

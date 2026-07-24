@@ -79,7 +79,7 @@ cells list                          # see the whole partition
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
 | `cells validate` | partition integrity (duplicates, dangling refs, undeclared cells, unknown requires) |
-| `cells crossings` | derived cross-cell imports + **leakage** check |
+| `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning) |
 | `cells structure` | layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) — warnings |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |

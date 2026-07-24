@@ -1,5 +1,5 @@
 name = "io"
-purpose = "Read Cells state from disk: declarations, ownership, config, code files, payload sizes. (Import-edge collection lives in the importers cell.)"
+purpose = "Read Cells state from disk (declarations, ownership, config, code files, payload sizes) + git ops for `crossings --diff` (isGitRepo, HEAD-tree extraction). (Import-edge collection lives in the importers cell.)"
 provides = [
   "loadDeclarations",
   "loadOwnership",
@@ -9,6 +9,8 @@ provides = [
   "neighborsOf",
   "computePayloadSize",
   "CELLS_DIR",
+  "isGitRepo",
+  "withHeadTree",
 ]
 requires = ["declaration", "ownership", "payload", "config", "ignore"]
 

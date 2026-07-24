@@ -11,6 +11,8 @@ provides = [
   "Importer",
   "SourceFile",
   "ImportContext",
+  "diffCrossings",
+  "CrossingsDelta",
 ]
 requires = ["ownership", "declaration"]
 
