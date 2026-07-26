@@ -26,9 +26,12 @@ function setupRepo(): void {
   // dep-cruiser needs TS resolution context to map './a.js' → a.ts; without these it
   // throws (silently caught → no edges), so both sides come back empty.
   writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-  writeFileSync(join(repo, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true },
-  }));
+  writeFileSync(
+    join(repo, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true },
+    }),
+  );
   writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = ["a"]\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n');

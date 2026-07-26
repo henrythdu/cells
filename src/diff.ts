@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { collectImportEdges } from './importers.js';
 import { deriveCrossings, diffCrossings, type Crossing, type CrossingsDelta } from './crossings.js';
@@ -19,7 +19,7 @@ import type { Ownership } from './ownership.js';
 /** Is the working tree inside a git repo? */
 function isGitRepo(): boolean {
   try {
-    execSync('git rev-parse --is-inside-work-tree', { stdio: 'ignore' });
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -64,10 +64,7 @@ async function withHeadTree<T>(fn: (headDir: string) => Promise<T> | T): Promise
  *  HEAD into a temp dir, re-collect its import edges, map to crossings under the SAME
  *  ownership, diff. Returns null when git/HEAD is unavailable (not a repo, no commits,
  *  or the HEAD read threw) so the caller degrades to the current-crossings view. */
-export async function crossingsDelta(
-  working: Crossing[],
-  ownership: Ownership,
-): Promise<CrossingsDelta | null> {
+export async function crossingsDelta(working: Crossing[], ownership: Ownership): Promise<CrossingsDelta | null> {
   if (!isGitRepo()) return null;
   try {
     return await withHeadTree(async (headDir) => {

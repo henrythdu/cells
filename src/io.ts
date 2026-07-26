@@ -93,4 +93,3 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
   const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
   return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
 }
-
