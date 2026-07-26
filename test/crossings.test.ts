@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  deriveCrossings,
-  checkLeakage,
-  computeMetrics,
-  diffCrossings,
-  type ImportEdge,
-  type Crossing,
-} from '../src/crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type ImportEdge, type Crossing } from '../src/crossings.js';
 import type { Ownership } from '../src/ownership.js';
 import type { Cell } from '../src/declaration.js';
 
@@ -26,9 +19,7 @@ describe('deriveCrossings', () => {
   };
 
   it('maps a cross-cell import edge to a crossing', () => {
-    const edges: ImportEdge[] = [
-      { fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' },
-    ];
+    const edges: ImportEdge[] = [{ fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' }];
     expect(deriveCrossings(edges, ownership)).toEqual([
       {
         fromCell: 'parser',
@@ -41,25 +32,19 @@ describe('deriveCrossings', () => {
   });
 
   it('drops internal imports (same cell)', () => {
-    const edges: ImportEdge[] = [
-      { fromFile: 'src/parser.ts', toFile: 'src/parser.ts', import: './self' },
-    ];
+    const edges: ImportEdge[] = [{ fromFile: 'src/parser.ts', toFile: 'src/parser.ts', import: './self' }];
     expect(deriveCrossings(edges, ownership)).toEqual([]);
   });
 
   it('drops edges into unowned files (not cross-cell, no target cell)', () => {
-    const edges: ImportEdge[] = [
-      { fromFile: 'src/parser.ts', toFile: 'src/unowned-helper.ts', import: './helper' },
-    ];
+    const edges: ImportEdge[] = [{ fromFile: 'src/parser.ts', toFile: 'src/unowned-helper.ts', import: './helper' }];
     expect(deriveCrossings(edges, ownership)).toEqual([]);
   });
 });
 
 describe('checkLeakage', () => {
   it('flags an undeclared dependency (crossing without a matching require)', () => {
-    const crossings: Crossing[] = [
-      { fromCell: 'parser', toCell: 'util', fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' },
-    ];
+    const crossings: Crossing[] = [{ fromCell: 'parser', toCell: 'util', fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' }];
     const declarations = decls({ parser: [], util: [] }); // parser doesn't require util
     const l = checkLeakage(crossings, declarations);
     expect(l.some((x) => x.kind === 'undeclared' && x.fromCell === 'parser' && x.toCell === 'util')).toBe(true);
@@ -72,9 +57,7 @@ describe('checkLeakage', () => {
   });
 
   it('returns no leakage when crossings match requires', () => {
-    const crossings: Crossing[] = [
-      { fromCell: 'parser', toCell: 'util', fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' },
-    ];
+    const crossings: Crossing[] = [{ fromCell: 'parser', toCell: 'util', fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' }];
     const declarations = decls({ parser: ['util'], util: [] });
     expect(checkLeakage(crossings, declarations)).toEqual([]);
   });
@@ -84,7 +67,8 @@ describe('computeMetrics', () => {
   it('counts distinct-cell fan-in/fan-out and instability', () => {
     const x = (fromCell: string, toCell: string): Crossing => ({ fromCell, toCell, fromFile: 'f', toFile: 't', import: 'm' });
     const crossings: Crossing[] = [
-      x('a', 'b'), x('a', 'b'), // dup cell-pair (two files) counts once
+      x('a', 'b'),
+      x('a', 'b'), // dup cell-pair (two files) counts once
       x('a', 'c'),
       x('b', 'c'),
       x('d', 'c'),
@@ -104,7 +88,11 @@ describe('computeMetrics', () => {
 
 describe('diffCrossings', () => {
   const x = (fromCell: string, toCell: string, fromFile: string, toFile: string): Crossing => ({
-    fromCell, toCell, fromFile, toFile, import: 'm',
+    fromCell,
+    toCell,
+    fromFile,
+    toFile,
+    import: 'm',
   });
 
   it('added = in working not head; removed = in head not working', () => {

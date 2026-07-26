@@ -93,10 +93,7 @@ export interface Leakage {
  * - stale: A requires B, but A never imports B (dead/declared-but-unused).
  * Pure.
  */
-export function checkLeakage(
-  crossings: Crossing[],
-  declarations: Record<string, Cell>,
-): Leakage[] {
+export function checkLeakage(crossings: Crossing[], declarations: Record<string, Cell>): Leakage[] {
   const out: Leakage[] = [];
 
   for (const c of crossings) {
@@ -177,11 +174,7 @@ function crossingKey(c: Crossing): string {
 export function diffCrossings(working: Crossing[], head: Crossing[]): CrossingsDelta {
   const workMap = new Map(working.map((c) => [crossingKey(c), c]));
   const headMap = new Map(head.map((c) => [crossingKey(c), c]));
-  const sortFn = (a: Crossing, b: Crossing) =>
-    a.fromCell.localeCompare(b.fromCell) ||
-    a.toCell.localeCompare(b.toCell) ||
-    a.fromFile.localeCompare(b.fromFile) ||
-    a.toFile.localeCompare(b.toFile);
+  const sortFn = (a: Crossing, b: Crossing) => a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell) || a.fromFile.localeCompare(b.fromFile) || a.toFile.localeCompare(b.toFile);
   const added = [...workMap.values()].filter((c) => !headMap.has(crossingKey(c))).sort(sortFn);
   const removed = [...headMap.values()].filter((c) => !workMap.has(crossingKey(c))).sort(sortFn);
   return { added, removed };

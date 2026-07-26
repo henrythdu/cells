@@ -19,20 +19,9 @@ import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type Cros
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles, unassignFiles } from './assign.js';
-import {
-  CELLS_DIR,
-  loadDeclarations,
-  loadOwnership,
-  listCodeFiles,
-  loadConfig,
-  computePayloadSize,
-  neighborsOf,
-  readFiles,
-  requireCells,
-  isGitRepo,
-  withHeadTree,
-} from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells, isGitRepo, withHeadTree } from './io.js';
 import { collectImportEdges } from './importers.js';
+import { DEFAULT_CONFIG } from './config.js';
 import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
@@ -157,9 +146,7 @@ async function cmdShow(name: string): Promise<void> {
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
-  process.stdout.write(
-    formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name]),
-  );
+  process.stdout.write(formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name]));
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
@@ -225,16 +212,25 @@ function cmdOwns(file: string): void {
   console.log(`${file} → ${cell} — ${purpose}`);
 }
 
-/** `cells init` — bootstrap a `.cells/` store (idempotent). */
+/** `cells init` — bootstrap a `.cells/` store (idempotent + self-healing). */
 function cmdInit(): void {
   mkdirSync(CELLS_DIR, { recursive: true });
   const ownPath = join(CELLS_DIR, 'ownership.toml');
-  if (existsSync(ownPath)) {
-    console.log(`${CELLS_DIR}/ already exists — nothing to do.`);
+  const cfgPath = join(CELLS_DIR, 'config.toml');
+  const created: string[] = [];
+  if (!existsSync(ownPath)) {
+    writeFileSync(ownPath, serializeOwnership({}));
+    created.push('ownership.toml');
+  }
+  if (!existsSync(cfgPath)) {
+    writeFileSync(cfgPath, DEFAULT_CONFIG);
+    created.push('config.toml');
+  }
+  if (created.length === 0) {
+    console.log(`${CELLS_DIR}/ already initialized — nothing to do.`);
     return;
   }
-  writeFileSync(ownPath, serializeOwnership({}));
-  console.log(`Initialized ${CELLS_DIR}/ with an empty ownership.toml.`);
+  console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
   console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
 }
 
@@ -305,19 +301,19 @@ const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <f
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
-  payload:   { usage: 'cells payload <name>',          minArgs: 1, needsCells: true,  run: (a) => cmdPayload(a[0]) },
-  validate:  { usage: 'cells validate',                minArgs: 0, needsCells: true,  run: () => cmdValidate() },
-  crossings: { usage: 'cells crossings [--diff]',      minArgs: 0, needsCells: true,  run: (a) => cmdCrossings(a.includes('--diff')) },
-  list:      { usage: 'cells list',                    minArgs: 0, needsCells: true,  run: () => cmdList() },
-  size:      { usage: 'cells size',                    minArgs: 0, needsCells: true,  run: () => cmdSize() },
-  structure: { usage: 'cells structure',               minArgs: 0, needsCells: true,  run: () => cmdStructure() },
-  graph:     { usage: 'cells graph [--mermaid]',       minArgs: 0, needsCells: true,  run: (a) => cmdGraph(a.includes('--mermaid')) },
-  owns:      { usage: 'cells owns <file>',             minArgs: 1, needsCells: true,  run: (a) => cmdOwns(a[0]) },
-  show:      { usage: 'cells show <name>',             minArgs: 1, needsCells: true,  run: (a) => cmdShow(a[0]) },
-  impact:    { usage: 'cells impact <name>',         minArgs: 1, needsCells: true,  run: (a) => cmdImpact(a[0]) },
-  init:      { usage: 'cells init',                    minArgs: 0, needsCells: false, run: () => cmdInit() },
-  assign:    { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true,  run: (a) => cmdAssign(a[0], a.slice(1)) },
-  unassign:  { usage: 'cells unassign <file...>',     minArgs: 1, needsCells: true,  run: (a) => cmdUnassign(a) },
+  payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a) => cmdPayload(a[0]) },
+  validate: { usage: 'cells validate', minArgs: 0, needsCells: true, run: () => cmdValidate() },
+  crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a) => cmdCrossings(a.includes('--diff')) },
+  list: { usage: 'cells list', minArgs: 0, needsCells: true, run: () => cmdList() },
+  size: { usage: 'cells size', minArgs: 0, needsCells: true, run: () => cmdSize() },
+  structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: () => cmdStructure() },
+  graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a) => cmdGraph(a.includes('--mermaid')) },
+  owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a) => cmdOwns(a[0]) },
+  show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a) => cmdShow(a[0]) },
+  impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a) => cmdImpact(a[0]) },
+  init: { usage: 'cells init', minArgs: 0, needsCells: false, run: () => cmdInit() },
+  assign: { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => cmdAssign(a[0], a.slice(1)) },
+  unassign: { usage: 'cells unassign <file...>', minArgs: 1, needsCells: true, run: (a) => cmdUnassign(a) },
 };
 
 async function main(): Promise<void> {

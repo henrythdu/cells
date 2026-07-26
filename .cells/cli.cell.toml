@@ -4,6 +4,7 @@ provides = ["main"]
 requires = [
   "io",
   "importers",
+  "config",
   "declaration",
   "ownership",
   "payload",

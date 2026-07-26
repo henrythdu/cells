@@ -37,7 +37,7 @@ export function loadOwnership(): Ownership {
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: [], codeDirs: ['src', 'test'], codeExts: ['.ts'] };
+  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'] };
   return parseConfig(readFileSync(path, 'utf8'));
 }
 
@@ -80,7 +80,6 @@ export function listCodeFiles(baseDir = '.'): string[] {
   const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
   return all.filter((f) => !isIgnored(f, patterns));
 }
-
 
 /** Resolve a cell's neighbor declarations (for payload assembly). */
 export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {

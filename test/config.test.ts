@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS } from '../src/config.js';
+import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG } from '../src/config.js';
 
 const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'] };
 
@@ -14,6 +14,14 @@ describe('parseConfig', () => {
 
   it('falls back to defaults when empty', () => {
     expect(parseConfig('')).toEqual({
+      maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
+      layers: {},
+      ...DEFAULT_DIRS,
+    });
+  });
+
+  it('DEFAULT_CONFIG (the `cells init` template) round-trips to the defaults', () => {
+    expect(parseConfig(DEFAULT_CONFIG)).toEqual({
       maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
       layers: {},
       ...DEFAULT_DIRS,

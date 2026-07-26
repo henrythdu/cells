@@ -20,11 +20,7 @@ export interface Violation {
  * health. (Unowned files are NOT a violation — they're neutral visibility,
  * surfaced by `list`; `.cells/ignore` declares intentional cell-free files.)
  */
-export function validatePartition(
-  ownership: Ownership,
-  declarations: Record<string, Cell>,
-  codeFiles: string[],
-): Violation[] {
+export function validatePartition(ownership: Ownership, declarations: Record<string, Cell>, codeFiles: string[]): Violation[] {
   const violations: Violation[] = [];
   const codeSet = new Set(codeFiles);
 

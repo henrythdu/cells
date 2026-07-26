@@ -17,6 +17,32 @@ export interface CellsConfig {
 export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
 /**
+ * Default `.cells/config.toml` written by `cells init`. Filled with the defaults +
+ * comments so the user sees what's configurable; every key is optional, so
+ * deleting one reverts to its default (see `parseConfig`). Round-trips through
+ * `parseConfig` to the defaults (verified in config.test.ts).
+ */
+export const DEFAULT_CONFIG = `# Cells configuration. Every key is optional — delete one to use its default.
+# Run \`cells help\` for what each command does.
+
+# Max tokens per cell payload (the context-fit ceiling). Default: 16000.
+max-payload-tokens = 16000
+
+# Directories scanned for code (ownership census + import crossings).
+code-dirs = ["src", "test"]
+
+# Extensions counted as code. Add one per language: .ts .py .rs .go ...
+code-exts = [".ts"]
+
+# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.
+# Uncomment + edit to label your tiers; leave as-is to show raw numbers.
+[layers]
+# 0 = "core"
+# 1 = "rule"
+# 2 = "detail"
+`;
+
+/**
  * Parse `.cells/config.toml`. Missing/empty → defaults. Pure.
  * TOML keys are kebab-case where multi-word.
  */
