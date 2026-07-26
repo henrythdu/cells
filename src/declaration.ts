@@ -33,12 +33,10 @@ export function parseCell(content: string): Cell {
     return v;
   };
   const arr = (v: unknown, field: string): string[] => {
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string'))
-      throw new Error(`invalid .cell.toml: '${field}' must be a string array (got ${got(v)})`);
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(`invalid .cell.toml: '${field}' must be a string array (got ${got(v)})`);
     return v;
   };
-  if (raw.layer !== undefined && typeof raw.layer !== 'number')
-    throw new Error(`invalid .cell.toml: 'layer' must be a number (got ${typeof raw.layer})`);
+  if (raw.layer !== undefined && typeof raw.layer !== 'number') throw new Error(`invalid .cell.toml: 'layer' must be a number (got ${typeof raw.layer})`);
 
   return {
     name: str(raw.name, 'name'),
@@ -54,12 +52,7 @@ export function parseCell(content: string): Cell {
  * Round-trips: parseCell(serializeCell(cell)) ≡ cell.
  */
 export function serializeCell(cell: Cell): string {
-  const lines = [
-    `name = ${tomlString(cell.name)}`,
-    `purpose = ${tomlString(cell.purpose)}`,
-    `provides = ${tomlArray(cell.provides)}`,
-    `requires = ${tomlArray(cell.requires)}`,
-  ];
+  const lines = [`name = ${tomlString(cell.name)}`, `purpose = ${tomlString(cell.purpose)}`, `provides = ${tomlArray(cell.provides)}`, `requires = ${tomlArray(cell.requires)}`];
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
   return lines.join('\n') + '\n';
 }

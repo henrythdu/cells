@@ -41,7 +41,6 @@ export function loadConfig(): CellsConfig {
   return parseConfig(readFileSync(path, 'utf8'));
 }
 
-/** Read a list of files into a {path→content} map (missing files skipped — validate flags them). */
 /** Read files into a {path→content} map (missing files skipped — validate flags them).
  *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
 export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
@@ -68,7 +67,6 @@ export function listFiles(dir: string, exts: string[]): string[] {
   return out;
 }
 
-/** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches. */
 /** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches.
  *  `baseDir` reads code from elsewhere (e.g. an extracted HEAD tree); paths stay repo-relative
  *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */

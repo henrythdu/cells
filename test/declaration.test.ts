@@ -4,13 +4,7 @@ import { parseCell, serializeCell, type Cell } from '../src/declaration.js';
 describe('parseCell', () => {
   it('parses a well-formed cell declaration', () => {
     // Fixture — independent source of truth (hand-written, not derived).
-    const toml = [
-      'name = "parser"',
-      'purpose = "Turn a .cell declaration file into a checked Cell AST."',
-      'provides = ["parseCell", "validateOwnership"]',
-      'requires = ["ownership"]',
-      '',
-    ].join('\n');
+    const toml = ['name = "parser"', 'purpose = "Turn a .cell declaration file into a checked Cell AST."', 'provides = ["parseCell", "validateOwnership"]', 'requires = ["ownership"]', ''].join('\n');
 
     // Expected values are hand-written literals, not recomputed by the parser.
     expect(parseCell(toml)).toEqual({
@@ -22,14 +16,7 @@ describe('parseCell', () => {
   });
 
   it('parses an optional layer tag', () => {
-    const toml = [
-      'name = "domain"',
-      'purpose = "core policy"',
-      'provides = ["decide"]',
-      'requires = []',
-      'layer = 2',
-      '',
-    ].join('\n');
+    const toml = ['name = "domain"', 'purpose = "core policy"', 'provides = ["decide"]', 'requires = []', 'layer = 2', ''].join('\n');
     expect(parseCell(toml)).toEqual({
       name: 'domain',
       purpose: 'core policy',

@@ -19,8 +19,7 @@ export function parseOwnership(content: string): Ownership {
   const result: Ownership = {};
   for (const [cell, val] of Object.entries(raw)) {
     const files = val?.files;
-    if (files !== undefined && (!Array.isArray(files) || files.some((f) => typeof f !== 'string')))
-      throw new Error(`invalid ownership.toml: 'files' for [${cell}] must be a string array`);
+    if (files !== undefined && (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))) throw new Error(`invalid ownership.toml: 'files' for [${cell}] must be a string array`);
     result[cell] = (files as string[] | undefined) ?? [];
   }
   return result;
