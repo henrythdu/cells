@@ -18,7 +18,7 @@ import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type CrossingsDelta, type Crossing } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { assignFiles, unassignFiles } from './assign.js';
+import { assignFiles, unassignFiles, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells, isGitRepo, withHeadTree } from './io.js';
 import { collectImportEdges } from './importers.js';
 import { DEFAULT_CONFIG } from './config.js';
@@ -248,13 +248,19 @@ function cmdInit(): void {
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 function cmdAssign(cell: string, files: string[]): void {
-  const ownership = loadOwnership();
-  const next = assignFiles(ownership, cell, files);
-  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(next));
+  if (!validCellName(cell)) {
+    console.error(`cells: invalid cell name "${cell}" — use only letters, numbers, dashes, underscores.`);
+    process.exit(1);
+  }
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
-  if (!existsSync(declPath)) {
+  const isNew = !existsSync(declPath);
+  if (isNew) {
     const stub: Cell = { name: cell, purpose: '(TODO: describe this cell)', provides: [], requires: [] };
-    writeFileSync(declPath, serializeCell(stub));
+    writeFileSync(declPath, serializeCell(stub)); // create stub before ownership — failure leaves no dirty state
+  }
+  const ownership = loadOwnership();
+  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(assignFiles(ownership, cell, files)));
+  if (isNew) {
     console.log(`Assigned ${files.length} file(s) to "${cell}" — created stub declaration.`);
     console.log(`Edit ${declPath} (purpose/provides/requires), then run \`cells validate\` / \`cells crossings\`.`);
   } else {

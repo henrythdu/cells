@@ -30,3 +30,11 @@ export function unassignFiles(ownership: Ownership, files: string[]): Ownership 
   }
   return next;
 }
+
+/** A cell name must be a TOML-bare-key-safe + filename-safe identifier: letters,
+ *  numbers, dashes, underscores. Rejects slashes/dots — guards assign against both
+ *  invalid-TOML-key corruption (`[src/foo.ts]` is unparseable) and path traversal.
+ *  Pure. */
+export function validCellName(name: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(name);
+}

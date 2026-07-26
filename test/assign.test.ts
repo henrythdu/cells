@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assignFiles, unassignFiles } from '../src/assign.js';
+import { assignFiles, unassignFiles, validCellName } from '../src/assign.js';
 import type { Ownership } from '../src/ownership.js';
 
 describe('assignFiles', () => {
@@ -49,5 +49,21 @@ describe('unassignFiles', () => {
   it('removes files spread across multiple cells', () => {
     const ownership: Ownership = { a: ['src/a1.ts', 'src/a2.ts'], b: ['src/b1.ts'] };
     expect(unassignFiles(ownership, ['src/a1.ts', 'src/b1.ts'])).toEqual({ a: ['src/a2.ts'] });
+  });
+});
+
+describe('validCellName', () => {
+  it('accepts identifiers (letters, numbers, dashes, underscores)', () => {
+    expect(validCellName('cli')).toBe(true);
+    expect(validCellName('tree-sitter')).toBe(true);
+    expect(validCellName('cell_2')).toBe(true);
+  });
+
+  it('rejects path separators, dots, spaces, and empty (TOML-key + traversal safety)', () => {
+    expect(validCellName('src/foo.ts')).toBe(false);
+    expect(validCellName('a.b')).toBe(false);
+    expect(validCellName('../etc')).toBe(false);
+    expect(validCellName('')).toBe(false);
+    expect(validCellName('has space')).toBe(false);
   });
 });
