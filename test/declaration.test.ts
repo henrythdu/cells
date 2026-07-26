@@ -38,6 +38,11 @@ describe('parseCell', () => {
       layer: 2,
     });
   });
+
+  it('throws a clear error on a malformed provides (not a string array)', () => {
+    const toml = 'name = "c"\npurpose = "p"\nprovides = "not-an-array"\nrequires = []\n';
+    expect(() => parseCell(toml)).toThrow(/provides.*string array/);
+  });
 });
 
 describe('serializeCell', () => {

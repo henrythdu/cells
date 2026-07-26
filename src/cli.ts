@@ -15,14 +15,7 @@ import { serializeCell, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
-import {
-  deriveCrossings,
-  checkLeakage,
-  computeMetrics,
-  diffCrossings,
-  type CrossingsDelta,
-  type Crossing,
-} from './crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type CrossingsDelta, type Crossing } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles, unassignFiles } from './assign.js';
@@ -107,10 +100,7 @@ async function cmdCrossings(diff = false): Promise<void> {
  * repo, no commits (HEAD can't resolve), or the HEAD read threw — caller degrades
  * to the current-crossings view. `working` is derived once by the caller (no dup scan).
  */
-async function computeCrossingsDelta(
-  working: Crossing[],
-  ownership: Ownership,
-): Promise<CrossingsDelta | null> {
+async function computeCrossingsDelta(working: Crossing[], ownership: Ownership): Promise<CrossingsDelta | null> {
   if (!isGitRepo()) return null;
   try {
     return await withHeadTree(async (headDir) => {
@@ -363,6 +353,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(`cells: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

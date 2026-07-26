@@ -174,12 +174,7 @@ function crossingKey(c: Crossing): string {
 export function diffCrossings(working: Crossing[], head: Crossing[]): CrossingsDelta {
   const workMap = new Map(working.map((c) => [crossingKey(c), c]));
   const headMap = new Map(head.map((c) => [crossingKey(c), c]));
-  const sortFn = (a: Crossing, b: Crossing) =>
-    a.fromCell.localeCompare(b.fromCell) ||
-    a.toCell.localeCompare(b.toCell) ||
-    a.fromFile.localeCompare(b.fromFile) ||
-    a.toFile.localeCompare(b.toFile) ||
-    a.import.localeCompare(b.import);
+  const sortFn = (a: Crossing, b: Crossing) => a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell) || a.fromFile.localeCompare(b.fromFile) || a.toFile.localeCompare(b.toFile) || a.import.localeCompare(b.import);
   const added = [...workMap.values()].filter((c) => !headMap.has(crossingKey(c))).sort(sortFn);
   const removed = [...headMap.values()].filter((c) => !workMap.has(crossingKey(c))).sort(sortFn);
   return { added, removed };

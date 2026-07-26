@@ -15,7 +15,8 @@ export function parseIgnore(content: string): string[] {
     .filter((l) => l.length > 0 && !l.startsWith('#'));
 }
 
-/** Does `path` match any ignore pattern (gitignore-style globs, `**` supported)? Pure. */
+/** Does `path` match any ignore pattern (gitignore-style globs, `**` supported; basename
+ *  patterns match at any depth via matchBase)? Pure. */
 export function isIgnored(path: string, patterns: string[]): boolean {
-  return patterns.some((p) => minimatch(path, p));
+  return patterns.some((p) => minimatch(path, p, { matchBase: true }));
 }

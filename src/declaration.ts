@@ -10,13 +10,13 @@ export interface Cell {
   purpose: string;
   provides: string[]; // declared surface; validated later by crossing-capture
   requires: string[]; // neighbor CELL names (not symbols)
-  layer?: number; // tier rank (higher = more foundational; high→low = violation). Omit = layerless.
+  layer?: number; // tier rank (0 = core/foundation; higher = peripheral; an edge to a higher layer is the violation). Omit = layerless.
 }
 
 /**
- * Parse a `.cell.toml` declaration into a Cell.
- * Minimal: assumes well-formed input. Validation (missing/malformed fields)
- * arrives in a later slice.
+ * Parse a `.cell.toml` declaration into a Cell. Validates field types — throws a
+ * clear error on a malformed file (missing/non-string name or purpose, non-string-array
+ * provides/requires, non-number layer) instead of returning a half-parsed Cell.
  */
 export function parseCell(content: string): Cell {
   const raw = parseToml(content) as {
@@ -27,11 +27,24 @@ export function parseCell(content: string): Cell {
     layer?: unknown;
   };
 
+  const got = (v: unknown): string => (v === undefined ? 'missing' : Array.isArray(v) ? 'array' : typeof v);
+  const str = (v: unknown, field: string): string => {
+    if (typeof v !== 'string') throw new Error(`invalid .cell.toml: '${field}' must be a string (got ${got(v)})`);
+    return v;
+  };
+  const arr = (v: unknown, field: string): string[] => {
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string'))
+      throw new Error(`invalid .cell.toml: '${field}' must be a string array (got ${got(v)})`);
+    return v;
+  };
+  if (raw.layer !== undefined && typeof raw.layer !== 'number')
+    throw new Error(`invalid .cell.toml: 'layer' must be a number (got ${typeof raw.layer})`);
+
   return {
-    name: raw.name as string,
-    purpose: raw.purpose as string,
-    provides: raw.provides as string[],
-    requires: raw.requires as string[],
+    name: str(raw.name, 'name'),
+    purpose: str(raw.purpose, 'purpose'),
+    provides: arr(raw.provides, 'provides'),
+    requires: arr(raw.requires, 'requires'),
     layer: typeof raw.layer === 'number' ? raw.layer : undefined,
   };
 }

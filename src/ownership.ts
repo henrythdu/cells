@@ -11,13 +11,17 @@ export type Ownership = Record<string, string[]>;
 /**
  * Parse a `.cells/ownership.toml` map.
  * TOML shape: `[cellName]\nfiles = ["a.ts", "b.ts"]` — flattened to `cell → string[]`.
- * Minimal: assumes well-formed. Validation arrives in a later slice.
+ * Validates each `files` is a string array — throws on a malformed entry. A `[cell]`
+ * with no `files` key maps to [] (empty cell).
  */
 export function parseOwnership(content: string): Ownership {
-  const raw = parseToml(content) as Record<string, { files: unknown }>;
+  const raw = parseToml(content) as Record<string, { files?: unknown }>;
   const result: Ownership = {};
   for (const [cell, val] of Object.entries(raw)) {
-    result[cell] = (val.files as string[]) ?? [];
+    const files = val?.files;
+    if (files !== undefined && (!Array.isArray(files) || files.some((f) => typeof f !== 'string')))
+      throw new Error(`invalid ownership.toml: 'files' for [${cell}] must be a string array`);
+    result[cell] = (files as string[] | undefined) ?? [];
   }
   return result;
 }
