@@ -15,7 +15,14 @@ import { serializeCell, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type CrossingsDelta } from './crossings.js';
+import {
+  deriveCrossings,
+  checkLeakage,
+  computeMetrics,
+  diffCrossings,
+  type CrossingsDelta,
+  type Crossing,
+} from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles, unassignFiles } from './assign.js';
@@ -53,23 +60,28 @@ function warnIfBlind(uncoveredExts: string[]): void {
  *  uncommitted edits added/removed (working tree vs HEAD). */
 async function cmdCrossings(diff = false): Promise<void> {
   const ownership = loadOwnership();
-  if (diff) {
-    if (!isGitRepo()) {
-      console.error('⚠ --diff needs a git repo — showing current crossings instead.');
-    } else {
-      const delta = await computeCrossingsDelta(ownership);
-      if (delta === null) console.error('⚠ no HEAD to diff against — showing current crossings instead.');
-      else {
-        showCrossingsDelta(delta);
-        return;
-      }
-    }
-  }
   const declarations = loadDeclarations();
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
-  const leakage = checkLeakage(crossings, declarations);
+
+  if (diff) {
+    const delta = await computeCrossingsDelta(crossings, ownership);
+    if (delta !== null) {
+      showCrossingsDelta(delta);
+      // Flag leakage introduced by these edits. Only UNDECLARED is meaningful on a
+      // delta subset ("did I add a crossing the from-cell doesn't require?"); stale
+      // (declared-but-unused) is a full-tree property an added-subset can't answer.
+      const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
+      if (leakage.length > 0) {
+        console.error(`\nLeakage in added crossings (${leakage.length}):`);
+        for (const l of leakage) console.error(`  [${l.kind}] ${l.detail}`);
+        process.exit(1);
+      }
+      return;
+    }
+    console.error('⚠ --diff unavailable (need a git repo with at least one commit) — showing current crossings instead.');
+  }
 
   if (crossings.length === 0) {
     console.log('No cross-cell imports.');
@@ -80,6 +92,7 @@ async function cmdCrossings(diff = false): Promise<void> {
     }
   }
 
+  const leakage = checkLeakage(crossings, declarations);
   if (leakage.length > 0) {
     console.error(`\nLeakage (${leakage.length}):`);
     for (const l of leakage) {
@@ -89,15 +102,24 @@ async function cmdCrossings(diff = false): Promise<void> {
   }
 }
 
-/** Derive the crossings delta (working tree vs HEAD); null if HEAD can't be read (no commits). */
-async function computeCrossingsDelta(ownership: Ownership): Promise<CrossingsDelta | null> {
-  const { edges: workEdges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const working = deriveCrossings(workEdges, ownership);
-  return withHeadTree(async (headDir) => {
-    const { edges: headEdges } = await collectImportEdges(headDir);
-    return diffCrossings(working, deriveCrossings(headEdges, ownership));
-  });
+/**
+ * Derive the crossings delta (working vs HEAD). null if unavailable: not a git
+ * repo, no commits (HEAD can't resolve), or the HEAD read threw — caller degrades
+ * to the current-crossings view. `working` is derived once by the caller (no dup scan).
+ */
+async function computeCrossingsDelta(
+  working: Crossing[],
+  ownership: Ownership,
+): Promise<CrossingsDelta | null> {
+  if (!isGitRepo()) return null;
+  try {
+    return await withHeadTree(async (headDir) => {
+      const { edges: headEdges } = await collectImportEdges(headDir);
+      return diffCrossings(working, deriveCrossings(headEdges, ownership));
+    });
+  } catch {
+    return null; // HEAD derivation blew up (dep-cruiser panic, IO) — degrade gracefully.
+  }
 }
 
 /** Render a crossings delta: +/− edges, then a summary. */

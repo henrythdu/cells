@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
@@ -109,7 +109,14 @@ export function isGitRepo(): boolean {
  *  (fresh repo) or git/tar is unavailable — callers degrade gracefully. */
 export function extractHeadTree(dir: string): boolean {
   try {
-    execSync(`git archive HEAD | tar -x -C "${dir}"`, { stdio: 'ignore' });
+    // No shell, no stdout buffer: git writes the archive to a file inside `dir`, tar
+    // extracts from it. git's failure (no HEAD on a fresh repo) throws — not masked
+    // by a pipe's last-command exit status — and file I/O avoids the default 1MB
+    // maxBuffer on big repos (e.g. one bundling grammar WASMs). `dir` is a temp dir
+    // removed by withHeadTree, so the archive file needs no separate cleanup.
+    const archiveFile = join(dir, '.head-archive.tar');
+    execFileSync('git', ['archive', '--output', archiveFile, 'HEAD'], { stdio: 'ignore' });
+    execFileSync('tar', ['-x', '-f', archiveFile, '-C', dir], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

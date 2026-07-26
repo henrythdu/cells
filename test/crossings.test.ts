@@ -123,4 +123,13 @@ describe('diffCrossings', () => {
     // deduped (b→a once) + sorted by fromCell then toCell: a→c, b→a
     expect(delta.added).toEqual([x('a', 'c', 'a.ts', 'c.ts'), x('b', 'a', 'b.ts', 'a.ts')]);
   });
+
+  it('sort tie-breaks on `import` when cells + files are identical (stable order)', () => {
+    // Same cells + files, different import specifier → distinct edges (crossingKey
+    // includes import). Sort must tie-break on import for deterministic output.
+    const zz: Crossing = { fromCell: 'a', toCell: 'b', fromFile: 'a.ts', toFile: 'b.ts', import: 'zzz' };
+    const aa: Crossing = { fromCell: 'a', toCell: 'b', fromFile: 'a.ts', toFile: 'b.ts', import: 'aaa' };
+    const delta = diffCrossings([zz, aa], []);
+    expect(delta.added).toEqual([aa, zz]); // sorted by import: aaa before zzz
+  });
 });
