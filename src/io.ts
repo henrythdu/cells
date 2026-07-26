@@ -1,7 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { execFileSync, execSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
@@ -96,44 +94,3 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
   return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
 }
 
-// --- git (for `crossings --diff`: derive crossings at HEAD vs the working tree) ---
-
-/** Is the working tree inside a git repo? */
-export function isGitRepo(): boolean {
-  try {
-    execSync('git rev-parse --is-inside-work-tree', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Extract the HEAD tree (tracked files only) into `dir`. False if there's no HEAD yet
- *  (fresh repo) or git/tar is unavailable — callers degrade gracefully. */
-function extractHeadTree(dir: string): boolean {
-  try {
-    // No shell, no stdout buffer: git writes the archive to a file inside `dir`, tar
-    // extracts from it. git's failure (no HEAD on a fresh repo) throws — not masked
-    // by a pipe's last-command exit status — and file I/O avoids the default 1MB
-    // maxBuffer on big repos (e.g. one bundling grammar WASMs). `dir` is a temp dir
-    // removed by withHeadTree, so the archive file needs no separate cleanup.
-    const archiveFile = join(dir, '.head-archive.tar');
-    execFileSync('git', ['archive', '--output', archiveFile, 'HEAD'], { stdio: 'ignore' });
-    execFileSync('tar', ['-x', '-f', archiveFile, '-C', dir], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Run `fn` against a throwaway copy of the HEAD tree; always clean up.
- *  Returns null if HEAD can't be read (no commits / git broken) so callers can degrade. */
-export async function withHeadTree<T>(fn: (headDir: string) => Promise<T> | T): Promise<T | null> {
-  const dir = mkdtempSync(join(tmpdir(), 'cells-head-'));
-  try {
-    if (!extractHeadTree(dir)) return null;
-    return await fn(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}

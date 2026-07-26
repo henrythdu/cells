@@ -12,14 +12,15 @@ function readVersion(): string {
   }
 }
 import { serializeCell, type Cell } from './declaration.js';
-import { serializeOwnership, owningCell, type Ownership } from './ownership.js';
+import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type CrossingsDelta, type Crossing } from './crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { assignFiles, unassignFiles, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells, isGitRepo, withHeadTree } from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells } from './io.js';
+import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
@@ -59,7 +60,7 @@ async function cmdCrossings(diff = false): Promise<void> {
   const crossings = deriveCrossings(edges, ownership);
 
   if (diff) {
-    const delta = await computeCrossingsDelta(crossings, ownership);
+    const delta = await crossingsDelta(crossings, ownership);
     if (delta !== null) {
       showCrossingsDelta(delta);
       // Flag leakage introduced by these edits. Only UNDECLARED is meaningful on a
@@ -92,23 +93,6 @@ async function cmdCrossings(diff = false): Promise<void> {
       console.error(`  [${l.kind}] ${l.detail}`);
     }
     process.exit(1);
-  }
-}
-
-/**
- * Derive the crossings delta (working vs HEAD). null if unavailable: not a git
- * repo, no commits (HEAD can't resolve), or the HEAD read threw — caller degrades
- * to the current-crossings view. `working` is derived once by the caller (no dup scan).
- */
-async function computeCrossingsDelta(working: Crossing[], ownership: Ownership): Promise<CrossingsDelta | null> {
-  if (!isGitRepo()) return null;
-  try {
-    return await withHeadTree(async (headDir) => {
-      const { edges: headEdges } = await collectImportEdges(headDir);
-      return diffCrossings(working, deriveCrossings(headEdges, ownership));
-    });
-  } catch {
-    return null; // HEAD derivation blew up (dep-cruiser panic, IO) — degrade gracefully.
   }
 }
 

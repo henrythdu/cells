@@ -54,3 +54,6 @@ files = ["src/rust.ts", "test/rust.test.ts"]
 
 [tree-sitter]
 files = ["src/tree-sitter.ts"]
+
+[diff]
+files = ["src/diff.ts", "test/diff.test.ts"]
