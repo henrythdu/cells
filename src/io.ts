@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -55,13 +55,18 @@ export function readFiles(paths: string[], baseDir = '.'): Record<string, string
   return out;
 }
 
-/** Recursively list files under a directory whose extension is in `exts` (relative paths). */
-export function listFiles(dir: string, exts: string[]): string[] {
+/** Recursively list files under a directory whose extension is in `exts` (relative paths).
+ *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
+ *  can't grow the result, only re-walk forever. */
+export function listFiles(dir: string, exts: string[], visited = new Set<string>()): string[] {
   if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
+  const real = realpathSync(dir);
+  if (visited.has(real)) return []; // symlink cycle — stop
+  visited.add(real);
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out.push(...listFiles(path, exts));
+    if (statSync(path).isDirectory()) out.push(...listFiles(path, exts, visited));
     else if (exts.some((e) => entry.endsWith(e))) out.push(path);
   }
   return out;
@@ -105,7 +110,7 @@ export function isGitRepo(): boolean {
 
 /** Extract the HEAD tree (tracked files only) into `dir`. False if there's no HEAD yet
  *  (fresh repo) or git/tar is unavailable — callers degrade gracefully. */
-export function extractHeadTree(dir: string): boolean {
+function extractHeadTree(dir: string): boolean {
   try {
     // No shell, no stdout buffer: git writes the archive to a file inside `dir`, tar
     // extracts from it. git's failure (no HEAD on a fresh repo) throws — not masked
