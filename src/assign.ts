@@ -1,4 +1,5 @@
 import type { Ownership } from './ownership.js';
+import type { Cell } from './declaration.js';
 
 /**
  * Move `files` into `cell`, removing them from any other cell first
@@ -37,4 +38,20 @@ export function unassignFiles(ownership: Ownership, files: string[]): Ownership 
  *  Pure. */
 export function validCellName(name: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(name);
+}
+
+/** Pure plan for `cells assign <cell> <file...>`: validate the name, decide whether
+ *  a stub declaration is needed (cell is new), and compute the next ownership. Does
+ *  NO I/O — `cellExists` is passed in (cli reads the filesystem). cli applies the
+ *  result: write the stub first (if any), then ownership, so a write failure leaves
+ *  no dirty state. Throws on an invalid cell name (the mutation contract) — cli's
+ *  top-level catch surfaces it as `cells: <message>`. */
+export function planAssignment(ownership: Ownership, cell: string, files: string[], cellExists: boolean): { stub: Cell | null; ownership: Ownership } {
+  if (!validCellName(cell)) {
+    throw new Error(`invalid cell name "${cell}" — use only letters, numbers, dashes, underscores.`);
+  }
+  return {
+    stub: cellExists ? null : { name: cell, purpose: '(TODO: describe this cell)', provides: [], requires: [] },
+    ownership: assignFiles(ownership, cell, files),
+  };
 }

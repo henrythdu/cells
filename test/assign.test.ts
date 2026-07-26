@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assignFiles, unassignFiles, validCellName } from '../src/assign.js';
+import { assignFiles, unassignFiles, validCellName, planAssignment } from '../src/assign.js';
 import type { Ownership } from '../src/ownership.js';
 
 describe('assignFiles', () => {
@@ -65,5 +65,32 @@ describe('validCellName', () => {
     expect(validCellName('../etc')).toBe(false);
     expect(validCellName('')).toBe(false);
     expect(validCellName('has space')).toBe(false);
+  });
+});
+
+describe('planAssignment', () => {
+  const base: Ownership = { a: ['src/a.ts'] };
+
+  it('plans a stub + updated ownership when the cell is new', () => {
+    const result = planAssignment(base, 'cli', ['src/a.ts'], false);
+    expect(result.stub).toEqual({ name: 'cli', purpose: '(TODO: describe this cell)', provides: [], requires: [] });
+    expect(result.ownership).toEqual(assignFiles(base, 'cli', ['src/a.ts']));
+  });
+
+  it('plans no stub when the cell already exists', () => {
+    const result = planAssignment(base, 'a', ['src/b.ts'], true);
+    expect(result.stub).toBeNull();
+    expect(result.ownership).toEqual(assignFiles(base, 'a', ['src/b.ts']));
+  });
+
+  it('does no I/O — trusts the passed cellExists, not the filesystem or ownership', () => {
+    // cellExists=true even though 'ghost' is absent from ownership: the plan must use the boolean
+    const result = planAssignment({}, 'ghost', ['src/x.ts'], true);
+    expect(result.stub).toBeNull();
+    expect(result.ownership).toEqual({ ghost: ['src/x.ts'] });
+  });
+
+  it('throws on an invalid cell name (the mutation contract)', () => {
+    expect(() => planAssignment(base, 'bad/name', ['src/a.ts'], false)).toThrow();
   });
 });

@@ -18,7 +18,7 @@ import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { assignFiles, unassignFiles, validCellName } from './assign.js';
+import { unassignFiles, planAssignment } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells } from './io.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
@@ -232,24 +232,14 @@ function cmdInit(): void {
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 function cmdAssign(cell: string, files: string[]): void {
-  if (!validCellName(cell)) {
-    console.error(`cells: invalid cell name "${cell}" — use only letters, numbers, dashes, underscores.`);
-    process.exit(1);
-  }
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
-  const isNew = !existsSync(declPath);
-  if (isNew) {
-    const stub: Cell = { name: cell, purpose: '(TODO: describe this cell)', provides: [], requires: [] };
-    writeFileSync(declPath, serializeCell(stub)); // create stub before ownership — failure leaves no dirty state
-  }
-  const ownership = loadOwnership();
-  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(assignFiles(ownership, cell, files)));
-  if (isNew) {
-    console.log(`Assigned ${files.length} file(s) to "${cell}" — created stub declaration.`);
-    console.log(`Edit ${declPath} (purpose/provides/requires), then run \`cells validate\` / \`cells crossings\`.`);
-  } else {
-    console.log(`Assigned ${files.length} file(s) to "${cell}".`);
-  }
+  // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
+  const { stub, ownership } = planAssignment(loadOwnership(), cell, files, existsSync(declPath));
+  if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
+  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+  console.log(
+    stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells validate\` / \`cells crossings\`.` : `Assigned ${files.length} file(s) to "${cell}".`,
+  );
 }
 
 /** `cells unassign <file...>` — remove files from their cell (→ orphan). */
