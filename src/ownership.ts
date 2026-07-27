@@ -1,5 +1,5 @@
 import { parse as parseToml } from 'smol-toml';
-import { tomlString, tomlArray } from './toml.js';
+import { tomlArray } from './toml.js';
 
 /**
  * Ownership map: cell name → owned file paths.
