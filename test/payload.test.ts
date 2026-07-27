@@ -62,4 +62,22 @@ describe('assemblePayload', () => {
     expect(result).toContain('  - parseCell(raw: string): Cell');
     expect(result).toContain('  - serializeCell(cell: Cell): string');
   });
+
+  it('includes context section with direct dependents count when provided', () => {
+    const cell: Cell = { name: 'core', purpose: 'p', provides: [], requires: [] };
+
+    // with dependents
+    const result = assemblePayload(cell, [], {}, [], 3);
+    expect(result).toContain('## Context');
+    expect(result).toContain('impact: 3 cell(s) directly depend on this cell');
+    expect(result).toContain('`cells impact core`');
+
+    // zero dependents
+    const leaf = assemblePayload(cell, [], {}, [], 0);
+    expect(leaf).toContain('impact: no cells depend on this cell (leaf)');
+
+    // not provided — no context section
+    const noCtx = assemblePayload(cell, [], {}, []);
+    expect(noCtx).not.toContain('## Context');
+  });
 });

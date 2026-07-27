@@ -275,7 +275,8 @@ function cmdPayload(name: string): void {
     else console.error(`warning: neighbor "${n}" of cell "${name}" has no declaration`);
   }
 
-  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors);
+  const dependedByCount = Object.values(decls).filter((d) => d.requires.includes(name)).length;
+  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependedByCount);
   process.stdout.write(payload);
 
   const chars = payload.length;

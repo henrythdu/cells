@@ -19,6 +19,7 @@ export function assemblePayload(
   ownedFiles: string[],
   fileContents: Record<string, string>,
   neighbors: Cell[],
+  dependedByCount?: number,
 ): string {
   const lines: string[] = [];
 
@@ -28,6 +29,15 @@ export function assemblePayload(
   lines.push(`purpose: ${cell.purpose}`);
   lines.push(`provides: [${cell.provides.join(', ')}]`);
   lines.push(`requires: [${cell.requires.join(', ')}]`);
+  if (dependedByCount !== undefined) {
+    lines.push('');
+    lines.push('## Context');
+    lines.push(
+      dependedByCount > 0
+        ? `impact: ${dependedByCount} cell(s) directly depend on this cell. Run \`cells impact ${cell.name}\` for full transitive blast radius.`
+        : `impact: no cells depend on this cell (leaf).`,
+    );
+  }
   lines.push('');
   lines.push('## Your code');
   for (const file of ownedFiles) {
