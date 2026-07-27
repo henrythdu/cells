@@ -68,6 +68,11 @@ export function formatCellShow(
   lines.push('');
   lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
   for (const f of ownedFiles) lines.push(`  ${f}`);
+  if (cell.tests && cell.tests.length > 0) {
+    lines.push('');
+    lines.push(`tests (${cell.tests.length} file${cell.tests.length === 1 ? '' : 's'}):`);
+    for (const f of cell.tests) lines.push(`  ${f}`);
+  }
   lines.push('');
   lines.push(`imports (${outCrossings.length}):`);
   for (const c of outCrossings) {

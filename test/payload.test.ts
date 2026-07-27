@@ -80,4 +80,15 @@ describe('assemblePayload', () => {
     const noCtx = assemblePayload(cell, [], {}, []);
     expect(noCtx).not.toContain('## Context');
   });
+
+  it('includes test code section when test files are provided', () => {
+    const cell: Cell = { name: 'parser', purpose: 'p', provides: [], requires: [] };
+    const testFiles = ['test/parser.test.ts'];
+    const testContents = { 'test/parser.test.ts': "import { describe, it } from 'vitest';" };
+
+    const result = assemblePayload(cell, [], {}, [], undefined, testFiles, testContents);
+    expect(result).toContain('## Tests');
+    expect(result).toContain('### test/parser.test.ts');
+    expect(result).toContain("import { describe, it } from 'vitest';");
+  });
 });

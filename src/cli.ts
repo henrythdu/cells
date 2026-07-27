@@ -268,6 +268,9 @@ function cmdPayload(name: string): void {
   const ownedFiles = ownership[name] ?? [];
   const fileContents = readFiles(ownedFiles);
 
+  const testFiles = cell.tests ?? [];
+  const testContents = testFiles.length > 0 ? readFiles(testFiles) : {};
+
   const neighbors: Cell[] = [];
   for (const n of cell.requires) {
     const neighbor = decls[n];
@@ -276,7 +279,7 @@ function cmdPayload(name: string): void {
   }
 
   const dependedByCount = Object.values(decls).filter((d) => d.requires.includes(name)).length;
-  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependedByCount);
+  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependedByCount, testFiles, testContents);
   process.stdout.write(payload);
 
   const chars = payload.length;

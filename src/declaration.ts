@@ -15,6 +15,7 @@ export interface Cell {
   requires: string[]; // neighbor CELL names (not symbols)
   layer?: number; // tier rank (0 = core/foundation; higher = peripheral; an edge to a higher layer is the violation). Omit = layerless.
   signatures?: string[]; // type-annotated function signatures (free-form, per-language). Included in neighbor membranes in payload — the LLM sees how to call exports without opening the neighbor's code.
+  tests?: string[]; // test files that exercise this cell. Included in payload — the LLM sees test code alongside source code.
 }
 
 /**
@@ -30,6 +31,7 @@ export function parseCell(content: string): Cell {
     requires: unknown;
     layer?: unknown;
     signatures?: unknown;
+    tests?: unknown;
   };
 
   const got = (v: unknown): string => (v === undefined ? 'missing' : Array.isArray(v) ? 'array' : typeof v);
@@ -50,6 +52,7 @@ export function parseCell(content: string): Cell {
     requires: arr(raw.requires, 'requires'),
     layer: typeof raw.layer === 'number' ? raw.layer : undefined,
     signatures: raw.signatures !== undefined ? arr(raw.signatures, 'signatures') : undefined,
+    tests: raw.tests !== undefined ? arr(raw.tests, 'tests') : undefined,
   };
 }
 
@@ -60,6 +63,7 @@ export function parseCell(content: string): Cell {
 export function serializeCell(cell: Cell): string {
   const lines = [`name = ${tomlString(cell.name)}`, `purpose = ${tomlString(cell.purpose)}`, `provides = ${tomlArray(cell.provides)}`, `requires = ${tomlArray(cell.requires)}`];
   if (cell.signatures && cell.signatures.length > 0) lines.push(`signatures = ${tomlArray(cell.signatures)}`);
+  if (cell.tests && cell.tests.length > 0) lines.push(`tests = ${tomlArray(cell.tests)}`);
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
   return lines.join('\n') + '\n';
 }

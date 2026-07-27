@@ -74,4 +74,26 @@ describe('serializeCell', () => {
     };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
+
+  it('parses an optional tests array', () => {
+    const toml = ['name = "parser"', 'purpose = "p"', 'provides = []', 'requires = []', 'tests = ["test/parser.test.ts"]', ''].join('\n');
+    expect(parseCell(toml)).toEqual({
+      name: 'parser',
+      purpose: 'p',
+      provides: [],
+      requires: [],
+      tests: ['test/parser.test.ts'],
+    });
+  });
+
+  it('round-trips with tests', () => {
+    const cell: Cell = {
+      name: 'parser',
+      purpose: 'p',
+      provides: [],
+      requires: [],
+      tests: ['test/parser.test.ts', 'test/integration.test.ts'],
+    };
+    expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
 });

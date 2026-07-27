@@ -20,6 +20,8 @@ export function assemblePayload(
   fileContents: Record<string, string>,
   neighbors: Cell[],
   dependedByCount?: number,
+  testFiles?: string[],
+  testContents?: Record<string, string>,
 ): string {
   const lines: string[] = [];
 
@@ -44,6 +46,14 @@ export function assemblePayload(
     lines.push(`### ${file}`);
     lines.push(fileContents[file] ?? '');
     lines.push('');
+  }
+  if (testFiles && testFiles.length > 0) {
+    lines.push('## Tests');
+    for (const file of testFiles) {
+      lines.push(`### ${file}`);
+      lines.push(testContents?.[file] ?? '');
+      lines.push('');
+    }
   }
   lines.push('## Neighbor contracts');
   for (const neighbor of neighbors) {

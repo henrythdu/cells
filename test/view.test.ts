@@ -154,6 +154,13 @@ describe("formatCellShow", () => {
 		// signatures line appears after provides, before requires
 		expect(out3).toMatch(/validatePartition[\s\S]*\u2022 parseCell[\s\S]*requires:/);
 	});
+
+	it("shows test files when the cell declares them", () => {
+		const withTests: Cell = { ...cell, tests: ["test/validate.test.ts"] };
+		const out4 = formatCellShow(withTests, owned, out, inc, size, metrics);
+		expect(out4).toContain("tests (1 file):");
+		expect(out4).toContain("test/validate.test.ts");
+	});
 });
 
 describe("formatSizeReport", () => {
