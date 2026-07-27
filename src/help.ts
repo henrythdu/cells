@@ -14,7 +14,7 @@ THE MODEL
   membrane    a cell's declaration: name, purpose, provides, requires (+ optional layer).
   crossing    a real dependency from one cell into another (derived from imports).
   payload     what you consume to work a cell: its membrane + owned files + its
-              neighbors' membranes. Measured in tokens (~chars/4).
+              neighbors' membranes. Measured in tokens (~chars/3).
   fan-in/out  cells depending on this one / cells it depends on. instability
               I = fan-out/(fan-in+fan-out): 0 stable, 1 unstable. In list + show.
 

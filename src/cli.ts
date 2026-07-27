@@ -279,7 +279,7 @@ function cmdPayload(name: string): void {
   process.stdout.write(payload);
 
   const chars = payload.length;
-  console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 4)} tokens]`);
+  console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 3)} tokens]`);
 }
 
 /** `cells health` — all four checks at once (validate + crossings + structure + size).
@@ -320,9 +320,9 @@ async function cmdHealth(): Promise<void> {
 
   process.stdout.write(
     `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${cellNames.length} cells, ${codeFiles.length} files)` : `     (${violations.length} violations)`}\n` +
-    `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges)` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}\n` +
-    `  ${structOk ? '✓' : '✗'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
-    `  ${sizeOk ? '✓' : '✗'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
+      `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges)` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}\n` +
+      `  ${structOk ? '✓' : '✗'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
+      `  ${sizeOk ? '✓' : '✗'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
   );
   if (uncoveredExts.length > 0) {
     process.stdout.write(`  — coverage    (${uncoveredExts.length} blind ext(s): ${uncoveredExts.join(', ')})\n`);

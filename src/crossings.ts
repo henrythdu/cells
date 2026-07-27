@@ -103,7 +103,7 @@ export function checkLeakage(crossings: Crossing[], declarations: Record<string,
         kind: 'undeclared',
         fromCell: c.fromCell,
         toCell: c.toCell,
-        detail: `${c.fromCell} imports ${c.toCell} (${c.fromFile} → ${c.toFile}) but doesn't require it`,
+        detail: `${c.fromCell} imports ${c.toCell} (${c.fromFile} → ${c.toFile}) but doesn't require it — add "${c.toCell}" to ${c.fromCell}.cell.toml requires`,
       });
     }
   }
@@ -116,7 +116,7 @@ export function checkLeakage(crossings: Crossing[], declarations: Record<string,
           kind: 'stale',
           fromCell: cell,
           toCell: req,
-          detail: `${cell} requires ${req} but never imports it`,
+          detail: `${cell} requires ${req} but never imports it — remove "${req}" from ${cell}.cell.toml requires, or add an import of ${req} to a file in ${cell}`,
         });
       }
     }

@@ -91,5 +91,5 @@ export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cel
 export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
   const fileContents = readFiles(ownedFiles);
   const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
-  return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 4) };
+  return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 3) };
 }
