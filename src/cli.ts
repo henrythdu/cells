@@ -209,7 +209,20 @@ function cmdOwns(file: string): void {
 }
 
 /** `cells init` — bootstrap a `.cells/` store (idempotent + self-healing). */
-function cmdInit(): void {
+function cmdInit(dryRun = false): void {
+  if (dryRun) {
+    const ownPath = join(CELLS_DIR, 'ownership.toml');
+    const cfgPath = join(CELLS_DIR, 'config.toml');
+    const needed: string[] = [];
+    if (!existsSync(ownPath)) needed.push('ownership.toml');
+    if (!existsSync(cfgPath)) needed.push('config.toml');
+    if (needed.length === 0) {
+      console.log(`${CELLS_DIR}/ already initialized — nothing to do.`);
+    } else {
+      console.log(`Would create ${CELLS_DIR}/ with ${needed.join(' + ')}.`);
+    }
+    return;
+  }
   mkdirSync(CELLS_DIR, { recursive: true });
   const ownPath = join(CELLS_DIR, 'ownership.toml');
   const cfgPath = join(CELLS_DIR, 'config.toml');
@@ -231,10 +244,16 @@ function cmdInit(): void {
 }
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
-function cmdAssign(cell: string, files: string[]): void {
+function cmdAssign(cell: string, files: string[], dryRun = false): void {
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
   const { stub, ownership } = planAssignment(loadOwnership(), cell, files, existsSync(declPath));
+  if (dryRun) {
+    console.log(stub
+      ? `Would create stub ${cell}.cell.toml + assign ${files.length} file(s) to "${cell}".`
+      : `Would assign ${files.length} file(s) to "${cell}".`);
+    return;
+  }
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
   console.log(
@@ -243,10 +262,18 @@ function cmdAssign(cell: string, files: string[]): void {
 }
 
 /** `cells unassign <file...>` — remove files from their cell (→ orphan). */
-function cmdUnassign(files: string[]): void {
+function cmdUnassign(files: string[], dryRun = false): void {
   const ownership = loadOwnership();
   const ownedBefore = new Set(Object.values(ownership).flat());
   const removed = files.filter((f) => ownedBefore.has(f));
+  if (dryRun) {
+    if (removed.length === 0) {
+      console.log('Would do nothing — none of those files are owned.');
+    } else {
+      console.log(`Would unassign ${removed.length} file(s).`);
+    }
+    return;
+  }
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(unassignFiles(ownership, files)));
   if (removed.length === 0) {
     console.log('No changes — none of those files were owned.');
@@ -367,9 +394,17 @@ const COMMANDS: Record<string, Command> = {
   owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a) => cmdOwns(a[0]) },
   show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a) => cmdShow(a[0]) },
   impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a) => cmdImpact(a[0]) },
-  init: { usage: 'cells init', minArgs: 0, needsCells: false, run: () => cmdInit() },
-  assign: { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => cmdAssign(a[0], a.slice(1)) },
-  unassign: { usage: 'cells unassign <file...>', minArgs: 1, needsCells: true, run: (a) => cmdUnassign(a) },
+  init: { usage: 'cells init [--dry-run]', minArgs: 0, needsCells: false, run: (a) => { const dryRun = a.includes('--dry-run'); cmdInit(dryRun); } },
+  assign: { usage: 'cells assign [--dry-run] <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => {
+    const dryRun = a.includes('--dry-run');
+    const args = a.filter(arg => arg !== '--dry-run');
+    cmdAssign(args[0], args.slice(1), dryRun);
+  }},
+  unassign: { usage: 'cells unassign [--dry-run] <file...>', minArgs: 1, needsCells: true, run: (a) => {
+    const dryRun = a.includes('--dry-run');
+    const args = a.filter(arg => arg !== '--dry-run');
+    cmdUnassign(args, dryRun);
+  }},
   health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
 };
 
