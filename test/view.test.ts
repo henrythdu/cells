@@ -142,6 +142,18 @@ describe("formatCellShow", () => {
 		expect(layered).toContain("layer: 1");
 		expect(out2).not.toMatch(/^layer:/m); // the `cell` fixture (validate) has no layer
 	});
+
+	it("shows signatures when present, one per line below provides", () => {
+		const signed: Cell = {
+			...cell,
+			signatures: ["parseCell(raw: string): Cell", "serializeCell(cell: Cell): string"],
+		};
+		const out3 = formatCellShow(signed, owned, out, inc, size, metrics);
+		expect(out3).toContain("\u2022 parseCell(raw: string): Cell");
+		expect(out3).toContain("\u2022 serializeCell(cell: Cell): string");
+		// signatures line appears after provides, before requires
+		expect(out3).toMatch(/validatePartition[\s\S]*\u2022 parseCell[\s\S]*requires:/);
+	});
 });
 
 describe("formatSizeReport", () => {

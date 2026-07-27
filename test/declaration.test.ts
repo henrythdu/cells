@@ -30,6 +30,17 @@ describe('parseCell', () => {
     const toml = 'name = "c"\npurpose = "p"\nprovides = "not-an-array"\nrequires = []\n';
     expect(() => parseCell(toml)).toThrow(/provides.*string array/);
   });
+
+  it('parses an optional signatures array', () => {
+    const toml = ['name = "parser"', 'purpose = "parse"', 'provides = ["parseCell"]', 'requires = []', 'signatures = ["parseCell(raw: string): Cell"]', ''].join('\n');
+    expect(parseCell(toml)).toEqual({
+      name: 'parser',
+      purpose: 'parse',
+      provides: ['parseCell'],
+      requires: [],
+      signatures: ['parseCell(raw: string): Cell'],
+    });
+  });
 });
 
 describe('serializeCell', () => {
@@ -50,6 +61,17 @@ describe('serializeCell', () => {
 
   it('round-trips a layer tag', () => {
     const cell: Cell = { name: 'domain', purpose: 'p', provides: ['decide'], requires: [], layer: 2 };
+    expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
+
+  it('round-trips with signatures', () => {
+    const cell: Cell = {
+      name: 'parser',
+      purpose: 'parse declarations',
+      provides: ['parseCell', 'serializeCell'],
+      requires: ['ownership'],
+      signatures: ['parseCell(raw: string): Cell', 'serializeCell(cell: Cell): string'],
+    };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
 });

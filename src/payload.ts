@@ -40,6 +40,10 @@ export function assemblePayload(
     lines.push(`### Cell: ${neighbor.name}`);
     lines.push(`purpose: ${neighbor.purpose}`);
     lines.push(`provides: [${neighbor.provides.join(', ')}]`);
+    if (neighbor.signatures && neighbor.signatures.length > 0) {
+      lines.push('signatures:');
+      for (const sig of neighbor.signatures) lines.push(`  - ${sig}`);
+    }
     lines.push(`requires: [${neighbor.requires.join(', ')}]`);
     lines.push('');
   }

@@ -44,4 +44,22 @@ describe('assemblePayload', () => {
 
     expect(assemblePayload(cell, ownedFiles, fileContents, neighbors)).toBe(expected);
   });
+
+  it('includes neighbor signatures in the neighbor contracts section', () => {
+    const cell: Cell = { name: 'cli', purpose: 'wire', provides: [], requires: ['parser'] };
+    const neighbors: Cell[] = [
+      {
+        name: 'parser',
+        purpose: 'parse declarations',
+        provides: ['parseCell', 'serializeCell'],
+        requires: [],
+        signatures: ['parseCell(raw: string): Cell', 'serializeCell(cell: Cell): string'],
+      },
+    ];
+
+    const result = assemblePayload(cell, [], {}, neighbors);
+    expect(result).toContain('signatures:');
+    expect(result).toContain('  - parseCell(raw: string): Cell');
+    expect(result).toContain('  - serializeCell(cell: Cell): string');
+  });
 });

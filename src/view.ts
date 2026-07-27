@@ -57,6 +57,9 @@ export function formatCellShow(
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.provides.length > 0) lines.push(`provides: ${cell.provides.join(', ')}`);
+  if (cell.signatures && cell.signatures.length > 0) {
+    for (const sig of cell.signatures) lines.push(`  • ${sig}`);
+  }
   lines.push(`requires: ${cell.requires.length > 0 ? cell.requires.join(', ') : '—'}`);
   if (cell.layer !== undefined) lines.push(`layer: ${cell.layer}`);
   lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
