@@ -32,13 +32,17 @@ WORKING IN A CELLS PROJECT (for agents)
   7. check        cells health (all four at once) · or: validate · crossings · crossings --diff · size · structure
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
+  Brownfield adoption? Run cells plan — it scans code-dirs, groups files by directory,
+  and prints a proposed .cell.toml declarations + ownership map. Review, curate, create.
+
   A cell past the ceiling? Split its files across new cells with assign
   (no separate divide command — assign IS the repartition tool).
 
 COMMANDS
-  init                     bootstrap .cells/ (idempotent)
-  assign <cell> <file...>  assign files to a cell (records ownership; stubs if new)
-  unassign <file...>       remove files from their cell (→ orphan)
+  init [--dry-run]         bootstrap .cells/ (idempotent; --dry-run previews)
+  plan                     scan code-dirs and propose a partition (review + curate)
+  assign <cell> <file...>  assign files to a cell (records ownership; stubs if new; --dry-run previews)
+  unassign <file...>       remove files from their cell (→ orphan; --dry-run previews)
   owns <file>              which cell owns this file? (reverse lookup)
   list                     partition overview: cells, sizes, fan-in/out, requires, orphans
   show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size

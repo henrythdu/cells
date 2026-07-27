@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Installed version, read lazily from package.json (works in dev + when npm-installed). */
@@ -11,7 +11,7 @@ function readVersion(): string {
     return 'unknown';
   }
 }
-import { serializeCell, type Cell } from './declaration.js';
+import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
@@ -373,6 +373,39 @@ async function cmdHealth(): Promise<void> {
   }
 }
 
+/** `cells plan` — scan code-dirs and propose a partition: group files by parent
+ *  directory, print suggested .cell.toml declarations + ownership.toml to stdout.
+ *  The LLM reviews and curates — no files are written. */
+function cmdPlan(): void {
+  const codeFiles = listCodeFiles();
+  const groups: Record<string, string[]> = {};
+  for (const f of codeFiles) {
+    const dir = basename(dirname(f)) || 'root';
+    (groups[dir] ??= []).push(f);
+  }
+
+  console.log('# Proposed cell declarations (.cells/*.cell.toml files)');
+  console.log('# Review and curate, then create them.');
+  console.log('');
+  for (const [name, files] of Object.entries(groups).sort()) {
+    console.log(`## ${name}`);
+    console.log(`name = "${name}"`);
+    console.log(`purpose = "${STUB_PURPOSE}"`);
+    console.log('provides = []');
+    console.log('requires = []');
+    console.log('');
+  }
+
+  console.log('# Proposed ownership (.cells/ownership.toml)');
+  console.log('# Review and curate, then write to .cells/ownership.toml.');
+  console.log('');
+  for (const [name, files] of Object.entries(groups).sort()) {
+    console.log(`[${name}]`);
+    console.log(`files = [${files.map((f) => `"${f}"`).join(', ')}]`);
+    console.log('');
+  }
+}
+
 interface Command {
   readonly usage: string;
   readonly minArgs: number;
@@ -380,7 +413,7 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+const USAGE = 'usage: cells {help | init | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -406,6 +439,7 @@ const COMMANDS: Record<string, Command> = {
     cmdUnassign(args, dryRun);
   }},
   health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
+  plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
 };
 
 async function main(): Promise<void> {
