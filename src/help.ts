@@ -29,7 +29,7 @@ WORKING IN A CELLS PROJECT (for agents)
   5. work         edit the cell's files; stay within its membrane
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
-  7. check        cells validate (integrity) · crossings (leakage) · crossings --diff (delta) · size · structure
+  7. check        cells health (all four at once) · or: validate · crossings · crossings --diff · size · structure
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
   A cell past the ceiling? Split its files across new cells with assign
@@ -49,6 +49,7 @@ COMMANDS
   size                     context-fit: each payload vs the ceiling (warning)
   structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
+  health                  all checks: validate + crossings + structure + size
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)
 

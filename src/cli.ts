@@ -282,6 +282,66 @@ function cmdPayload(name: string): void {
   console.error(`\n[size: ${chars} chars, ~${Math.ceil(chars / 4)} tokens]`);
 }
 
+/** `cells health` — all four checks at once (validate + crossings + structure + size).
+ *  One command instead of four for the LLM's check step. Exit 1 if any check fails. */
+async function cmdHealth(): Promise<void> {
+  const config = loadConfig();
+  const declarations = loadDeclarations();
+  const ownership = loadOwnership();
+  const codeFiles = listCodeFiles();
+
+  const { edges, uncoveredExts } = await collectImportEdges();
+  const crossings = deriveCrossings(edges, ownership);
+
+  const violations = validatePartition(ownership, declarations, codeFiles);
+  const undeclared = checkLeakage(crossings, declarations);
+  const cycles = detectCycles(crossings);
+  const dirViolations = checkDirection(crossings, declarations);
+
+  const cellNames = Object.keys(declarations);
+  let maxPercent = 0;
+  for (const name of cellNames) {
+    const cell = declarations[name];
+    const size = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
+    const pct = size.tokens / config.maxPayloadTokens;
+    if (pct > maxPercent) maxPercent = pct;
+  }
+
+  const valOk = violations.length === 0;
+  const xOk = undeclared.length === 0;
+  const structOk = cycles.length === 0 && dirViolations.length === 0;
+  const sizeOk = maxPercent <= 1;
+  const allOk = valOk && xOk && structOk && sizeOk;
+
+  const structParts: string[] = [];
+  if (cycles.length > 0) structParts.push(`${cycles.length} cycle(s)`);
+  if (dirViolations.length > 0) structParts.push(`${dirViolations.length} direction`);
+  const structLabel = structParts.length > 0 ? structParts.join(', ') : 'acyclic, direction OK';
+
+  process.stdout.write(
+    `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${cellNames.length} cells, ${codeFiles.length} files)` : `     (${violations.length} violations)`}\n` +
+    `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges)` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}\n` +
+    `  ${structOk ? '✓' : '✗'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
+    `  ${sizeOk ? '✓' : '✗'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
+  );
+  if (uncoveredExts.length > 0) {
+    process.stdout.write(`  — coverage    (${uncoveredExts.length} blind ext(s): ${uncoveredExts.join(', ')})\n`);
+  }
+
+  process.stdout.write('\n');
+  if (allOk) {
+    process.stdout.write('→ All checks passed.\n');
+  } else {
+    const failing: string[] = [];
+    if (!valOk) failing.push('validate');
+    if (!xOk) failing.push('crossings');
+    if (!structOk) failing.push('structure');
+    if (!sizeOk) failing.push('size');
+    process.stdout.write(`→ ${failing.length} check(s) failed — run \`cells ${failing.join('` / `cells ')}\` for details.\n`);
+    process.exit(1);
+  }
+}
+
 interface Command {
   readonly usage: string;
   readonly minArgs: number;
@@ -289,7 +349,7 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings [--diff] | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+const USAGE = 'usage: cells {help | init | assign <cell> <file...> | unassign <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -306,6 +366,7 @@ const COMMANDS: Record<string, Command> = {
   init: { usage: 'cells init', minArgs: 0, needsCells: false, run: () => cmdInit() },
   assign: { usage: 'cells assign <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => cmdAssign(a[0], a.slice(1)) },
   unassign: { usage: 'cells unassign <file...>', minArgs: 1, needsCells: true, run: (a) => cmdUnassign(a) },
+  health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
 };
 
 async function main(): Promise<void> {
