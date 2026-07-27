@@ -1,6 +1,9 @@
 import { parse as parseToml } from 'smol-toml';
 import { tomlString, tomlArray } from './toml.js';
 
+/** Purpose string of a stub cell — not yet authored. Detectable by view/lifecycle tools. */
+export const STUB_PURPOSE = '(TODO: describe this cell)';
+
 /**
  * A cell's declaration — its membrane (the contract) + identity.
  * Owned code is NOT listed here (ownership lives in the ownership map).

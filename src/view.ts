@@ -1,4 +1,4 @@
-import type { Cell } from './declaration.js';
+import { STUB_PURPOSE, type Cell } from './declaration.js';
 import type { Ownership } from './ownership.js';
 import type { CellMetrics, Crossing } from './crossings.js';
 import type { CellSize } from './payload.js';
@@ -30,8 +30,9 @@ export function formatCellList(
     const reqStr = requires.length > 0 ? `→ ${requires.join(', ')}` : '—';
     const m = metrics[name];
     const coupling = m ? `${m.fanIn}/${m.fanOut}` : '—';
+    const label = declarations[name]?.purpose === STUB_PURPOSE ? `${name} (stub)` : name;
     lines.push(
-      `  ${name.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`,
+      `  ${label.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`,
     );
   }
   if (orphanFiles.length > 0) {
@@ -56,6 +57,7 @@ export function formatCellShow(
 ): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
+  if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
   if (cell.provides.length > 0) lines.push(`provides: ${cell.provides.join(', ')}`);
   if (cell.signatures && cell.signatures.length > 0) {
     for (const sig of cell.signatures) lines.push(`  • ${sig}`);

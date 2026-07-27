@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assignFiles, unassignFiles, validCellName, planAssignment } from '../src/assign.js';
+import { STUB_PURPOSE } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 
 describe('assignFiles', () => {
@@ -73,7 +74,7 @@ describe('planAssignment', () => {
 
   it('plans a stub + updated ownership when the cell is new', () => {
     const result = planAssignment(base, 'cli', ['src/a.ts'], false);
-    expect(result.stub).toEqual({ name: 'cli', purpose: '(TODO: describe this cell)', provides: [], requires: [] });
+    expect(result.stub).toEqual({ name: 'cli', purpose: STUB_PURPOSE, provides: [], requires: [] });
     expect(result.ownership).toEqual(assignFiles(base, 'cli', ['src/a.ts']));
   });
 

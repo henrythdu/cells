@@ -1,5 +1,5 @@
 import type { Ownership } from './ownership.js';
-import type { Cell } from './declaration.js';
+import { STUB_PURPOSE, type Cell } from './declaration.js';
 
 /**
  * Move `files` into `cell`, removing them from any other cell first
@@ -51,7 +51,7 @@ export function planAssignment(ownership: Ownership, cell: string, files: string
     throw new Error(`invalid cell name "${cell}" — use only letters, numbers, dashes, underscores.`);
   }
   return {
-    stub: cellExists ? null : { name: cell, purpose: '(TODO: describe this cell)', provides: [], requires: [] },
+    stub: cellExists ? null : { name: cell, purpose: STUB_PURPOSE, provides: [], requires: [] },
     ownership: assignFiles(ownership, cell, files),
   };
 }
