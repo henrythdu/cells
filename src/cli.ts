@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,7 +18,7 @@ import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { unassignFiles, planAssignment } from './assign.js';
+import { unassignFiles, planAssignment, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells } from './io.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
@@ -241,6 +241,59 @@ function cmdInit(dryRun = false): void {
   }
   console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
   console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
+  console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
+  console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
+}
+
+/** `cells rename <old> <new>` — rename a cell across the store: .cell.toml file,
+ *  ownership.toml key, and every other cell's requires reference. */
+function cmdRename(oldName: string, newName: string): void {
+  if (!validCellName(newName)) {
+    console.error(`cells: invalid cell name "${newName}" — use only letters, numbers, dashes, underscores.`);
+    process.exit(1);
+  }
+
+  if (!existsSync(join(CELLS_DIR, `${oldName}.cell.toml`))) {
+    console.error(`cells: no cell named "${oldName}"`);
+    process.exit(1);
+  }
+
+  if (existsSync(join(CELLS_DIR, `${newName}.cell.toml`))) {
+    console.error(`cells: "${newName}" already exists — can't overwrite`);
+    process.exit(1);
+  }
+
+  const decls = loadDeclarations();
+  const oldDecl = decls[oldName];
+
+  renameSync(join(CELLS_DIR, `${oldName}.cell.toml`), join(CELLS_DIR, `${newName}.cell.toml`));
+
+  if (oldDecl) {
+    oldDecl.name = newName;
+    writeFileSync(join(CELLS_DIR, `${newName}.cell.toml`), serializeCell(oldDecl));
+  }
+
+  const ownership = loadOwnership();
+  const ownedCount = ownership[oldName]?.length ?? 0;
+  if (ownership[oldName]) {
+    ownership[newName] = ownership[oldName];
+    delete ownership[oldName];
+    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+  }
+
+  let requiresUpdated = 0;
+  for (const [name, decl] of Object.entries(decls)) {
+    if (name === oldName) continue;
+    if (decl.requires.includes(oldName)) {
+      decl.requires = decl.requires.map((r) => (r === oldName ? newName : r));
+      writeFileSync(join(CELLS_DIR, `${name}.cell.toml`), serializeCell(decl));
+      requiresUpdated++;
+    }
+  }
+
+  console.log(`Renamed "${oldName}" → "${newName}".`);
+  if (ownedCount > 0) console.log(`  Ownership: ${ownedCount} file(s).`);
+  if (requiresUpdated > 0) console.log(`  Requires: updated ${requiresUpdated} cell(s).`);
 }
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
@@ -413,7 +466,7 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+const USAGE = 'usage: cells {help | init | rename <old> <new> | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -428,6 +481,7 @@ const COMMANDS: Record<string, Command> = {
   show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a) => cmdShow(a[0]) },
   impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a) => cmdImpact(a[0]) },
   init: { usage: 'cells init [--dry-run]', minArgs: 0, needsCells: false, run: (a) => { const dryRun = a.includes('--dry-run'); cmdInit(dryRun); } },
+  rename: { usage: 'cells rename <old> <new>', minArgs: 2, needsCells: true, run: (a) => cmdRename(a[0], a[1]) },
   assign: { usage: 'cells assign [--dry-run] <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => {
     const dryRun = a.includes('--dry-run');
     const args = a.filter(arg => arg !== '--dry-run');
