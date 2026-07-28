@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -296,15 +296,54 @@ function cmdRename(oldName: string, newName: string): void {
   if (requiresUpdated > 0) console.log(`  Requires: updated ${requiresUpdated} cell(s).`);
 }
 
+/** `cells remove <cell> [--force]` — delete a cell from the store. Refuses if the cell
+ *  owns files or is required by others (state must be resolved first); --force orphans
+ *  the files (→ unowned) and strips requires references from other cells. */
+function cmdRemove(name: string, force: boolean): void {
+  const declPath = join(CELLS_DIR, `${name}.cell.toml`);
+  if (!existsSync(declPath)) {
+    console.error(`cells: no cell named "${name}"`);
+    process.exit(1);
+  }
+
+  const ownership = loadOwnership();
+  const ownedFiles = ownership[name] ?? [];
+  const decls = loadDeclarations();
+  const dependents = Object.values(decls)
+    .filter((d) => d.name !== name && d.requires.includes(name))
+    .map((d) => d.name);
+
+  if (!force && (ownedFiles.length > 0 || dependents.length > 0)) {
+    if (ownedFiles.length > 0) console.error(`cells: "${name}" owns ${ownedFiles.length} file(s) — reassign them (cells assign), or use --force to orphan them (→ unowned)`);
+    if (dependents.length > 0) console.error(`cells: "${name}" is required by ${dependents.join(', ')} — update their requires, or use --force to strip the references`);
+    process.exit(1);
+  }
+
+  rmSync(declPath);
+
+  if (ownedFiles.length > 0) {
+    delete ownership[name];
+    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+  }
+
+  for (const dep of dependents) {
+    const decl = decls[dep];
+    decl.requires = decl.requires.filter((r) => r !== name);
+    writeFileSync(join(CELLS_DIR, `${dep}.cell.toml`), serializeCell(decl));
+  }
+
+  console.log(`Removed cell "${name}".`);
+  if (ownedFiles.length > 0) console.log(`  ${ownedFiles.length} file(s) orphaned → unowned.`);
+  if (dependents.length > 0) console.log(`  Stripped requires from: ${dependents.join(', ')}.`);
+}
+
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 function cmdAssign(cell: string, files: string[], dryRun = false): void {
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
   const { stub, ownership } = planAssignment(loadOwnership(), cell, files, existsSync(declPath));
   if (dryRun) {
-    console.log(stub
-      ? `Would create stub ${cell}.cell.toml + assign ${files.length} file(s) to "${cell}".`
-      : `Would assign ${files.length} file(s) to "${cell}".`);
+    console.log(stub ? `Would create stub ${cell}.cell.toml + assign ${files.length} file(s) to "${cell}".` : `Would assign ${files.length} file(s) to "${cell}".`);
     return;
   }
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
@@ -434,13 +473,14 @@ function cmdPlan(): void {
   const groups: Record<string, string[]> = {};
   for (const f of codeFiles) {
     const dir = basename(dirname(f)) || 'root';
-    (groups[dir] ??= []).push(f);
+    if (!(dir in groups)) groups[dir] = [];
+    groups[dir].push(f);
   }
 
   console.log('# Proposed cell declarations (.cells/*.cell.toml files)');
   console.log('# Review and curate, then create them.');
   console.log('');
-  for (const [name, files] of Object.entries(groups).sort()) {
+  for (const [name] of Object.entries(groups).sort()) {
     console.log(`## ${name}`);
     console.log(`name = "${name}"`);
     console.log(`purpose = "${STUB_PURPOSE}"`);
@@ -466,7 +506,8 @@ interface Command {
   readonly run: (args: string[]) => void | Promise<void>;
 }
 
-const USAGE = 'usage: cells {help | init | rename <old> <new> | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+const USAGE =
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -480,18 +521,37 @@ const COMMANDS: Record<string, Command> = {
   owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a) => cmdOwns(a[0]) },
   show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a) => cmdShow(a[0]) },
   impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a) => cmdImpact(a[0]) },
-  init: { usage: 'cells init [--dry-run]', minArgs: 0, needsCells: false, run: (a) => { const dryRun = a.includes('--dry-run'); cmdInit(dryRun); } },
+  init: {
+    usage: 'cells init [--dry-run]',
+    minArgs: 0,
+    needsCells: false,
+    run: (a) => {
+      const dryRun = a.includes('--dry-run');
+      cmdInit(dryRun);
+    },
+  },
   rename: { usage: 'cells rename <old> <new>', minArgs: 2, needsCells: true, run: (a) => cmdRename(a[0], a[1]) },
-  assign: { usage: 'cells assign [--dry-run] <cell> <file...>', minArgs: 2, needsCells: true, run: (a) => {
-    const dryRun = a.includes('--dry-run');
-    const args = a.filter(arg => arg !== '--dry-run');
-    cmdAssign(args[0], args.slice(1), dryRun);
-  }},
-  unassign: { usage: 'cells unassign [--dry-run] <file...>', minArgs: 1, needsCells: true, run: (a) => {
-    const dryRun = a.includes('--dry-run');
-    const args = a.filter(arg => arg !== '--dry-run');
-    cmdUnassign(args, dryRun);
-  }},
+  remove: { usage: 'cells remove <cell> [--force]', minArgs: 1, needsCells: true, run: (a) => cmdRemove(a[0], a.includes('--force')) },
+  assign: {
+    usage: 'cells assign [--dry-run] <cell> <file...>',
+    minArgs: 2,
+    needsCells: true,
+    run: (a) => {
+      const dryRun = a.includes('--dry-run');
+      const args = a.filter((arg) => arg !== '--dry-run');
+      cmdAssign(args[0], args.slice(1), dryRun);
+    },
+  },
+  unassign: {
+    usage: 'cells unassign [--dry-run] <file...>',
+    minArgs: 1,
+    needsCells: true,
+    run: (a) => {
+      const dryRun = a.includes('--dry-run');
+      const args = a.filter((arg) => arg !== '--dry-run');
+      cmdUnassign(args, dryRun);
+    },
+  },
   health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
   plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
 };
