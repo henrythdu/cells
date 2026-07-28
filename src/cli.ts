@@ -26,22 +26,6 @@ import { DEFAULT_CONFIG } from './config.js';
 import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
-/** `cells validate` — check partition integrity. */
-function cmdValidate(): void {
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
-  const codeFiles = listCodeFiles();
-  const violations = validatePartition(ownership, declarations, codeFiles);
-  if (violations.length === 0) {
-    console.log(`OK — valid partition. ${Object.keys(declarations).length} cells, ${codeFiles.length} code files.`);
-    return;
-  }
-  for (const v of violations) {
-    console.log(`${v.kind}: ${v.detail}`);
-  }
-  process.exit(1);
-}
-
 /** Warn (stderr) when census files exist that no importer handles — the
  * crossings-derived output may be BLIND. Goes to stderr so machine output (stdout) stays clean. */
 function warnIfBlind(uncoveredExts: string[]): void {
@@ -349,7 +333,7 @@ function cmdAssign(cell: string, files: string[], dryRun = false): void {
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
   console.log(
-    stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells validate\` / \`cells crossings\`.` : `Assigned ${files.length} file(s) to "${cell}".`,
+    stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${files.length} file(s) to "${cell}".`,
   );
 }
 
@@ -452,15 +436,17 @@ async function cmdHealth(): Promise<void> {
   }
 
   process.stdout.write('\n');
+  if (!valOk) {
+    for (const v of violations) process.stdout.write(`  validate: ${v.kind} — ${v.detail}\n`);
+  }
   if (allOk) {
     process.stdout.write('→ All checks passed.\n');
   } else {
-    const failing: string[] = [];
-    if (!valOk) failing.push('validate');
-    if (!xOk) failing.push('crossings');
-    if (!structOk) failing.push('structure');
-    if (!sizeOk) failing.push('size');
-    process.stdout.write(`→ ${failing.length} check(s) failed — run \`cells ${failing.join('` / `cells ')}\` for details.\n`);
+    const drill: string[] = [];
+    if (!xOk) drill.push('crossings');
+    if (!structOk) drill.push('structure');
+    const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
+    process.stdout.write(`→ Some checks failed.${drillHint}\n`);
     process.exit(1);
   }
 }
@@ -507,12 +493,12 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | validate | crossings [--diff] | health | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health | crossings [--diff] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
   payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a) => cmdPayload(a[0]) },
-  validate: { usage: 'cells validate', minArgs: 0, needsCells: true, run: () => cmdValidate() },
+  validate: { usage: 'cells validate', minArgs: 0, needsCells: true, run: async () => { console.log('Note: `cells validate` is now `cells health` (the full gate). Running it.'); await cmdHealth(); } },
   crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a) => cmdCrossings(a.includes('--diff')) },
   list: { usage: 'cells list', minArgs: 0, needsCells: true, run: () => cmdList() },
   size: { usage: 'cells size', minArgs: 0, needsCells: true, run: () => cmdSize() },

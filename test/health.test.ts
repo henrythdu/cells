@@ -63,4 +63,12 @@ describe('cells health', () => {
       }
     });
   });
+
+  describe('validate is now an alias for health', () => {
+    it('runs the full gate and prints a redirect note', () => {
+      const out = execSync(`node ${cellsBin} validate`, { encoding: 'utf8' });
+      expect(out).toContain('is now `cells health`');
+      expect(out).toContain('All checks passed');
+    });
+  });
 });

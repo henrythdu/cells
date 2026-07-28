@@ -29,7 +29,7 @@ WORKING IN A CELLS PROJECT (for agents)
   5. work         edit the cell's files; stay within its membrane
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
-  7. check        cells health (all four at once) · or: validate · crossings · crossings --diff · size · structure
+  7. check        cells health (the gate — all four at once) · or drill in: crossings · crossings --diff · size · structure
                   If checks fail: read the hints (each error says what to edit), fix the membrane
                   (.cell.toml requires/provides/tests, reassign files, or remove dead imports),
                   then re-run cells health until green.
@@ -53,12 +53,11 @@ COMMANDS
   show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  validate                 integrity: duplicates, dangling, undeclared, unknown-require
+  health                  THE GATE: all checks at once (integrity + crossings + structure + size)
   crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
   size                     context-fit: each payload vs the ceiling (warning)
   structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
-  health                  all checks: validate + crossings + structure + size
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)
 
@@ -77,7 +76,7 @@ FILES (.cells/)
                      code-dirs[], code-exts[] (per language; default src/test, .ts)
   ignore             gitignore-style patterns for intentionally cell-free files
 
-LANGUAGES: partition/payload/size/validate/owns are language-agnostic — set code-dirs + code-exts
+LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts
 in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python and
 Rust via tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
 uses ownership (a module->file map from owned files), not the filesystem — runs on source you're

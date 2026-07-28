@@ -58,7 +58,7 @@ Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-
 cells init                          # create .cells/ with an empty ownership map
 cells assign parser src/parser.ts   # assign a file to a cell (records ownership; stubs the declaration)
 $EDITOR .cells/parser.cell.toml     # author the membrane: purpose / provides / requires
-cells validate                      # check partition integrity
+cells health                        # the gate: all checks at once (integrity + crossings + structure + size)
 cells list                          # see the whole partition
 ```
 
@@ -78,7 +78,7 @@ cells list                          # see the whole partition
 | `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
-| `cells validate` | partition integrity (duplicates, dangling refs, undeclared cells, unknown requires) |
+| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (leakage) + structure (cycles / direction) + size. `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning) |
 | `cells structure` | layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) — warnings |
@@ -176,11 +176,11 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 4. **Assess** — `cells impact <name>`: blast radius — who transitively depends on this cell? Weigh the risk *before* editing (a core cell can break many; a leaf is safe to change).
 5. **Work** — edit the cell's files. Stay within its membrane.
 6. **Place new code** — a new file needs a home. Read `list`, decide which cell (it's *your* judgment, not Cells'), then `cells assign <cell> <file>`. (Unowned files aren't violations — `list` shows them as a reminder; `.cells/ignore` hides the intentional ones.)
-7. **Check** — `cells validate` (integrity) · `cells crossings` (leakage) · `cells size` (context-fit) · `cells structure` (cycles / direction).
+7. **Check** — `cells health` (the gate — all four at once). Drill in if it fails: `cells crossings` (leakage), `cells size` (context-fit), `cells structure` (cycles / direction).
 8. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
 
 **Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool.
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 17 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 20 cells. Run `cells list` to see.*
