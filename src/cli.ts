@@ -46,14 +46,15 @@ async function cmdCrossings(diff = false): Promise<void> {
   if (diff) {
     const delta = await crossingsDelta(crossings, ownership);
     if (delta !== null) {
-      showCrossingsDelta(delta);
       // Flag leakage introduced by these edits. Only UNDECLARED is meaningful on a
       // delta subset ("did I add a crossing the from-cell doesn't require?"); stale
       // (declared-but-unused) is a full-tree property an added-subset can't answer.
       const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
+      const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
+      showCrossingsDelta(delta, undeclaredKeys);
       if (leakage.length > 0) {
-        console.error(`\nLeakage in added crossings (${leakage.length}):`);
-        for (const l of leakage) console.error(`  [${l.kind}] ${l.detail}`);
+        console.error(`\nUndeclared crossings (${leakage.length}) — the [UNDECLARED] edges above need a requires entry (or remove the import):`);
+        for (const l of leakage) console.error(`  ${l.detail}`);
         process.exit(1);
       }
       return;
@@ -81,13 +82,16 @@ async function cmdCrossings(diff = false): Promise<void> {
 }
 
 /** Render a crossings delta: +/− edges, then a summary. */
-function showCrossingsDelta(delta: CrossingsDelta): void {
+function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new Set()): void {
   if (delta.added.length === 0 && delta.removed.length === 0) {
     console.log('No crossing changes since HEAD.');
     return;
   }
   console.log('Crossings delta (working tree vs HEAD):');
-  for (const c of delta.added) console.log(`  + ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  for (const c of delta.added) {
+    const flag = undeclared.has(`${c.fromCell}|${c.toCell}`) ? ' [UNDECLARED]' : '';
+    console.log(`  +${flag} ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  }
   for (const c of delta.removed) console.log(`  − ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
   console.log(`${delta.added.length} added, ${delta.removed.length} removed.`);
 }
@@ -332,9 +336,7 @@ function cmdAssign(cell: string, files: string[], dryRun = false): void {
   }
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
-  console.log(
-    stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${files.length} file(s) to "${cell}".`,
-  );
+  console.log(stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${files.length} file(s) to "${cell}".`);
 }
 
 /** `cells unassign <file...>` — remove files from their cell (→ orphan). */
@@ -498,7 +500,15 @@ const USAGE =
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
   payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a) => cmdPayload(a[0]) },
-  validate: { usage: 'cells validate', minArgs: 0, needsCells: true, run: async () => { console.log('Note: `cells validate` is now `cells health` (the full gate). Running it.'); await cmdHealth(); } },
+  validate: {
+    usage: 'cells validate',
+    minArgs: 0,
+    needsCells: true,
+    run: async () => {
+      console.log('Note: `cells validate` is now `cells health` (the full gate). Running it.');
+      await cmdHealth();
+    },
+  },
   crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a) => cmdCrossings(a.includes('--diff')) },
   list: { usage: 'cells list', minArgs: 0, needsCells: true, run: () => cmdList() },
   size: { usage: 'cells size', minArgs: 0, needsCells: true, run: () => cmdSize() },

@@ -99,3 +99,50 @@ describe('crossingsDelta', () => {
     expect(delta).toBeNull();
   });
 });
+
+describe('cells crossings --diff (CLI)', () => {
+  const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
+  let cliRepo: string;
+
+  afterEach(() => {
+    if (cliRepo) rmSync(cliRepo, { recursive: true, force: true });
+  });
+
+  function git(args: string): void {
+    execSync(`git ${args}`, { cwd: cliRepo, stdio: 'ignore' });
+  }
+
+  it('marks an undeclared added edge inline as [UNDECLARED]', () => {
+    cliRepo = mkdtempSync(join(tmpdir(), 'cells-diff-cli-'));
+    mkdirSync(join(cliRepo, 'src'), { recursive: true });
+    mkdirSync(join(cliRepo, '.cells'), { recursive: true });
+    writeFileSync(join(cliRepo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
+    writeFileSync(
+      join(cliRepo, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }),
+    );
+    // b does NOT require a → the b→a edge will be undeclared
+    writeFileSync(join(cliRepo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
+    writeFileSync(join(cliRepo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n');
+    writeFileSync(join(cliRepo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n');
+    writeFileSync(join(cliRepo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(cliRepo, 'src', 'a.ts'), 'export const x = 1;\n');
+    writeFileSync(join(cliRepo, 'src', 'b.ts'), 'export const y = 2;\n'); // HEAD: no import
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m head');
+    // working: b.ts now imports a.ts → adds an UNDECLARED b→a crossing
+    writeFileSync(join(cliRepo, 'src', 'b.ts'), "import { x } from './a.js';\nexport const y = x;\n");
+
+    try {
+      execSync(`node ${cellsBin} crossings --diff`, { cwd: cliRepo, encoding: 'utf8', stdio: 'pipe' });
+      expect.unreachable('expected exit 1');
+    } catch (err: any) {
+      expect(err.status).toBe(1);
+      expect(err.stdout).toContain('+ [UNDECLARED] b → a');
+      expect(err.stderr).toContain('add "a" to b.cell.toml requires');
+    }
+  });
+});
