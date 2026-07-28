@@ -87,9 +87,12 @@ export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cel
   return cell.requires.map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
 }
 
-/** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes). */
+/** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes).
+ * Includes test files so the size gate (health/size) matches what `payload` actually emits. */
 export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
   const fileContents = readFiles(ownedFiles);
-  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors).length;
-  return { files: ownedFiles.length, chars, tokens: Math.ceil(chars / 3) };
+  const testFiles = cell.tests ?? [];
+  const testContents = testFiles.length > 0 ? readFiles(testFiles) : undefined;
+  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors, undefined, testFiles, testContents).length;
+  return { files: ownedFiles.length + testFiles.length, chars, tokens: Math.ceil(chars / 3) };
 }

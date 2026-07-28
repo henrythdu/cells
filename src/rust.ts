@@ -47,7 +47,7 @@ function expandClause(node: Node): string[] {
   }
 }
 
-/** All import paths declared at the top level of a Rust file (internal + external). */
+/** All import paths declared anywhere in a Rust file (internal + external). `collectUses` walks the whole AST recursively, so `use` inside fn bodies counts. */
 function extractImports(root: Node): string[] {
   const out: string[] = [];
   collectUses(root, out);

@@ -16,7 +16,9 @@ export function formatCellList(
 ): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
-  const width = Math.max(...names.map((n) => n.length), 4);
+  const stubSuffix = ' (stub)';
+  // width must fit the rendered label (stub cells get a 7-char suffix), else columns misalign
+  const width = Math.max(...names.map((n) => (declarations[n]?.purpose === STUB_PURPOSE ? n.length + stubSuffix.length : n.length)), 4);
   const orphans = orphanFiles.length === 1 ? 'orphan' : 'orphans';
 
   const lines: string[] = [
@@ -30,7 +32,7 @@ export function formatCellList(
     const reqStr = requires.length > 0 ? `→ ${requires.join(', ')}` : '—';
     const m = metrics[name];
     const coupling = m ? `${m.fanIn}/${m.fanOut}` : '—';
-    const label = declarations[name]?.purpose === STUB_PURPOSE ? `${name} (stub)` : name;
+    const label = declarations[name]?.purpose === STUB_PURPOSE ? `${name}${stubSuffix}` : name;
     lines.push(
       `  ${label.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`,
     );

@@ -53,7 +53,7 @@ COMMANDS
   show <name>              one cell: membrane + in/out crossings + fan-in/out/instability + size
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  health                  THE GATE: all checks at once (integrity + crossings + structure + size)
+  health                   THE GATE: all checks at once (integrity + crossings + structure + size)
   crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
   size                     context-fit: each payload vs the ceiling (warning)
   structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)

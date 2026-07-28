@@ -235,8 +235,6 @@ function cmdInit(dryRun = false): void {
   }
   console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
   console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
-  console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
-  console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
 }
 
 /** `cells rename <old> <new>` — rename a cell across the store: .cell.toml file,
@@ -315,7 +313,7 @@ function cmdRemove(name: string, force: boolean): void {
 
   rmSync(declPath);
 
-  if (ownedFiles.length > 0) {
+  if (ownedFiles.length > 0 || ownership[name] !== undefined) {
     delete ownership[name];
     writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
   }
@@ -497,7 +495,7 @@ interface Command {
   readonly usage: string;
   readonly minArgs: number;
   readonly needsCells: boolean;
-  readonly run: (args: string[]) => void | Promise<void>;
+  readonly run: (args: string[], dryRun: boolean) => void | Promise<void>;
 }
 
 const USAGE =
@@ -527,10 +525,7 @@ const COMMANDS: Record<string, Command> = {
     usage: 'cells init [--dry-run]',
     minArgs: 0,
     needsCells: false,
-    run: (a) => {
-      const dryRun = a.includes('--dry-run');
-      cmdInit(dryRun);
-    },
+    run: (_a, dryRun) => cmdInit(dryRun),
   },
   rename: { usage: 'cells rename <old> <new>', minArgs: 2, needsCells: true, run: (a) => cmdRename(a[0], a[1]) },
   remove: { usage: 'cells remove <cell> [--force]', minArgs: 1, needsCells: true, run: (a) => cmdRemove(a[0], a.includes('--force')) },
@@ -538,21 +533,13 @@ const COMMANDS: Record<string, Command> = {
     usage: 'cells assign [--dry-run] <cell> <file...>',
     minArgs: 2,
     needsCells: true,
-    run: (a) => {
-      const dryRun = a.includes('--dry-run');
-      const args = a.filter((arg) => arg !== '--dry-run');
-      cmdAssign(args[0], args.slice(1), dryRun);
-    },
+    run: (a, dryRun) => cmdAssign(a[0], a.slice(1), dryRun),
   },
   unassign: {
     usage: 'cells unassign [--dry-run] <file...>',
     minArgs: 1,
     needsCells: true,
-    run: (a) => {
-      const dryRun = a.includes('--dry-run');
-      const args = a.filter((arg) => arg !== '--dry-run');
-      cmdUnassign(args, dryRun);
-    },
+    run: (a, dryRun) => cmdUnassign(a, dryRun),
   },
   health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
   plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
@@ -575,11 +562,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (command.needsCells) requireCells();
-  if (args.length < command.minArgs) {
+  // --dry-run is a pure boolean flag (never takes a value) — strip it before the arg-count
+  // gate so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args.
+  const dryRun = args.includes('--dry-run');
+  const positional = args.filter((a) => a !== '--dry-run');
+  if (positional.length < command.minArgs) {
     console.error(`usage: ${command.usage}`);
     process.exit(1);
   }
-  await command.run(args);
+  await command.run(positional, dryRun);
 }
 
 main().catch((err) => {

@@ -31,16 +31,11 @@ describe('detectCycles', () => {
   });
 
   it('detects a transitive 3-cycle (A→B→C→A)', () => {
-    expect(detectCycles([c('a', 'b'), c('b', 'c'), c('c', 'a')])).toEqual([
-      { cells: ['a', 'b', 'c'] },
-    ]);
+    expect(detectCycles([c('a', 'b'), c('b', 'c'), c('c', 'a')])).toEqual([{ cells: ['a', 'b', 'c'] }]);
   });
 
   it('detects two independent cycles (stable, sorted output)', () => {
-    expect(detectCycles([c('a', 'b'), c('b', 'a'), c('c', 'd'), c('d', 'c')])).toEqual([
-      { cells: ['a', 'b'] },
-      { cells: ['c', 'd'] },
-    ]);
+    expect(detectCycles([c('a', 'b'), c('b', 'a'), c('c', 'd'), c('d', 'c')])).toEqual([{ cells: ['a', 'b'] }, { cells: ['c', 'd'] }]);
   });
 
   it('removes duplicate edges (multi-file crossings between the same pair)', () => {
@@ -55,9 +50,7 @@ describe('detectCycles', () => {
 describe('checkDirection', () => {
   it('flags an edge to a higher layer (core → peripheral)', () => {
     const decls = { core: cell('core', 0), periph: cell('periph', 2) };
-    expect(checkDirection([c('core', 'periph')], decls)).toEqual([
-      { fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 },
-    ]);
+    expect(checkDirection([c('core', 'periph')], decls)).toEqual([{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }]);
   });
 
   it('allows an edge to a lower layer (peripheral → core)', () => {
@@ -83,15 +76,11 @@ describe('checkDirection', () => {
 
 describe('formatStructureReport', () => {
   it('clean, layers configured', () => {
-    expect(formatStructureReport([], [], true)).toBe(
-      'ADP: acyclic — no circular dependencies.\nDirection: OK — no edges point to a higher layer.\n',
-    );
+    expect(formatStructureReport([], [], true)).toBe('ADP: acyclic — no circular dependencies.\nDirection: OK — no edges point to a higher layer.\n');
   });
 
   it('clean, no layers configured', () => {
-    expect(formatStructureReport([], [], false)).toBe(
-      'ADP: acyclic — no circular dependencies.\nDirection: (skipped — no cells declare a layer).\n',
-    );
+    expect(formatStructureReport([], [], false)).toBe('ADP: acyclic — no circular dependencies.\nDirection: (skipped — no cells declare a layer).\n');
   });
 
   it('reports a cycle (cells joined)', () => {
@@ -101,22 +90,13 @@ describe('formatStructureReport', () => {
   });
 
   it('reports a direction violation (raw numbers when no legend)', () => {
-    const out = formatStructureReport(
-      [],
-      [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }],
-      true,
-    );
+    const out = formatStructureReport([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true);
     expect(out).toContain('Direction: 1 violation(s):');
     expect(out).toContain('core [0] → periph [2]');
   });
 
   it('labels a violation via the legend when provided', () => {
-    const out = formatStructureReport(
-      [],
-      [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }],
-      true,
-      { 0: 'domain', 2: 'ui' },
-    );
+    const out = formatStructureReport([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true, { 0: 'domain', 2: 'ui' });
     expect(out).toContain('core [domain (0)] → periph [ui (2)]');
   });
 });
@@ -189,9 +169,7 @@ describe('computeImpact', () => {
 
 describe('formatImpactReport', () => {
   it('prints a leaf message when nothing depends on the cell', () => {
-    expect(formatImpactReport({ cell: 'a', affected: [] })).toBe(
-      'a is a leaf — nothing depends on it (safe to change).\n',
-    );
+    expect(formatImpactReport({ cell: 'a', affected: [] })).toBe('a is a leaf — nothing depends on it (safe to change).\n');
   });
 
   it('groups affected cells by hop distance', () => {
@@ -293,13 +271,13 @@ describe('formatLayerSuggestions', () => {
     expect(formatLayerSuggestions(decls, inferred)).toBeNull();
   });
 
-  it('reports "all required cells are layer 0" when no internal dep sets ceiling', () => {
+  it('reports "no internal dependencies" when a cell requires nothing declared', () => {
     const decls: Record<string, Cell> = {
       a: { name: 'a', purpose: '', provides: [], requires: [], layer: 3 },
     };
     const inferred = { a: 0 };
     const out = formatLayerSuggestions(decls, inferred);
     expect(out).toContain('a: 3 → 0');
-    expect(out).toContain('all required cells are layer 0');
+    expect(out).toContain('no internal dependencies');
   });
 });

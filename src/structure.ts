@@ -307,7 +307,7 @@ export function formatLayerSuggestions(declarations: Record<string, Cell>, infer
           maxDep = r;
         }
       }
-      const reason = maxDep ? `max required layer = ${maxLayer}, from ${maxDep}` : 'all required cells are layer 0';
+      const reason = maxDep ? `max required layer = ${maxLayer}, from ${maxDep}` : 'no internal dependencies';
       mismatches.push({ name, current: cell.layer, suggested: sug, reason });
     }
   }
