@@ -88,10 +88,7 @@ export interface DirectionViolation {
  * an edge to a HIGHER layer (core→peripheral) is the violation. Skips any edge
  * with a layerless endpoint. Dedupes multiple crossings between the same pair. Pure.
  */
-export function checkDirection(
-  crossings: Crossing[],
-  declarations: Record<string, Cell>,
-): DirectionViolation[] {
+export function checkDirection(crossings: Crossing[], declarations: Record<string, Cell>): DirectionViolation[] {
   const seen = new Set<string>();
   const out: DirectionViolation[] = [];
   for (const c of crossings) {
@@ -113,10 +110,7 @@ export function checkDirection(
  * then the layerless ones. Returns '' when no cell declares a layer (nothing to
  * show). Pure.
  */
-export function formatLayerOverview(
-  declarations: Record<string, Cell>,
-  layerLabels: Record<number, string> = {},
-): string {
+export function formatLayerOverview(declarations: Record<string, Cell>, layerLabels: Record<number, string> = {}): string {
   const byLayer = new Map<number, string[]>();
   const layerless: string[] = [];
   for (const [name, cell] of Object.entries(declarations)) {
@@ -144,12 +138,7 @@ export function formatLayerOverview(
  * `layersConfigured` controls the Direction section's message when no layers
  * are set. Pure.
  */
-export function formatStructureReport(
-  cycles: Cycle[],
-  violations: DirectionViolation[],
-  layersConfigured: boolean,
-  layerLabels: Record<number, string> = {},
-): string {
+export function formatStructureReport(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, layerLabels: Record<number, string> = {}): string {
   const fmt = (n: number): string => (layerLabels[n] ? `${layerLabels[n]} (${n})` : `${n}`);
   const lines: string[] = [];
 
@@ -232,6 +221,101 @@ export function formatImpactReport(impact: Impact): string {
   for (const d of [...byDistance.keys()].sort((a, b) => a - b)) {
     const label = d === 1 ? 'direct' : `${d} hops`;
     lines.push(`  ${label}: ${byDistance.get(d)!.sort().join(', ')}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Infer layers from the `requires` DAG. A cell's layer = 1 + max(layer of each
+ * required cell that is also declared (internal dep). External deps (not owned
+ * cells) are ignored. Returns null when a requires-cycle is detected (mutual
+ * declared dependency — layering is impossible). Pure.
+ */
+export function inferLayers(declarations: Record<string, Cell>): Record<string, number> | null {
+  // adjacency: cell → set of declared cells it requires
+  const internalDeps = new Map<string, Set<string>>();
+  for (const [name, cell] of Object.entries(declarations)) {
+    const reqs = new Set<string>();
+    for (const r of cell.requires) {
+      if (declarations[r]) reqs.add(r);
+    }
+    internalDeps.set(name, reqs);
+  }
+
+  // detect requires-cycle with DFS coloring
+  const WHITE = 0,
+    GRAY = 1,
+    BLACK = 2;
+  const color = new Map<string, number>();
+  const hasCycle = (): boolean => {
+    const dfs = (node: string): boolean => {
+      color.set(node, GRAY);
+      for (const dep of internalDeps.get(node)!) {
+        const c = color.get(dep) ?? WHITE;
+        if (c === GRAY) return true;
+        if (c === WHITE && dfs(dep)) return true;
+      }
+      color.set(node, BLACK);
+      return false;
+    };
+    for (const name of internalDeps.keys()) {
+      if (!color.has(name) && dfs(name)) return true;
+    }
+    return false;
+  };
+  if (hasCycle()) return null;
+
+  // memoized recursive layer computation (DAG guaranteed acyclic)
+  const memo = new Map<string, number>();
+  const computeLayer = (name: string): number => {
+    if (memo.has(name)) return memo.get(name)!;
+    let max = 0;
+    for (const dep of internalDeps.get(name)!) {
+      max = Math.max(max, computeLayer(dep) + 1);
+    }
+    memo.set(name, max);
+    return max;
+  };
+
+  const result: Record<string, number> = {};
+  for (const name of Object.keys(declarations)) {
+    result[name] = computeLayer(name);
+  }
+  return result;
+}
+
+/**
+ * Format layer suggestions: for each cell whose declared `layer` differs from the
+ * DAG-inferred value, show current → suggested with the reasoning (which required
+ * cell sets the ceiling). Returns null when all layers match or inference is
+ * unavailable (requires-cycle). Pure.
+ */
+export function formatLayerSuggestions(declarations: Record<string, Cell>, inferred: Record<string, number>): string | null {
+  const mismatches: { name: string; current: number; suggested: number; reason: string }[] = [];
+  for (const [name, cell] of Object.entries(declarations)) {
+    if (cell.layer === undefined) continue;
+    const sug = inferred[name];
+    if (sug === undefined) continue;
+    if (cell.layer !== sug) {
+      // reason: which required cell sets the ceiling
+      let maxDep = '';
+      let maxLayer = 0;
+      for (const r of cell.requires) {
+        const rLayer = inferred[r];
+        if (rLayer !== undefined && rLayer >= maxLayer) {
+          maxLayer = rLayer;
+          maxDep = r;
+        }
+      }
+      const reason = maxDep ? `max required layer = ${maxLayer}, from ${maxDep}` : 'all required cells are layer 0';
+      mismatches.push({ name, current: cell.layer, suggested: sug, reason });
+    }
+  }
+  if (mismatches.length === 0) return null;
+
+  const lines = ['Suggested layers (from the requires DAG):'];
+  for (const m of mismatches) {
+    lines.push(`  ${m.name}: ${m.current} → ${m.suggested}  (${m.reason})`);
   }
   return lines.join('\n') + '\n';
 }

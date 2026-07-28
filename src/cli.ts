@@ -23,7 +23,7 @@ import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, 
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { DEFAULT_CONFIG } from './config.js';
-import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from './structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
 /** Warn (stderr) when census files exist that no importer handles — the
@@ -159,6 +159,12 @@ async function cmdStructure(): Promise<void> {
   const report = formatStructureReport(cycles, violations, anyLayered, config.layers);
   const overview = formatLayerOverview(declarations, config.layers);
   process.stdout.write(overview ? `${overview}\n${report}` : report);
+
+  const inferred = inferLayers(declarations);
+  if (inferred !== null) {
+    const suggestions = formatLayerSuggestions(declarations, inferred);
+    if (suggestions !== null) process.stdout.write(`\n${suggestions}`);
+  }
 }
 
 /** `cells impact <name>` — blast radius: who transitively depends on this cell? */

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, computeImpact, formatImpactReport } from '../src/structure.js';
+import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -43,7 +43,7 @@ describe('detectCycles', () => {
     ]);
   });
 
-  it('ignores duplicate edges (multi-file crossings between the same pair)', () => {
+  it('removes duplicate edges (multi-file crossings between the same pair)', () => {
     expect(detectCycles([c('a', 'b'), c('a', 'b'), c('b', 'a')])).toEqual([{ cells: ['a', 'b'] }]);
   });
 
@@ -205,5 +205,101 @@ describe('formatImpactReport', () => {
     expect(out).toContain('Impact: changing c affects 2 cell(s):');
     expect(out).toContain('direct: b');
     expect(out).toContain('2 hops: a');
+  });
+});
+
+describe('inferLayers', () => {
+  it('returns layer 0 for cells with no internal requires', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: [], layer: 0 },
+    };
+    expect(inferLayers(decls)).toEqual({ a: 0, b: 0 });
+  });
+
+  it('computes layer = 1 + max(required cells) over declared cells', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 1 },
+      c: { name: 'c', purpose: '', provides: [], requires: ['b'], layer: 2 },
+    };
+    // c requires b (1) → 2; b requires a (0) → 1; a requires nothing → 0
+    expect(inferLayers(decls)).toEqual({ a: 0, b: 1, c: 2 });
+  });
+
+  it('picks the max when a cell requires multiple cells', () => {
+    const decls: Record<string, Cell> = {
+      x: { name: 'x', purpose: '', provides: [], requires: [], layer: 0 },
+      y: { name: 'y', purpose: '', provides: [], requires: [], layer: 0 },
+      z: { name: 'z', purpose: '', provides: [], requires: ['x', 'y'], layer: 1 },
+    };
+    expect(inferLayers(decls)).toEqual({ x: 0, y: 0, z: 1 });
+  });
+
+  it('ignores external deps (cells not in declarations)', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: ['lib', 'db'], layer: 0 },
+    };
+    // external deps 'lib' and 'db' are not owned cells → ignored → a = 0
+    expect(inferLayers(decls)).toEqual({ a: 0 });
+  });
+
+  it('returns null when requires has a cycle', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: ['b'], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 0 },
+    };
+    expect(inferLayers(decls)).toBeNull();
+  });
+
+  it('deep chain: a→b→c→d (4 layers)', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 1 },
+      c: { name: 'c', purpose: '', provides: [], requires: ['b'], layer: 2 },
+      d: { name: 'd', purpose: '', provides: [], requires: ['c'], layer: 3 },
+    };
+    expect(inferLayers(decls)).toEqual({ a: 0, b: 1, c: 2, d: 3 });
+  });
+});
+
+describe('formatLayerSuggestions', () => {
+  it('returns null when all layers match', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 1 },
+    };
+    const inferred = { a: 0, b: 1 };
+    expect(formatLayerSuggestions(decls, inferred)).toBeNull();
+  });
+
+  it('shows current → suggested with reasoning', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 2 },
+    };
+    const inferred = { a: 0, b: 1 };
+    const out = formatLayerSuggestions(decls, inferred);
+    expect(out).toContain('b: 2 → 1');
+    expect(out).toContain('from a');
+  });
+
+  it('skips layerless cells (only compares cells with a declared layer)', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'] }, // no layer
+    };
+    const inferred = { a: 0, b: 1 };
+    expect(formatLayerSuggestions(decls, inferred)).toBeNull();
+  });
+
+  it('reports "all required cells are layer 0" when no internal dep sets ceiling', () => {
+    const decls: Record<string, Cell> = {
+      a: { name: 'a', purpose: '', provides: [], requires: [], layer: 3 },
+    };
+    const inferred = { a: 0 };
+    const out = formatLayerSuggestions(decls, inferred);
+    expect(out).toContain('a: 3 → 0');
+    expect(out).toContain('all required cells are layer 0');
   });
 });

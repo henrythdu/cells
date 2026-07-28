@@ -117,10 +117,7 @@ describe('cells crossings --diff (CLI)', () => {
     mkdirSync(join(cliRepo, 'src'), { recursive: true });
     mkdirSync(join(cliRepo, '.cells'), { recursive: true });
     writeFileSync(join(cliRepo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-    writeFileSync(
-      join(cliRepo, 'tsconfig.json'),
-      JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }),
-    );
+    writeFileSync(join(cliRepo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
     // b does NOT require a → the b→a edge will be undeclared
     writeFileSync(join(cliRepo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
     writeFileSync(join(cliRepo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n');
