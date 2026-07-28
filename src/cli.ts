@@ -19,7 +19,7 @@ import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } fr
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { unassignFiles, planAssignment, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadConfig, computePayloadSize, neighborsOf, readFiles, requireCells } from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, type CellsContext } from './io.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { DEFAULT_CONFIG } from './config.js';
@@ -36,9 +36,8 @@ function warnIfBlind(uncoveredExts: string[]): void {
 
 /** `cells crossings [--diff]` — real cross-cell imports + leakage; `--diff` shows what your
  *  uncommitted edits added/removed (working tree vs HEAD). */
-async function cmdCrossings(diff = false): Promise<void> {
-  const ownership = loadOwnership();
-  const declarations = loadDeclarations();
+async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
+  const { ownership, declarations } = ctx;
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
@@ -97,9 +96,8 @@ function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new
 }
 
 /** `cells list` — partition overview: each cell's files/size/requires/fan-in-out + orphans. */
-async function cmdList(): Promise<void> {
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
+async function cmdList(ctx: CellsContext): Promise<void> {
+  const { declarations, ownership } = ctx;
   const sizes: Record<string, CellSize> = {};
   for (const name of Object.keys(declarations)) {
     const cell = declarations[name];
@@ -115,9 +113,8 @@ async function cmdList(): Promise<void> {
 }
 
 /** `cells show <name>` — one cell's detail with its in/out crossings. */
-async function cmdShow(name: string): Promise<void> {
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
+async function cmdShow(ctx: CellsContext, name: string): Promise<void> {
+  const { declarations, ownership } = ctx;
   const cell = declarations[name];
   if (!cell) {
     console.error(`error: no cell named "${name}"`);
@@ -134,10 +131,8 @@ async function cmdShow(name: string): Promise<void> {
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
-function cmdSize(): void {
-  const config = loadConfig();
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
+function cmdSize(ctx: CellsContext): void {
+  const { config, declarations, ownership } = ctx;
   const entries = Object.keys(declarations).map((name) => {
     const cell = declarations[name];
     return { name, size: computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)) };
@@ -146,10 +141,8 @@ function cmdSize(): void {
 }
 
 /** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0). */
-async function cmdStructure(): Promise<void> {
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
-  const config = loadConfig();
+async function cmdStructure(ctx: CellsContext): Promise<void> {
+  const { declarations, ownership, config } = ctx;
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
@@ -168,21 +161,21 @@ async function cmdStructure(): Promise<void> {
 }
 
 /** `cells impact <name>` — blast radius: who transitively depends on this cell? */
-async function cmdImpact(name: string): Promise<void> {
-  const declarations = loadDeclarations();
+async function cmdImpact(ctx: CellsContext, name: string): Promise<void> {
+  const { declarations, ownership } = ctx;
   if (!declarations[name]) {
     console.error(`error: no cell named "${name}"`);
     process.exit(1);
   }
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, loadOwnership());
+  const crossings = deriveCrossings(edges, ownership);
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
 
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
-async function cmdGraph(mermaid: boolean): Promise<void> {
-  const ownership = loadOwnership();
+async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<void> {
+  const { ownership } = ctx;
   const { edges, uncoveredExts } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
@@ -190,9 +183,8 @@ async function cmdGraph(mermaid: boolean): Promise<void> {
 }
 
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
-function cmdOwns(file: string): void {
-  const ownership = loadOwnership();
-  const declarations = loadDeclarations();
+function cmdOwns(ctx: CellsContext, file: string): void {
+  const { ownership, declarations } = ctx;
   const cell = owningCell(ownership, file);
   if (!cell) {
     console.log(`${file} is not owned by any cell (orphan).`);
@@ -365,10 +357,9 @@ function cmdUnassign(files: string[], dryRun = false): void {
 }
 
 /** `cells payload <name>` — assemble and print a cell's payload to stdout. */
-function cmdPayload(name: string): void {
-  const decls = loadDeclarations();
-  const ownership = loadOwnership();
-  const cell = decls[name];
+function cmdPayload(ctx: CellsContext, name: string): void {
+  const { declarations, ownership } = ctx;
+  const cell = declarations[name];
   if (!cell) {
     console.error(`error: no cell named "${name}"`);
     process.exit(1);
@@ -382,12 +373,12 @@ function cmdPayload(name: string): void {
 
   const neighbors: Cell[] = [];
   for (const n of cell.requires) {
-    const neighbor = decls[n];
+    const neighbor = declarations[n];
     if (neighbor) neighbors.push(neighbor);
     else console.error(`warning: neighbor "${n}" of cell "${name}" has no declaration`);
   }
 
-  const dependedByCount = Object.values(decls).filter((d) => d.requires.includes(name)).length;
+  const dependedByCount = Object.values(declarations).filter((d) => d.requires.includes(name)).length;
   const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependedByCount, testFiles, testContents);
   process.stdout.write(payload);
 
@@ -397,10 +388,8 @@ function cmdPayload(name: string): void {
 
 /** `cells health` — all four checks at once (validate + crossings + structure + size).
  *  One command instead of four for the LLM's check step. Exit 1 if any check fails. */
-async function cmdHealth(): Promise<void> {
-  const config = loadConfig();
-  const declarations = loadDeclarations();
-  const ownership = loadOwnership();
+async function cmdHealth(ctx: CellsContext): Promise<void> {
+  const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
 
   const { edges, uncoveredExts } = await collectImportEdges();
@@ -495,7 +484,7 @@ interface Command {
   readonly usage: string;
   readonly minArgs: number;
   readonly needsCells: boolean;
-  readonly run: (args: string[], dryRun: boolean) => void | Promise<void>;
+  readonly run: (args: string[], dryRun: boolean, ctx?: CellsContext) => void | Promise<void>;
 }
 
 const USAGE =
@@ -503,24 +492,24 @@ const USAGE =
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
-  payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a) => cmdPayload(a[0]) },
+  payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdPayload(ctx!, a[0]) },
   validate: {
     usage: 'cells validate',
     minArgs: 0,
     needsCells: true,
-    run: async () => {
+    run: async (_a, _d, ctx) => {
       console.log('Note: `cells validate` is now `cells health` (the full gate). Running it.');
-      await cmdHealth();
+      await cmdHealth(ctx!);
     },
   },
-  crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a) => cmdCrossings(a.includes('--diff')) },
-  list: { usage: 'cells list', minArgs: 0, needsCells: true, run: () => cmdList() },
-  size: { usage: 'cells size', minArgs: 0, needsCells: true, run: () => cmdSize() },
-  structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: () => cmdStructure() },
-  graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a) => cmdGraph(a.includes('--mermaid')) },
-  owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a) => cmdOwns(a[0]) },
-  show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a) => cmdShow(a[0]) },
-  impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a) => cmdImpact(a[0]) },
+  crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, a.includes('--diff')) },
+  list: { usage: 'cells list', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdList(ctx!) },
+  size: { usage: 'cells size', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
+  structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdStructure(ctx!) },
+  graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
+  owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
+  show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a[0]) },
+  impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdImpact(ctx!, a[0]) },
   init: {
     usage: 'cells init [--dry-run]',
     minArgs: 0,
@@ -541,7 +530,7 @@ const COMMANDS: Record<string, Command> = {
     needsCells: true,
     run: (a, dryRun) => cmdUnassign(a, dryRun),
   },
-  health: { usage: 'cells health', minArgs: 0, needsCells: true, run: () => cmdHealth() },
+  health: { usage: 'cells health', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdHealth(ctx!) },
   plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
 };
 
@@ -570,7 +559,13 @@ async function main(): Promise<void> {
     console.error(`usage: ${command.usage}`);
     process.exit(1);
   }
-  await command.run(positional, dryRun);
+  // Load the three stores once per cells-command; read commands consume the bundle via
+  // their dispatch closures (ctx! — guaranteed present for needsCells:true). Mutation
+  // commands ignore it and re-load fresh — they write after reading, so a shared bundle
+  // would go stale. For needsCells:false commands (init/plan) there is no store; ctx is
+  // undefined and those closures never touch it.
+  const ctx = command.needsCells ? loadContext() : undefined;
+  await command.run(positional, dryRun, ctx);
 }
 
 main().catch((err) => {

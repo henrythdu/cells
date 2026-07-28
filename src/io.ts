@@ -27,9 +27,12 @@ export function loadDeclarations(): Record<string, Cell> {
   return decls;
 }
 
-/** Load the ownership map from `.cells/ownership.toml`. */
+/** Load the ownership map from `.cells/ownership.toml`. Missing file → empty map
+ *  (a repo can have declarations but no assignments yet; every command should still run). */
 export function loadOwnership(): Ownership {
-  return parseOwnership(readFileSync(join(CELLS_DIR, 'ownership.toml'), 'utf8'));
+  const path = join(CELLS_DIR, 'ownership.toml');
+  if (!existsSync(path)) return {};
+  return parseOwnership(readFileSync(path, 'utf8'));
 }
 
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
@@ -37,6 +40,19 @@ export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
   if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'] };
   return parseConfig(readFileSync(path, 'utf8'));
+}
+
+/** The three Cells stores, loaded once per command. Bundle them so cmd* functions stop
+ *  hand-repeating the loadDeclarations/loadOwnership/loadConfig triple (the copy-paste
+ *  drift surface). Eager: all three are tiny TOML reads, so the simplest shape wins. */
+export interface CellsContext {
+  declarations: Record<string, Cell>;
+  ownership: Ownership;
+  config: CellsConfig;
+}
+
+export function loadContext(): CellsContext {
+  return { declarations: loadDeclarations(), ownership: loadOwnership(), config: loadConfig() };
 }
 
 /** Read files into a {path→content} map (missing files skipped — validate flags them).

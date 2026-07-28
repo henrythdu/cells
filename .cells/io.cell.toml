@@ -4,6 +4,8 @@ provides = [
   "loadDeclarations",
   "loadOwnership",
   "loadConfig",
+  "loadContext",
+  "CellsContext",
   "readFiles",
   "listCodeFiles",
   "neighborsOf",

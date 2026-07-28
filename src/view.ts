@@ -7,13 +7,7 @@ import type { CellSize } from './payload.js';
  * Format the partition overview: one row per cell (file count, ~tokens,
  * requires) + a header with totals and orphan count. Pure.
  */
-export function formatCellList(
-  declarations: Record<string, Cell>,
-  _ownership: Ownership,
-  sizes: Record<string, CellSize>,
-  metrics: Record<string, CellMetrics>,
-  orphanFiles: string[],
-): string {
+export function formatCellList(declarations: Record<string, Cell>, _ownership: Ownership, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[]): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const stubSuffix = ' (stub)';
@@ -21,9 +15,7 @@ export function formatCellList(
   const width = Math.max(...names.map((n) => (declarations[n]?.purpose === STUB_PURPOSE ? n.length + stubSuffix.length : n.length)), 4);
   const orphans = orphanFiles.length === 1 ? 'orphan' : 'orphans';
 
-  const lines: string[] = [
-    `${names.length} cells · ${totalFiles} files · ${orphanFiles.length} ${orphans}`,
-  ];
+  const lines: string[] = [`${names.length} cells · ${totalFiles} files · ${orphanFiles.length} ${orphans}`];
   for (const name of names) {
     const s = sizes[name];
     const fileStr = s ? `${s.files} file${s.files === 1 ? '' : 's'}` : '? files';
@@ -33,9 +25,7 @@ export function formatCellList(
     const m = metrics[name];
     const coupling = m ? `${m.fanIn}/${m.fanOut}` : '—';
     const label = declarations[name]?.purpose === STUB_PURPOSE ? `${name}${stubSuffix}` : name;
-    lines.push(
-      `  ${label.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`,
-    );
+    lines.push(`  ${label.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`);
   }
   if (orphanFiles.length > 0) {
     lines.push('');
@@ -49,14 +39,7 @@ export function formatCellList(
  * Format one cell's detail: declaration, owned files, the crossings it makes
  * (imports) and the crossings made against it (imported by). Pure.
  */
-export function formatCellShow(
-  cell: Cell,
-  ownedFiles: string[],
-  outCrossings: Crossing[],
-  inCrossings: Crossing[],
-  size: CellSize,
-  metrics: CellMetrics,
-): string {
+export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -92,10 +75,7 @@ export function formatCellShow(
  * Context-fit report: cells ranked by payload (biggest first), each with a
  * budget bar vs the ceiling; ⚠ on over-ceiling. Pure. (Exit 0 — it's a warning.)
  */
-export function formatSizeReport(
-  entries: { name: string; size: CellSize }[],
-  ceiling: number,
-): string {
+export function formatSizeReport(entries: { name: string; size: CellSize }[], ceiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
   const width = Math.max(...ranked.map((e) => e.name.length), 4);
   const lines: string[] = [`context-fit — ceiling: ${ceiling} tok (max-payload-tokens)`];
@@ -107,10 +87,6 @@ export function formatSizeReport(
     lines.push(`  ${name.padEnd(width)}  [${bar}]  ${size.tokens} tok${mark}`);
   }
   const overCount = ranked.filter((e) => e.size.tokens > ceiling).length;
-  lines.push(
-    overCount > 0
-      ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).`
-      : 'all cells within ceiling.',
-  );
+  lines.push(overCount > 0 ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).` : 'all cells within ceiling.');
   return `${lines.join('\n')}\n`;
 }
