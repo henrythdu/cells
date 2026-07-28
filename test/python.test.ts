@@ -57,9 +57,6 @@ describe('python importer', () => {
       ],
     });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
-    expect(set).toEqual(new Set([
-      'app/cli.py -> src/stages/predict.py',
-      'app/cli.py -> src/stages/enrich.py',
-    ]));
+    expect(set).toEqual(new Set(['app/cli.py -> src/stages/predict.py', 'app/cli.py -> src/stages/enrich.py']));
   });
 });

@@ -30,6 +30,9 @@ WORKING IN A CELLS PROJECT (for agents)
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
   7. check        cells health (all four at once) · or: validate · crossings · crossings --diff · size · structure
+                  If checks fail: read the hints (each error says what to edit), fix the membrane
+                  (.cell.toml requires/provides/tests, reassign files, or remove dead imports),
+                  then re-run cells health until green.
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
   Brownfield adoption? Run cells plan — it scans code-dirs, groups files by directory,
