@@ -42,16 +42,24 @@ function dottedText(node: Node): string | null {
 
 function extractImports(root: Node): ImportDesc[] {
   const out: ImportDesc[] = [];
-  for (const stmt of root.namedChildren) {
-    if (stmt.type === 'import_statement') {
-      for (const child of stmt.namedChildren) {
-        const m = dottedText(child);
-        if (m) out.push({ dots: 0, module: m, names: [] });
-      }
-    } else if (stmt.type === 'import_from_statement') {
-      const kids = stmt.namedChildren;
-      const modNode = kids.find((n) => n.type === 'dotted_name' || n.type === 'relative_import');
-      if (!modNode) continue;
+  collectImports(root, out);
+  return out;
+}
+
+/** Recursively walk the AST — local imports inside function bodies must be found,
+ *  not just top-level statements. */
+function collectImports(node: Node, out: ImportDesc[]): void {
+  if (node.type === 'import_statement') {
+    for (const child of node.namedChildren) {
+      const m = dottedText(child);
+      if (m) out.push({ dots: 0, module: m, names: [] });
+    }
+    return; // named children of import nodes are just dotted_name/aliased_import — no deeper imports
+  }
+  if (node.type === 'import_from_statement') {
+    const kids = node.namedChildren;
+    const modNode = kids.find((n) => n.type === 'dotted_name' || n.type === 'relative_import');
+    if (modNode) {
       const names = kids
         .filter((n) => n !== modNode)
         .map(dottedText)
@@ -61,8 +69,9 @@ function extractImports(root: Node): ImportDesc[] {
       const module = text.slice(dots);
       out.push({ dots, module, names });
     }
+    return; // named children are module name + imported names — no deeper imports
   }
-  return out;
+  for (const child of node.namedChildren) collectImports(child, out);
 }
 
 // --- resolution: descriptor + source file → candidate module paths → files ---

@@ -44,4 +44,22 @@ describe('python importer', () => {
     const set = new Set(edges.map((e) => `${e.toFile}`));
     expect(set).toEqual(new Set(['src/b/c.py', 'src/b/d.py']));
   });
+
+  it('finds imports inside function bodies (not just top-level)', async () => {
+    const pySrc = ['def cmd():', '    from src.stages.predict import main', '    from src.stages.enrich import main as _main', ''].join('\n');
+    const edges = await pythonImporter.extract({
+      codeDirs: ['src'],
+      ownership: { app: ['app/cli.py'], stages: ['src/stages/predict.py', 'src/stages/enrich.py'] },
+      files: [
+        { path: 'app/cli.py', content: pySrc },
+        { path: 'src/stages/predict.py', content: 'def main(): pass\n' },
+        { path: 'src/stages/enrich.py', content: 'def main(): pass\n' },
+      ],
+    });
+    const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
+    expect(set).toEqual(new Set([
+      'app/cli.py -> src/stages/predict.py',
+      'app/cli.py -> src/stages/enrich.py',
+    ]));
+  });
 });

@@ -50,13 +50,17 @@ function expandClause(node: Node): string[] {
 /** All import paths declared at the top level of a Rust file (internal + external). */
 function extractImports(root: Node): string[] {
   const out: string[] = [];
-  for (const stmt of root.namedChildren) {
-    if (stmt.type === 'use_declaration') {
-      // flatMap direct children — visibility (`pub`) is anonymous; expandClause ignores unknowns.
-      for (const child of stmt.namedChildren) out.push(...expandClause(child));
-    }
-  }
+  collectUses(root, out);
   return out;
+}
+
+/** Recursively walk the AST — local `use` inside function bodies must be found. */
+function collectUses(node: Node, out: string[]): void {
+  if (node.type === 'use_declaration') {
+    for (const child of node.namedChildren) out.push(...expandClause(child));
+    return; // use_declaration children are just path segments — no deeper uses
+  }
+  for (const child of node.namedChildren) collectUses(child, out);
 }
 
 // --- resolution: import path + importer module → file (via the module→file map) ---
