@@ -46,7 +46,7 @@ COMMANDS
   rename <old> <new>       rename a cell — updates .cell.toml, ownership, and all requires
   remove <cell> [--force]  delete a cell; --force orphans owned files and strips requires refs
   plan                     scan code-dirs and propose a partition (review + curate)
-  assign <cell> <file...>  assign files to a cell (records ownership; stubs if new; --dry-run previews)
+  assign <cell> <file...>  assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)
   unassign <file...>       remove files from their cell (→ orphan; --dry-run previews)
   owns <file>              which cell owns this file? (reverse lookup)
   list                     partition overview: cells, sizes, fan-in/out, requires, orphans
