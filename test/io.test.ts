@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectProject } from '../src/io.js';
+import { execSync } from 'node:child_process';
 
 let dir: string;
 
@@ -78,5 +79,27 @@ describe('detectProject', () => {
     const { codeExts, codeDirs } = detectProject(dir);
     expect(codeExts).toEqual(['.ts']);
     expect(codeDirs).toEqual(['src', 'test']);
+  });
+});
+
+describe('malformed TOML attribution (CLI integration)', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('names the offending .cell.toml file in the error', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-toml-attr-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), '[a\nbroken toml\n'); // malformed
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\n');
+    const bin = join(__dirname, '..', 'dist', 'cli.js');
+    try {
+      execSync(`node ${bin} list`, { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
+      expect.unreachable('expected exit 1');
+    } catch (err: any) {
+      expect(err.status).toBe(1);
+      expect(err.stderr).toContain('a.cell.toml');
+    }
   });
 });

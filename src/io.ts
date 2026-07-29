@@ -16,12 +16,23 @@ export function requireCells(): void {
   }
 }
 
+/** Read a tracked file and parse it; on parse failure, attribute the error to the file —
+ *  a bare smol-toml error doesn't say which `.cell.toml` is malformed, which strands an LLM
+ *  (or human) that broke one of N declarations. */
+function readParsed<T>(path: string, parse: (text: string) => T, label: string): T {
+  try {
+    return parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    throw new Error(`${label}: ${(e as Error).message}`);
+  }
+}
+
 /** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. */
 export function loadDeclarations(): Record<string, Cell> {
   const decls: Record<string, Cell> = {};
   for (const file of readdirSync(CELLS_DIR)) {
     if (!file.endsWith('.cell.toml')) continue;
-    const cell = parseCell(readFileSync(join(CELLS_DIR, file), 'utf8'));
+    const cell = readParsed(join(CELLS_DIR, file), parseCell, file);
     decls[cell.name] = cell;
   }
   return decls;
@@ -32,14 +43,14 @@ export function loadDeclarations(): Record<string, Cell> {
 export function loadOwnership(): Ownership {
   const path = join(CELLS_DIR, 'ownership.toml');
   if (!existsSync(path)) return {};
-  return parseOwnership(readFileSync(path, 'utf8'));
+  return readParsed(path, parseOwnership, '.cells/ownership.toml');
 }
 
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
   if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'] };
-  return parseConfig(readFileSync(path, 'utf8'));
+  return readParsed(path, parseConfig, '.cells/config.toml');
 }
 
 /** The three Cells stores, loaded once per command. Bundle them so cmd* functions stop
