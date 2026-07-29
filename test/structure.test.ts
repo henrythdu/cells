@@ -80,9 +80,7 @@ describe('checkSDP', () => {
 
   it('flags a stable cell depending on a less-stable one (I(from) < I(to))', () => {
     const metrics = { stable: m(0.0), unstable: m(0.8) };
-    expect(checkSDP([c('stable', 'unstable')], metrics)).toEqual([
-      { fromCell: 'stable', toCell: 'unstable', fromInstability: 0.0, toInstability: 0.8 },
-    ]);
+    expect(checkSDP([c('stable', 'unstable')], metrics)).toEqual([{ fromCell: 'stable', toCell: 'unstable', fromInstability: 0.0, toInstability: 0.8 }]);
   });
 
   it('allows an edge toward stability (I(from) > I(to))', () => {

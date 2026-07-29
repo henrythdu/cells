@@ -136,7 +136,7 @@ export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetr
       out.push({ fromCell: c.fromCell, toCell: c.toCell, fromInstability: fromI, toInstability: toI });
     }
   }
-  return out.sort((a, b) => (b.toInstability - b.fromInstability) - (a.toInstability - a.fromInstability));
+  return out.sort((a, b) => b.toInstability - b.fromInstability - (a.toInstability - a.fromInstability));
 }
 
 /** Format SDP violations as an info-only report. Returns null when there are none. Pure. */
