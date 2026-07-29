@@ -122,8 +122,10 @@ async function cmdList(ctx: CellsContext): Promise<void> {
   process.stdout.write(formatCellList(declarations, ownership, sizes, metrics, orphanFiles));
 }
 
-/** `cells show <name>` — one cell's detail with its in/out crossings. */
-async function cmdShow(ctx: CellsContext, name: string): Promise<void> {
+/** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.
+ *  High-fan-in/out crossings (>8 edges) collapse to a per-cell aggregate;
+ *  `--verbose` shows every per-file edge. */
+async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promise<void> {
   const { declarations, ownership } = ctx;
   const cell = declarations[name];
   if (!cell) {
@@ -137,7 +139,7 @@ async function cmdShow(ctx: CellsContext, name: string): Promise<void> {
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
-  process.stdout.write(formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name]));
+  process.stdout.write(formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose));
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
@@ -532,7 +534,7 @@ const COMMANDS: Record<string, Command> = {
   structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdStructure(ctx!) },
   graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
   owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
-  show: { usage: 'cells show <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a[0]) },
+  show: { usage: 'cells show <name> [--verbose]', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')) },
   impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdImpact(ctx!, a[0]) },
   init: {
     usage: 'cells init [--dry-run]',

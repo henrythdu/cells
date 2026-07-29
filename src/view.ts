@@ -39,7 +39,22 @@ export function formatCellList(declarations: Record<string, Cell>, _ownership: O
  * Format one cell's detail: declaration, owned files, the crossings it makes
  * (imports) and the crossings made against it (imported by). Pure.
  */
-export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics): string {
+/** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
+ *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise
+ *  dump dozens of lines of noise. */
+const AGG_THRESHOLD = 8;
+
+/** Collapse crossings to a per-cell count string, most-coupled first. Pure. */
+function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
+  const counts = new Map<string, number>();
+  for (const c of crossings) {
+    const key = byFrom ? c.fromCell : c.toCell;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([cell, n]) => `${cell}×${n}`).join(', ');
+}
+
+export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -60,13 +75,19 @@ export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: C
   }
   lines.push('');
   lines.push(`imports (${outCrossings.length}):`);
-  for (const c of outCrossings) {
-    lines.push(`  → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  if (outCrossings.length > AGG_THRESHOLD && !verbose) {
+    lines.push(`  → ${aggregateByCell(outCrossings, false)}`);
+    lines.push('  (--verbose for per-file detail)');
+  } else {
+    for (const c of outCrossings) lines.push(`  → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
   }
   lines.push('');
   lines.push(`imported by (${inCrossings.length}):`);
-  for (const c of inCrossings) {
-    lines.push(`  ← ${c.fromCell}   (${c.fromFile} → ${c.toFile})`);
+  if (inCrossings.length > AGG_THRESHOLD && !verbose) {
+    lines.push(`  ← ${aggregateByCell(inCrossings, true)}`);
+    lines.push('  (--verbose for per-file detail)');
+  } else {
+    for (const c of inCrossings) lines.push(`  ← ${c.fromCell}   (${c.fromFile} → ${c.toFile})`);
   }
   return `${lines.join('\n')}\n`;
 }

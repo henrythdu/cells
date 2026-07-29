@@ -161,6 +161,26 @@ describe("formatCellShow", () => {
 		expect(out4).toContain("tests (1 file):");
 		expect(out4).toContain("test/validate.test.ts");
 	});
+
+	it("aggregates imported-by edges by cell when count exceeds the threshold", () => {
+		// 10 inbound edges: 6 from placement, 4 from infra — collapses to placement×6, infra×4
+		const manyIn: Crossing[] = [];
+		for (let i = 0; i < 6; i++) manyIn.push({ fromCell: "placement", toCell: "validate", fromFile: `src/p${i}.ts`, toFile: "src/validate.ts", import: "./v" });
+		for (let i = 0; i < 4; i++) manyIn.push({ fromCell: "infra", toCell: "validate", fromFile: `src/i${i}.ts`, toFile: "src/validate.ts", import: "./v" });
+		const out5 = formatCellShow(cell, owned, out, manyIn, size, { ...metrics, fanIn: 10 });
+		expect(out5).toContain("imported by (10):");
+		expect(out5).toContain("placement×6, infra×4");
+		expect(out5).toContain("--verbose for per-file detail");
+		expect(out5).not.toContain("src/p0.ts"); // raw detail hidden
+	});
+
+	it("--verbose shows raw per-file edges even past the threshold", () => {
+		const manyIn: Crossing[] = [];
+		for (let i = 0; i < 9; i++) manyIn.push({ fromCell: "placement", toCell: "validate", fromFile: `src/p${i}.ts`, toFile: "src/validate.ts", import: "./v" });
+		const out5 = formatCellShow(cell, owned, out, manyIn, size, { ...metrics, fanIn: 9 }, true);
+		expect(out5).toContain("← placement   (src/p0.ts → src/validate.ts)");
+		expect(out5).not.toContain("placement×9");
+	});
 });
 
 describe("formatSizeReport", () => {

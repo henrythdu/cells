@@ -79,7 +79,7 @@ cells list                          # see the whole partition
 | `cells remove <cell> [--force]` | delete a cell's declaration (ownership freed → orphans unless `--force` also clears them) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
-| `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |
+| `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
 | `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. `validate` still works (redirects here). |
@@ -105,7 +105,7 @@ cells list                          # see the whole partition
 ```toml
 name = "parser"
 purpose = "Turn a .cell declaration file into a checked Cell AST."
-provides = ["parseCell", "Cell"]    # contract surface — shown in show/payload to neighbors (not symbol-checked)
+provides = ["parseCell", "Cell"]    # authored docs of the cell's surface (shown in show/payload; not symbol-checked)
 requires = ["token", "diagnostic"]  # neighbor CELL names
 layer = 0                         # optional — 0 = core; higher = more peripheral (direction)
 ```
