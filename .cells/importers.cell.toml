@@ -7,3 +7,4 @@ provides = [
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
 ]
 requires = ["io", "crossings", "python", "rust"]
+layer = 5

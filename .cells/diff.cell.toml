@@ -3,4 +3,4 @@ purpose = "The `crossings --diff` feature: how cross-cell crossings changed betw
 provides = ["crossingsDelta"]
 requires = ["crossings", "importers", "ownership"]
 
-layer = 2
+layer = 6

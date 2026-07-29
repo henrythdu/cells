@@ -1,6 +1,12 @@
 name = "config"
 purpose = "Parse project settings (.cells/config.toml); holds the payload-size ceiling default + the `cells init` template (buildConfig — language-aware)."
-provides = ["parseConfig", "DEFAULT_MAX_PAYLOAD_TOKENS", "DEFAULT_CONFIG", "buildConfig", "CellsConfig"]
+provides = [
+  "parseConfig",
+  "DEFAULT_MAX_PAYLOAD_TOKENS",
+  "DEFAULT_CONFIG",
+  "buildConfig",
+  "CellsConfig",
+]
 requires = []
 
 layer = 0

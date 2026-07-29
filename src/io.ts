@@ -100,19 +100,35 @@ export function listCodeFiles(baseDir = '.'): string[] {
 
 /** Directories never scanned for code (deps, build output, tooling caches). */
 const SKIP_DIRS = new Set([
-  '.git', 'node_modules', 'dist', 'build', 'target', '.cells',
-  '.next', '.nuxt', '.cache', '.turbo', 'out', 'coverage',
-  'vendor', '__pycache__', '.venv', 'venv', 'env', '.env',
-  '.mypy_cache', '.pytest_cache', '.ruff_cache', '.eggs', 'eggs',
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'target',
+  '.cells',
+  '.next',
+  '.nuxt',
+  '.cache',
+  '.turbo',
+  'out',
+  'coverage',
+  'vendor',
+  '__pycache__',
+  '.venv',
+  'venv',
+  'env',
+  '.env',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.eggs',
+  'eggs',
 ]);
 
 /** Extensions recognised as code (for census + ownership). Cells has importers for
  *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
  *  (no crossing analysis) — surfaced by the blind-ext warning in health. */
-const CODE_EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go',
-  '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs',
-]);
+const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs']);
 
 /** Detect the project's code languages + directories by scanning the repo (used by `cells init`
  *  so a Python/Rust repo doesn't ship TypeScript-only defaults). Scans top-level dirs (skipping

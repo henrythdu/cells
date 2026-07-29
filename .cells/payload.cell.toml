@@ -3,4 +3,4 @@ purpose = "Assemble a cell's completeness payload (declaration + owned code + ne
 provides = ["assemblePayload", "CellSize"]
 requires = ["declaration"]
 
-layer = 0
+layer = 2

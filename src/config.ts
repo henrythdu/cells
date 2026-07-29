@@ -26,27 +26,29 @@ export const DEFAULT_CONFIG = buildConfig(['.ts'], ['src', 'test']);
 export function buildConfig(codeExts: string[], codeDirs: string[]): string {
   const exts = codeExts.map((e) => `"${e}"`).join(', ');
   const dirs = codeDirs.map((d) => `"${d}"`).join(', ');
-  return [
-    '# Cells configuration. Every key is optional — delete one to use its default.',
-    '# Run `cells help` for what each command does.',
-    '',
-    '# Max tokens per cell payload (the context-fit ceiling). Default: 16000.',
-    'max-payload-tokens = 16000',
-    '',
-    '# Directories scanned for code (ownership census + import crossings).',
-    `code-dirs = [${dirs}]`,
-    '',
-    '# Extensions counted as code. Add one per language: .ts .py .rs .go ...',
-    `code-exts = [${exts}]`,
-    '',
-    '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
-    '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
-    '[layers]',
-    '# 0 = "core"',
-    '# 1 = "rule"',
-    '# 2 = "detail"',
-    '',
-  ].join('\n') + '\n';
+  return (
+    [
+      '# Cells configuration. Every key is optional — delete one to use its default.',
+      '# Run `cells help` for what each command does.',
+      '',
+      '# Max tokens per cell payload (the context-fit ceiling). Default: 16000.',
+      'max-payload-tokens = 16000',
+      '',
+      '# Directories scanned for code (ownership census + import crossings).',
+      `code-dirs = [${dirs}]`,
+      '',
+      '# Extensions counted as code. Add one per language: .ts .py .rs .go ...',
+      `code-exts = [${exts}]`,
+      '',
+      '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
+      '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
+      '[layers]',
+      '# 0 = "core"',
+      '# 1 = "rule"',
+      '# 2 = "detail"',
+      '',
+    ].join('\n') + '\n'
+  );
 }
 
 /**
@@ -72,8 +74,7 @@ export function parseConfig(content: string): CellsConfig {
   const codeDirs = raw['code-dirs'];
   const codeExts = raw['code-exts'];
   return {
-    maxPayloadTokens:
-      typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
+    maxPayloadTokens: typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
     codeDirs: Array.isArray(codeDirs) ? (codeDirs as string[]) : ['src', 'test'],
     codeExts: Array.isArray(codeExts) ? (codeExts as string[]) : ['.ts'],

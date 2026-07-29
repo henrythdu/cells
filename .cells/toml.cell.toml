@@ -2,3 +2,4 @@ name = "toml"
 purpose = "TOML emission primitives (quote strings, format inline arrays) shared by the domain serializers — keeps declaration + ownership DRY."
 provides = ["tomlString", "tomlArray"]
 requires = []
+layer = 0
