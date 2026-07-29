@@ -55,7 +55,8 @@ Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-
 ## Quickstart
 
 ```bash
-cells init                          # create .cells/ with an empty ownership map
+cells init                          # create .cells/ — detects your language (code-exts/code-dirs)
+cells plan                          # propose a partition from your directory layout (review, then curate)
 cells assign parser src/parser.ts   # assign a file to a cell (records ownership; stubs the declaration)
 $EDITOR .cells/parser.cell.toml     # author the membrane: purpose / provides / requires
 cells health                        # the gate: all checks at once (integrity + crossings + structure + size)
@@ -70,15 +71,18 @@ cells list                          # see the whole partition
 
 | command | what it does |
 | --- | --- |
-| `cells init` | bootstrap `.cells/` (idempotent) |
+| `cells init` | bootstrap `.cells/` — detects your language (code-exts/code-dirs) (idempotent) |
+| `cells plan` | propose a cell partition from your directory layout (prints declarations + ownership to review — writes nothing) |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells unassign <file...>` | remove file(s) from their cell (→ orphan) |
+| `cells rename <old> <new>` | rename a cell across the store (file, ownership keys, requires refs) |
+| `cells remove <cell> [--force]` | delete a cell's declaration (ownership freed → orphans unless `--force` also clears them) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
 | `cells show <name>` | one cell's membrane + its in/out crossings + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
-| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (leakage) + structure (cycles / direction) + size. `validate` still works (redirects here). |
+| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning) |
 | `cells structure` | layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) — warnings |
@@ -101,7 +105,7 @@ cells list                          # see the whole partition
 ```toml
 name = "parser"
 purpose = "Turn a .cell declaration file into a checked Cell AST."
-provides = ["parseCell", "Cell"]    # declared surface
+provides = ["parseCell", "Cell"]    # contract surface — shown in show/payload to neighbors (not symbol-checked)
 requires = ["token", "diagnostic"]  # neighbor CELL names
 layer = 0                         # optional — 0 = core; higher = more peripheral (direction)
 ```
@@ -124,8 +128,8 @@ max-payload-tokens = 16000                                 # context-fit ceiling
 # 0 = "domain"
 # 1 = "application"
 # 2 = "infrastructure"
-code-dirs = ["src", "test"]                                # dirs scanned for code (default)
-code-exts = [".ts"]                                        # extensions counted (default; set per language)
+code-dirs = ["src", "test"]                                # dirs scanned for code (`cells init` auto-detects)
+code-exts = [".ts"]                                        # extensions counted (`cells init` auto-detects; set per language)
 ```
 
 ### `ignore` — intentionally cell-free files
@@ -156,13 +160,14 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 
 | rule | severity | what it catches |
 | --- | --- | --- |
-| **Leakage** | **gate** (exit 1) | a cell imports another it doesn't `require` (undeclared), or `requires` one it never imports (stale) |
+| **Leakage (undeclared)** | **gate** (exit 1) | a cell imports another it doesn't `require` — a hidden dependency |
+| **Leakage (stale)** | info (exit 0) | a cell `requires` one it never imports — maybe a data dependency or future plan (shown, doesn't fail the gate) |
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
 | **Size** | warning (exit 0) | a cell's payload exceeds `max-payload-tokens` (default 16000) — consider dividing |
 | **Structure** | warning (exit 0) | a cycle (ADP), or an edge to a higher layer (Direction) |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
-**Payload = tokens**, estimated at chars/4 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.
+**Payload = tokens**, estimated at chars/3 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.
 
 ---
 

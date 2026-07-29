@@ -65,7 +65,8 @@ COMMANDS
   --version                print the installed version (also -v)
 
 RULES
-  leakage    GATE (exit 1)   import a cell you don't require, or require one unused
+  leakage    undeclared = GATE (exit 1)   import a cell you don't require
+            stale = info (exit 0)            require one never imported (data dep? future plan?)
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
   size       warning         payload over max-payload-tokens (default 16000)
   structure  warning         a cycle, or an edge to a higher layer
@@ -76,7 +77,7 @@ FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
   ownership.toml     the file → cell map (tracked)
   config.toml        max-payload-tokens, [layers] legend (optional; 0 = core),
-                     code-dirs[], code-exts[] (per language; default src/test, .ts)
+                     code-dirs[], code-exts[] (per language; init auto-detects)
   ignore             gitignore-style patterns for intentionally cell-free files
 
 LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts
