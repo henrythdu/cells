@@ -16,31 +16,38 @@ export interface CellsConfig {
  */
 export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
-/**
- * Default `.cells/config.toml` written by `cells init`. Filled with the defaults +
- * comments so the user sees what's configurable; every key is optional, so
- * deleting one reverts to its default (see `parseConfig`). Round-trips through
- * `parseConfig` to the defaults (verified in config.test.ts).
- */
-export const DEFAULT_CONFIG = `# Cells configuration. Every key is optional — delete one to use its default.
-# Run \`cells help\` for what each command does.
+/** Default `.cells/config.toml` written by `cells init` when no code is detected (empty repo).
+ *  Filled with TS defaults + comments so every key is visible; deleting one reverts to its
+ *  default (see `parseConfig`). Round-trips through `parseConfig` (verified in config.test.ts). */
+export const DEFAULT_CONFIG = buildConfig(['.ts'], ['src', 'test']);
 
-# Max tokens per cell payload (the context-fit ceiling). Default: 16000.
-max-payload-tokens = 16000
-
-# Directories scanned for code (ownership census + import crossings).
-code-dirs = ["src", "test"]
-
-# Extensions counted as code. Add one per language: .ts .py .rs .go ...
-code-exts = [".ts"]
-
-# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.
-# Uncomment + edit to label your tiers; leave as-is to show raw numbers.
-[layers]
-# 0 = "core"
-# 1 = "rule"
-# 2 = "detail"
-`;
+/** Build a `.cells/config.toml` template with detected `code-exts`/`code-dirs` so a Python/Rust
+ *  repo doesn't ship TypeScript-only defaults. Every key is still optional. Pure. */
+export function buildConfig(codeExts: string[], codeDirs: string[]): string {
+  const exts = codeExts.map((e) => `"${e}"`).join(', ');
+  const dirs = codeDirs.map((d) => `"${d}"`).join(', ');
+  return [
+    '# Cells configuration. Every key is optional — delete one to use its default.',
+    '# Run `cells help` for what each command does.',
+    '',
+    '# Max tokens per cell payload (the context-fit ceiling). Default: 16000.',
+    'max-payload-tokens = 16000',
+    '',
+    '# Directories scanned for code (ownership census + import crossings).',
+    `code-dirs = [${dirs}]`,
+    '',
+    '# Extensions counted as code. Add one per language: .ts .py .rs .go ...',
+    `code-exts = [${exts}]`,
+    '',
+    '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
+    '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
+    '[layers]',
+    '# 0 = "core"',
+    '# 1 = "rule"',
+    '# 2 = "detail"',
+    '',
+  ].join('\n') + '\n';
+}
 
 /**
  * Parse `.cells/config.toml`. Missing/empty → defaults. Pure.

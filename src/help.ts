@@ -12,6 +12,9 @@ THE MODEL
               has a membrane (its contract) + owned files (its body).
   partition   every code file assigned to exactly one cell (non-overlapping).
   membrane    a cell's declaration: name, purpose, provides, requires (+ optional layer).
+              provides = what this cell offers (a contract; shown in show/payload to neighbors,
+              not symbol-checked). requires = cells this one imports (validated against
+              crossings — the leakage gate). purpose = one-line intent.
   crossing    a real dependency from one cell into another (derived from imports).
   payload     what you consume to work a cell: its membrane + owned files + its
               neighbors' membranes. Measured in tokens (~chars/3).

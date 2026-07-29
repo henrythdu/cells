@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync, realpathSync, type Stats } from 'node:fs';
+import { join, relative, extname } from 'node:path';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
@@ -96,6 +96,88 @@ export function listCodeFiles(baseDir = '.'): string[] {
   if (!existsSync(ignorePath)) return all;
   const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
   return all.filter((f) => !isIgnored(f, patterns));
+}
+
+/** Directories never scanned for code (deps, build output, tooling caches). */
+const SKIP_DIRS = new Set([
+  '.git', 'node_modules', 'dist', 'build', 'target', '.cells',
+  '.next', '.nuxt', '.cache', '.turbo', 'out', 'coverage',
+  'vendor', '__pycache__', '.venv', 'venv', 'env', '.env',
+  '.mypy_cache', '.pytest_cache', '.ruff_cache', '.eggs', 'eggs',
+]);
+
+/** Extensions recognised as code (for census + ownership). Cells has importers for
+ *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
+ *  (no crossing analysis) — surfaced by the blind-ext warning in health. */
+const CODE_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go',
+  '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs',
+]);
+
+/** Detect the project's code languages + directories by scanning the repo (used by `cells init`
+ *  so a Python/Rust repo doesn't ship TypeScript-only defaults). Scans top-level dirs (skipping
+ *  deps/build/tooling), counts files by extension, collects top-level dirs holding code.
+ *  Falls back to TS defaults ([".ts"], ["src","test"]) when no code is found. Pure (no config). */
+export function detectProject(root = '.'): { codeExts: string[]; codeDirs: string[] } {
+  const extCounts = new Map<string, number>();
+  const dirHasCode = new Set<string>();
+
+  const scan = (dir: string, topDir: string): void => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry);
+      let st: Stats;
+      try {
+        st = statSync(path);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (SKIP_DIRS.has(entry)) continue;
+        scan(path, topDir);
+      } else {
+        const ext = extname(entry).toLowerCase();
+        if (CODE_EXTS.has(ext)) {
+          extCounts.set(ext, (extCounts.get(ext) ?? 0) + 1);
+          dirHasCode.add(topDir);
+        }
+      }
+    }
+  };
+
+  let rootEntries: string[];
+  try {
+    rootEntries = readdirSync(root);
+  } catch {
+    return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
+  }
+  for (const entry of rootEntries) {
+    if (SKIP_DIRS.has(entry)) continue;
+    const path = join(root, entry);
+    let st: Stats;
+    try {
+      st = statSync(path);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      scan(path, entry);
+    } else if (CODE_EXTS.has(extname(entry).toLowerCase())) {
+      extCounts.set(extname(entry).toLowerCase(), (extCounts.get(extname(entry).toLowerCase()) ?? 0) + 1);
+      dirHasCode.add('.');
+    }
+  }
+
+  if (extCounts.size === 0) return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
+  const codeExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
+  let codeDirs = [...dirHasCode].sort();
+  if (codeDirs.length === 0) codeDirs = ['src', 'test'];
+  return { codeExts, codeDirs };
 }
 
 /** Resolve a cell's neighbor declarations (for payload assembly). */

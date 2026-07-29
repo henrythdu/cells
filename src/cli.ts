@@ -19,10 +19,10 @@ import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } fr
 import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { unassignFiles, planAssignment, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, type CellsContext } from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, detectProject, type CellsContext } from './io.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
-import { DEFAULT_CONFIG } from './config.js';
+import { buildConfig, type CellsConfig } from './config.js';
 import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
@@ -31,6 +31,15 @@ import { HELP } from './help.js';
 function warnIfBlind(uncoveredExts: string[]): void {
   if (uncoveredExts.length > 0) {
     console.error(`⚠ no importer for ${uncoveredExts.join(', ')} — crossings/impact/structure/graph are BLIND (unverified). Partition/size/validate are unaffected.`);
+  }
+}
+
+/** Safety net: when a command finds zero code files, point at config.toml — the usual cause
+ *  is a language/config mismatch (e.g. TS defaults on a Python repo). Surfaces the onboarding
+ *  failure that `cells init`'s detection is meant to prevent. */
+function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): void {
+  if (codeFiles.length === 0) {
+    console.error(`\n⚠ 0 code files match code-exts=[${config.codeExts.join(', ')}] under code-dirs=[${config.codeDirs.join(', ')}] — edit .cells/config.toml.`);
   }
 }
 
@@ -97,7 +106,7 @@ function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new
 
 /** `cells list` — partition overview: each cell's files/size/requires/fan-in-out + orphans. */
 async function cmdList(ctx: CellsContext): Promise<void> {
-  const { declarations, ownership } = ctx;
+  const { declarations, ownership, config } = ctx;
   const sizes: Record<string, CellSize> = {};
   for (const name of Object.keys(declarations)) {
     const cell = declarations[name];
@@ -107,7 +116,9 @@ async function cmdList(ctx: CellsContext): Promise<void> {
   const crossings = deriveCrossings(edges, ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
-  const orphanFiles = listCodeFiles().filter((f) => !owned.has(f));
+  const codeFiles = listCodeFiles();
+  warnIfNoCodeFiles(config, codeFiles);
+  const orphanFiles = codeFiles.filter((f) => !owned.has(f));
   process.stdout.write(formatCellList(declarations, ownership, sizes, metrics, orphanFiles));
 }
 
@@ -195,6 +206,7 @@ function cmdOwns(ctx: CellsContext, file: string): void {
 
 /** `cells init` — bootstrap a `.cells/` store (idempotent + self-healing). */
 function cmdInit(dryRun = false): void {
+  const { codeExts, codeDirs } = detectProject();
   if (dryRun) {
     const ownPath = join(CELLS_DIR, 'ownership.toml');
     const cfgPath = join(CELLS_DIR, 'config.toml');
@@ -205,6 +217,7 @@ function cmdInit(dryRun = false): void {
       console.log(`${CELLS_DIR}/ already initialized — nothing to do.`);
     } else {
       console.log(`Would create ${CELLS_DIR}/ with ${needed.join(' + ')}.`);
+      console.log(`Would detect: code-exts = [${codeExts.join(', ')}], code-dirs = [${codeDirs.join(', ')}].`);
     }
     return;
   }
@@ -217,7 +230,7 @@ function cmdInit(dryRun = false): void {
     created.push('ownership.toml');
   }
   if (!existsSync(cfgPath)) {
-    writeFileSync(cfgPath, DEFAULT_CONFIG);
+    writeFileSync(cfgPath, buildConfig(codeExts, codeDirs));
     created.push('config.toml');
   }
   if (created.length === 0) {
@@ -225,6 +238,7 @@ function cmdInit(dryRun = false): void {
     return;
   }
   console.log(`Initialized ${CELLS_DIR}/: created ${created.join(' + ')}.`);
+  console.log(`Detected: code-exts = [${codeExts.join(', ')}], code-dirs = [${codeDirs.join(', ')}].`);
   console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
 }
 
@@ -390,6 +404,7 @@ function cmdPayload(ctx: CellsContext, name: string): void {
 async function cmdHealth(ctx: CellsContext): Promise<void> {
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
+  warnIfNoCodeFiles(config, codeFiles);
 
   const { edges, uncoveredExts } = await collectImportEdges();
   const crossings = deriveCrossings(edges, ownership);
@@ -457,7 +472,9 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
  *  directory, print suggested .cell.toml declarations + ownership.toml to stdout.
  *  The LLM reviews and curates — no files are written. */
 function cmdPlan(): void {
+  const config = loadConfig();
   const codeFiles = listCodeFiles();
+  warnIfNoCodeFiles(config, codeFiles);
   const groups: Record<string, string[]> = {};
   for (const f of codeFiles) {
     const dir = basename(dirname(f)) || 'root';

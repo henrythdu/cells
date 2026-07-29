@@ -10,6 +10,7 @@ provides = [
   "listCodeFiles",
   "neighborsOf",
   "computePayloadSize",
+  "detectProject",
   "CELLS_DIR",
 ]
 requires = ["declaration", "ownership", "payload", "config", "ignore"]

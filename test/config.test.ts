@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG } from '../src/config.js';
+import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG, buildConfig } from '../src/config.js';
 
 const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'] };
 
@@ -48,6 +48,32 @@ describe('parseConfig', () => {
       layers: {},
       codeDirs: ['lib', 'cmd'],
       codeExts: ['.go'],
+    });
+  });
+});
+
+describe('buildConfig', () => {
+  it('writes detected code-exts + code-dirs into the template', () => {
+    const py = buildConfig(['.py'], ['src', 'tests']);
+    expect(parseConfig(py)).toEqual({
+      maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
+      layers: {},
+      codeDirs: ['src', 'tests'],
+      codeExts: ['.py'],
+    });
+  });
+
+  it('round-trips for a Rust repo', () => {
+    const rs = buildConfig(['.rs'], ['src']);
+    expect(parseConfig(rs).codeExts).toEqual(['.rs']);
+    expect(parseConfig(rs).codeDirs).toEqual(['src']);
+  });
+
+  it('TS defaults still round-trip (empty-repo fallback)', () => {
+    expect(parseConfig(buildConfig(['.ts'], ['src', 'test']))).toEqual({
+      maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS,
+      layers: {},
+      ...DEFAULT_DIRS,
     });
   });
 });
