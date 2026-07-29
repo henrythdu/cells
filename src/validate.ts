@@ -59,9 +59,11 @@ export function validatePartition(ownership: Ownership, declarations: Record<str
   for (const [cell, decl] of Object.entries(declarations)) {
     for (const req of decl.requires) {
       if (!(req in declarations)) {
+        const owning = Object.entries(declarations).find(([, d]) => d.provides.includes(req));
+        const hint = owning ? ` — hint: '${req}' is a provides label of ${owning[0]}. Use '${owning[0]}' instead.` : '';
         violations.push({
           kind: 'unknown-require',
-          detail: `${cell} requires unknown cell ${req}`,
+          detail: `${cell} requires unknown cell '${req}'${hint}`,
         });
       }
     }

@@ -103,8 +103,7 @@ async function cmdList(ctx: CellsContext): Promise<void> {
     const cell = declarations[name];
     sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
   }
-  const { edges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
+  const { edges } = await collectImportEdges();
   const crossings = deriveCrossings(edges, ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
@@ -396,7 +395,9 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   const crossings = deriveCrossings(edges, ownership);
 
   const violations = validatePartition(ownership, declarations, codeFiles);
-  const undeclared = checkLeakage(crossings, declarations);
+  const leakage = checkLeakage(crossings, declarations);
+  const undeclared = leakage.filter((l) => l.kind === 'undeclared');
+  const stale = leakage.filter((l) => l.kind === 'stale');
   const cycles = detectCycles(crossings);
   const dirViolations = checkDirection(crossings, declarations);
 
@@ -410,7 +411,7 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   }
 
   const valOk = violations.length === 0;
-  const xOk = undeclared.length === 0;
+  const xOk = undeclared.length === 0; // only undeclared gate-fails; stale is informational
   const structOk = cycles.length === 0 && dirViolations.length === 0;
   const sizeOk = maxPercent <= 1;
   const allOk = valOk && xOk && structOk && sizeOk;
@@ -422,7 +423,8 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
 
   process.stdout.write(
     `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${cellNames.length} cells, ${codeFiles.length} files)` : `     (${violations.length} violations)`}\n` +
-      `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges)` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}\n` +
+      `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges${stale.length > 0 ? `, ${stale.length} stale` : ''})` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}
+` +
       `  ${structOk ? '✓' : '✗'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
       `  ${sizeOk ? '✓' : '✗'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
   );
@@ -433,6 +435,11 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   process.stdout.write('\n');
   if (!valOk) {
     for (const v of violations) process.stdout.write(`  validate: ${v.kind} — ${v.detail}\n`);
+  }
+  if (stale.length > 0) {
+    process.stdout.write(`(info) ${stale.length} stale require(s) — declared but no import found (maybe a data dependency or future plan):\n`);
+    for (const s of stale) process.stdout.write(`  ${s.fromCell} → ${s.toCell}\n`);
+    process.stdout.write('\n');
   }
   if (allOk) {
     process.stdout.write('→ All checks passed.\n');
