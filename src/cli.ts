@@ -143,11 +143,25 @@ async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promis
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
-function cmdSize(ctx: CellsContext): void {
+async function cmdSize(ctx: CellsContext): Promise<void> {
   const { config, declarations, ownership } = ctx;
+  const { edges } = await collectImportEdges();
+  const fileFanIn = new Map<string, number>();
+  for (const e of edges) fileFanIn.set(e.toFile, (fileFanIn.get(e.toFile) ?? 0) + 1);
   const entries = Object.keys(declarations).map((name) => {
     const cell = declarations[name];
-    return { name, size: computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)) };
+    const owned = ownership[name] ?? [];
+    const size = computePayloadSize(cell, owned, neighborsOf(cell, declarations));
+    // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
+    // (a big file few others import is the cheapest chunk to carve out).
+    let peel: { file: string; tokens: number; fanIn: number }[] | undefined;
+    if (size.tokens > config.maxPayloadTokens) {
+      const contents = readFiles(owned);
+      peel = owned
+        .map((f) => ({ file: f, tokens: Math.ceil((contents[f] ?? '').length / 3), fanIn: fileFanIn.get(f) ?? 0 }))
+        .sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
+    }
+    return { name, size, peel };
   });
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
 }
@@ -161,7 +175,7 @@ async function cmdStructure(ctx: CellsContext): Promise<void> {
   const cycles = detectCycles(crossings);
   const violations = checkDirection(crossings, declarations);
   const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
-  const report = formatStructureReport(cycles, violations, anyLayered, config.layers);
+  const report = formatStructureReport(cycles, violations, anyLayered, config.layers, crossings);
   const overview = formatLayerOverview(declarations, config.layers);
   process.stdout.write(overview ? `${overview}\n${report}` : report);
 
@@ -343,8 +357,15 @@ function cmdRemove(name: string, force: boolean): void {
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 function cmdAssign(cell: string, files: string[], dryRun = false): void {
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
+  const declarations = loadDeclarations();
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
   const { stub, ownership } = planAssignment(loadOwnership(), cell, files, existsSync(declPath));
+  // Size pre-flight: warn if the destination would exceed its ceiling after the move.
+  const cellDecl = declarations[cell] ?? stub;
+  if (cellDecl) {
+    const pct = computePayloadSize(cellDecl, ownership[cell] ?? [], neighborsOf(cellDecl, declarations)).tokens / loadConfig().maxPayloadTokens;
+    if (pct > 1) console.log(`⚠ ${cell} would be ${Math.round(pct * 100)}% of the ceiling after this move — consider peeling a file out first (\`cells size ${cell}\`).`);
+  }
   if (dryRun) {
     console.log(stub ? `Would create stub ${cell}.cell.toml + assign ${files.length} file(s) to "${cell}".` : `Would assign ${files.length} file(s) to "${cell}".`);
     return;
@@ -435,7 +456,9 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   const xOk = undeclared.length === 0; // only undeclared gate-fails; stale is informational
   const structOk = cycles.length === 0 && dirViolations.length === 0;
   const sizeOk = maxPercent <= 1;
-  const allOk = valOk && xOk && structOk && sizeOk;
+  // Strict gate: exit 1 ONLY on hard violations (integrity + undeclared leakage).
+  // size/structure are warnings (exit 0) — suboptimal, not broken.
+  const gateOk = valOk && xOk;
 
   const structParts: string[] = [];
   if (cycles.length > 0) structParts.push(`${cycles.length} cycle(s)`);
@@ -446,8 +469,8 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
     `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${cellNames.length} cells, ${codeFiles.length} files)` : `     (${violations.length} violations)`}\n` +
       `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges${stale.length > 0 ? `, ${stale.length} stale` : ''})` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}
 ` +
-      `  ${structOk ? '✓' : '✗'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
-      `  ${sizeOk ? '✓' : '✗'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
+      `  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
+      `  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
   );
   if (uncoveredExts.length > 0) {
     process.stdout.write(`  — coverage    (${uncoveredExts.length} blind ext(s): ${uncoveredExts.join(', ')})\n`);
@@ -462,14 +485,23 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
     for (const s of stale) process.stdout.write(`  ${s.fromCell} → ${s.toCell}\n`);
     process.stdout.write('\n');
   }
-  if (allOk) {
-    process.stdout.write('→ All checks passed.\n');
+  const warnings: string[] = [];
+  if (!structOk) warnings.push('structure');
+  if (!sizeOk) warnings.push('size');
+  if (gateOk) {
+    if (warnings.length > 0) {
+      const warnHint = warnings.map((w) => `\`cells ${w}\``).join(' / ');
+      process.stdout.write(`→ Gate passed with ${warnings.length} warning(s). Run ${warnHint} for details.\n`);
+    } else {
+      process.stdout.write('→ All checks passed.\n');
+    }
   } else {
     const drill: string[] = [];
+    if (!valOk) drill.push('validate');
     if (!xOk) drill.push('crossings');
-    if (!structOk) drill.push('structure');
     const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
-    process.stdout.write(`→ Some checks failed.${drillHint}\n`);
+    const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
+    process.stdout.write(`→ Gate failed.${aside}${drillHint}\n`);
     process.exit(1);
   }
 }

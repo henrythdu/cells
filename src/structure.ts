@@ -17,6 +17,36 @@ export interface Cycle {
   cells: string[]; // sorted; size > 1
 }
 
+/** A ranked cut candidate inside a cycle — an internal cell-pair edge + how many files carry it. */
+export interface CycleCutCandidate {
+  fromCell: string;
+  toCell: string;
+  fileCount: number;
+}
+
+/**
+ * Rank a cycle's internal cell-pair edges by file-crossing count (ascending). The thinnest edge
+ * (fewest files) is the cheapest to decouple — the first place to look when breaking the cycle.
+ * Not guaranteed to break the SCC on its own (a cycle may have redundant paths), but the
+ * thinnest edges are where the coupling is weakest. Pure + deterministic.
+ */
+export function cycleCutCandidates(cycle: Cycle, crossings: Crossing[]): CycleCutCandidate[] {
+  const members = new Set(cycle.cells);
+  const counts = new Map<string, number>();
+  for (const c of crossings) {
+    if (c.fromCell !== c.toCell && members.has(c.fromCell) && members.has(c.toCell)) {
+      const key = `${c.fromCell}->${c.toCell}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  const out: CycleCutCandidate[] = [];
+  for (const [key, fileCount] of counts) {
+    const [fromCell, toCell] = key.split('->');
+    out.push({ fromCell, toCell, fileCount });
+  }
+  return out.sort((a, b) => a.fileCount - b.fileCount || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
+}
+
 /**
  * Detect cycles in the cell graph via Tarjan's SCC.
  * A strongly-connected component of size > 1 is a cycle (self-loops are
@@ -182,7 +212,7 @@ export function formatLayerOverview(declarations: Record<string, Cell>, layerLab
  * `layersConfigured` controls the Direction section's message when no layers
  * are set. Pure.
  */
-export function formatStructureReport(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, layerLabels: Record<number, string> = {}): string {
+export function formatStructureReport(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, layerLabels: Record<number, string> = {}, crossings: Crossing[] = []): string {
   const fmt = (n: number): string => (layerLabels[n] ? `${layerLabels[n]} (${n})` : `${n}`);
   const lines: string[] = [];
 
@@ -190,7 +220,11 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     lines.push('ADP: acyclic — no circular dependencies.');
   } else {
     lines.push(`ADP: ${cycles.length} cycle(s):`);
-    for (const cyc of cycles) lines.push(`  ⚠ ${cyc.cells.join(' ↔ ')}`);
+    for (const cyc of cycles) {
+      lines.push(`  ⚠ ${cyc.cells.join(' ↔ ')}`);
+      const cuts = cycleCutCandidates(cyc, crossings);
+      if (cuts.length > 0) lines.push(`    cheapest edges (fewest files): ${cuts.slice(0, 3).map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`).join(', ')}`);
+    }
   }
 
   if (!layersConfigured) {

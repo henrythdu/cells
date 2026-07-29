@@ -64,6 +64,38 @@ describe('cells health', () => {
     });
   });
 
+  describe('on a repo with a size warning (gate stays green)', () => {
+    let repo: string;
+
+    afterEach(() => {
+      if (repo) rmSync(repo, { recursive: true, force: true });
+    });
+
+    it('exits 0, marks size ⚠, and says gate passed with warning', () => {
+      repo = mkdtempSync(join(tmpdir(), 'cells-health-warn-'));
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      mkdirSync(join(repo, '.cells'), { recursive: true });
+
+      writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
+      writeFileSync(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }),
+      );
+
+      // one big file in one cell — no crossings, valid partition, but over the ceiling
+      writeFileSync(join(repo, 'src', 'big.ts'), `export const pad = '${'x'.repeat(600)}';\n`);
+      writeFileSync(join(repo, '.cells', 'config.toml'), `code-dirs = ["src"]\nmax-payload-tokens = 100\n`);
+      writeFileSync(join(repo, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n`);
+      writeFileSync(join(repo, '.cells', 'ownership.toml'), `[a]\nfiles = ["src/big.ts"]\n`);
+
+      const out = execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' });
+      expect(out).toContain('⚠ size');
+      expect(out).toContain('Gate passed with 1 warning(s)');
+      expect(out).not.toContain('All checks passed');
+      expect(out).not.toContain('Gate failed');
+    });
+  });
+
   describe('validate is now an alias for health', () => {
     it('runs the full gate and prints a redirect note', () => {
       const out = execSync(`node ${cellsBin} validate`, { encoding: 'utf8' });

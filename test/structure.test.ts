@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing, CellMetrics } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
+import { detectCycles, cycleCutCandidates, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -44,6 +44,32 @@ describe('detectCycles', () => {
 
   it('returns [] for empty crossings', () => {
     expect(detectCycles([])).toEqual([]);
+  });
+});
+
+describe('cycleCutCandidates', () => {
+  it('ranks internal cell-pair edges by file-crossing count (ascending)', () => {
+    // cycle a↔b↔c; a→b has 1 file, b→c has 3, c→a has 1 (plus an a→c edge)
+    const cycle = { cells: ['a', 'b', 'c'] };
+    const crossings = [c('a', 'b'), c('b', 'c'), c('b', 'c'), c('b', 'c'), c('c', 'a'), c('a', 'c')];
+    const out = cycleCutCandidates(cycle, crossings);
+    expect(out[0]).toMatchObject({ fromCell: 'a', toCell: 'b', fileCount: 1 });
+    expect(out.find((x) => x.fromCell === 'b' && x.toCell === 'c')?.fileCount).toBe(3);
+    expect(out.at(-1)).toMatchObject({ fromCell: 'b', toCell: 'c', fileCount: 3 });
+  });
+
+  it('ignores edges to cells outside the cycle', () => {
+    const cycle = { cells: ['a', 'b'] };
+    expect(cycleCutCandidates(cycle, [c('a', 'b'), c('a', 'z'), c('z', 'b')])).toEqual([{ fromCell: 'a', toCell: 'b', fileCount: 1 }]);
+  });
+
+  it('ignores self-edges', () => {
+    const cycle = { cells: ['a', 'b'] };
+    expect(cycleCutCandidates(cycle, [c('a', 'b'), c('a', 'a')])).toEqual([{ fromCell: 'a', toCell: 'b', fileCount: 1 }]);
+  });
+
+  it('returns [] when the cycle has no internal edges', () => {
+    expect(cycleCutCandidates({ cells: ['a', 'b'] }, [c('a', 'z')])).toEqual([]);
   });
 });
 

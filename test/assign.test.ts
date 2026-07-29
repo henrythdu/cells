@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { assignFiles, unassignFiles, validCellName, planAssignment } from '../src/assign.js';
 import { STUB_PURPOSE } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 describe('assignFiles', () => {
   it('adds files to a cell', () => {
@@ -93,5 +97,29 @@ describe('planAssignment', () => {
 
   it('throws on an invalid cell name (the mutation contract)', () => {
     expect(() => planAssignment(base, 'bad/name', ['src/a.ts'], false)).toThrow();
+  });
+});
+
+describe('cmdAssign size pre-flight (CLI integration)', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('warns when the move would push the destination over its ceiling', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-assign-pf-'));
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 't', type: 'module' }));
+    writeFileSync(join(repo, 'src', 'existing.ts'), 'export const e = 1;\n');
+    writeFileSync(join(repo, 'src', 'big.ts'), `export const pad = '${'x'.repeat(600)}';\n`);
+    writeFileSync(join(repo, '.cells', 'config.toml'), `code-dirs = ["src"]\nmax-payload-tokens = 100\n`);
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n`);
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), `[a]\nfiles = ["src/existing.ts"]\n`);
+
+    const bin = join(__dirname, '..', 'dist', 'cli.js');
+    const out = execSync(`node ${bin} assign --dry-run a src/big.ts`, { cwd: repo, encoding: 'utf8' });
+    expect(out).toContain('⚠ a would be');
+    expect(out).toContain('% of the ceiling');
   });
 });

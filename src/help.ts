@@ -56,10 +56,10 @@ COMMANDS
   show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  health                   THE GATE: all checks at once (integrity + crossings + structure + size)
+  health                   THE GATE: exit 1 on integrity + undeclared leakage; size/structure are warnings
   crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
-  size                     context-fit: each payload vs the ceiling (warning)
-  structure                layers + ADP (no cycles) + Direction (deps→core) + SDP (deps→stability) — info
+  size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
+  structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)
@@ -69,9 +69,19 @@ RULES
             stale = info (exit 0)            require one never imported (data dep? future plan?)
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
   size       warning         payload over max-payload-tokens (default 16000)
-  structure  warning         a cycle, or an edge to a higher layer
+  structure  warning         a cycle (ADP), an edge to a higher layer (Direction),
+                             or a stable cell depending on a less-stable one (SDP)
   orphans    visibility      unowned files aren't violations; list shows them,
                              .cells/ignore hides the intentional ones
+
+GLOSSARY (structure terms, plain English)
+  ADP — Acyclic Dependencies:        no cycles between cells
+  Direction:                         edges point inward toward the core (lower layers)
+  SDP — Stable Dependencies:         each cell depends on things at least as stable as itself
+  instability I = fan-out/(fan-in+fan-out):  0 = rock-solid core (depended on,
+                                       depends on nothing); 1 = leaf (depends on
+                                       everything, nothing depends on it)
+  strict gate:                       exit 1 only on integrity + undeclared leakage.
 
 FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?

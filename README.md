@@ -82,10 +82,10 @@ cells list                          # see the whole partition
 | `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
-| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. `validate` still works (redirects here). |
+| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage (strict gate); size/structure are exit-0 warnings (⚠). `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
-| `cells size` | context-fit: each cell's payload vs the ceiling (warning) |
-| `cells structure` | layer tiers + ADP (no cycles) + Direction (deps point to core) + SDP (deps run toward stability) — all info/warnings |
+| `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
+| `cells structure` | layer tiers + ADP (no cycles) + Direction (deps point to core) + SDP (deps run toward stability) — all info/warnings; cycles suggest the cheapest edge to cut |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 
 ---

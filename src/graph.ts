@@ -35,6 +35,7 @@ export function formatCellGraphAscii(crossings: Crossing[]): string {
   const roots = [...nodes].filter((n) => !incoming.has(n)).sort();
   const start = roots.length > 0 ? roots : [...nodes].sort();
   const visited = new Set<string>();
+  const onStack = new Set<string>();
   const lines: string[] = [];
 
   const emitSiblings = (siblings: string[], prefix: string): void => {
@@ -43,20 +44,25 @@ export function formatCellGraphAscii(crossings: Crossing[]): string {
       const last = i === siblings.length - 1;
       const connector = last ? '└── ' : '├── ';
       if (visited.has(node)) {
-        lines.push(`${prefix}${connector}${node} ↩`);
+        // on the current DFS stack = a back-edge = part of a cycle; else a DAG cross-edge (diamond)
+        lines.push(`${prefix}${connector}${node} ${onStack.has(node) ? '↻ cycle' : '↩'}`);
         continue;
       }
       visited.add(node);
+      onStack.add(node);
       lines.push(`${prefix}${connector}${node}`);
       emitSiblings(adj.get(node) ?? [], prefix + (last ? '    ' : '│   '));
+      onStack.delete(node);
     }
   };
 
   for (const root of start) {
     if (visited.has(root)) continue;
     visited.add(root);
+    onStack.add(root);
     lines.push(root);
     emitSiblings(adj.get(root) ?? [], '');
+    onStack.delete(root);
   }
 
   return lines.length > 0 ? `${lines.join('\n')}\n` : '';

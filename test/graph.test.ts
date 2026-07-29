@@ -39,6 +39,13 @@ describe('formatCellGraphAscii', () => {
     expect(out).toBe('a\n├── b\n│   └── d\n└── c\n    └── d ↩\n');
   });
 
+  it('marks a back-edge to a node on the DFS stack as ↻ cycle (not ↩)', () => {
+    // a→b→a is a 2-cycle; the second a is on the stack → ↻ cycle, not ↩
+    const out = formatCellGraphAscii([e('a', 'b'), e('b', 'a')]);
+    expect(out).toContain('a ↻ cycle');
+    expect(out).not.toContain('a ↩');
+  });
+
   it('renders multiple roots', () => {
     expect(formatCellGraphAscii([e('a', 'b'), e('c', 'd')])).toBe('a\n└── b\nc\n└── d\n');
   });

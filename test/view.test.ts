@@ -183,4 +183,26 @@ describe('formatSizeReport', () => {
     expect(out).toContain('within ceiling');
     expect(out).not.toContain('⚠');
   });
+
+  it('lists peel candidates (size↓ + fan-in↑) under an over-ceiling cell', () => {
+    const entries = [
+      {
+        name: 'fat',
+        size: { files: 2, chars: 96000, tokens: 24000 },
+        peel: [
+          { file: 'src/leaf.ts', tokens: 508, fanIn: 0 },
+          { file: 'src/hub.ts', tokens: 308, fanIn: 1 },
+        ],
+      },
+    ];
+    const out = formatSizeReport(entries, 16000);
+    expect(out).toContain('peel candidates');
+    expect(out).toContain('src/leaf.ts (508 tok, 0 importers)');
+    expect(out).toContain('src/hub.ts (308 tok, 1 importer)'); // singular 'importer' for fanIn 1
+  });
+
+  it('omits peel candidates when not provided (within-ceiling cells)', () => {
+    const entries = [{ name: 'a', size: { files: 1, chars: 400, tokens: 100 } }];
+    expect(formatSizeReport(entries, 16000)).not.toContain('peel candidates');
+  });
 });

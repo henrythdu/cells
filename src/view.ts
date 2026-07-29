@@ -99,16 +99,20 @@ export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: C
  * Context-fit report: cells ranked by payload (biggest first), each with a
  * budget bar vs the ceiling; ⚠ on over-ceiling. Pure. (Exit 0 — it's a warning.)
  */
-export function formatSizeReport(entries: { name: string; size: CellSize }[], ceiling: number): string {
+export function formatSizeReport(entries: { name: string; size: CellSize; peel?: { file: string; tokens: number; fanIn: number }[] }[], ceiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
   const width = Math.max(...ranked.map((e) => e.name.length), 4);
   const lines: string[] = [`context-fit — ceiling: ${ceiling} tok (max-payload-tokens)`];
-  for (const { name, size } of ranked) {
+  for (const { name, size, peel } of ranked) {
     const over = size.tokens > ceiling;
     const segs = Math.min(10, Math.round((size.tokens / ceiling) * 10));
     const bar = '█'.repeat(segs).padEnd(10, '░');
     const mark = over ? ' ⚠ over ceiling' : '';
     lines.push(`  ${name.padEnd(width)}  [${bar}]  ${size.tokens} tok${mark}`);
+    if (over && peel && peel.length > 0) {
+      const top = peel.slice(0, 2);
+      lines.push(`    peel candidates: ${top.map((p) => `${p.file} (${p.tokens} tok, ${p.fanIn} importer${p.fanIn === 1 ? '' : 's'})`).join(', ')}`);
+    }
   }
   const overCount = ranked.filter((e) => e.size.tokens > ceiling).length;
   lines.push(overCount > 0 ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).` : 'all cells within ceiling.');
