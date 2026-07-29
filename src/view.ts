@@ -99,7 +99,13 @@ export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: C
  * Context-fit report: cells ranked by payload (biggest first), each with a
  * budget bar vs the ceiling; ⚠ on over-ceiling. Pure. (Exit 0 — it's a warning.)
  */
-export function formatSizeReport(entries: { name: string; size: CellSize; peel?: { file: string; tokens: number; fanIn: number }[] }[], ceiling: number): string {
+export interface PeelCandidate {
+  file: string;
+  tokens: number;
+  fanIn: number;
+}
+
+export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[] }[], ceiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
   const width = Math.max(...ranked.map((e) => e.name.length), 4);
   const lines: string[] = [`context-fit — ceiling: ${ceiling} tok (max-payload-tokens)`];

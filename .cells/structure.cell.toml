@@ -1,10 +1,15 @@
 name = "structure"
-purpose = "Graph analysis on the crossing graph: governance (ADP cycle detection + layer Direction — deps point toward core/layer 0) and change-impact (blast radius). Pure."
+purpose = "Graph analysis on the crossing graph: governance (ADP cycles, layer Direction — deps point toward core, SDP — deps run toward stability) + cycle-cut suggestions + layer inference, and change-impact (blast radius). Pure."
 provides = [
   "detectCycles",
   "checkDirection",
+  "checkSDP",
+  "cycleCutCandidates",
   "formatStructureReport",
+  "formatSdpReport",
   "formatLayerOverview",
+  "formatLayerSuggestions",
+  "inferLayers",
   "computeImpact",
   "formatImpactReport",
 ]

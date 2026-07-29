@@ -32,19 +32,16 @@ export interface CycleCutCandidate {
  */
 export function cycleCutCandidates(cycle: Cycle, crossings: Crossing[]): CycleCutCandidate[] {
   const members = new Set(cycle.cells);
-  const counts = new Map<string, number>();
+  const byPair = new Map<string, CycleCutCandidate>();
   for (const c of crossings) {
     if (c.fromCell !== c.toCell && members.has(c.fromCell) && members.has(c.toCell)) {
       const key = `${c.fromCell}->${c.toCell}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const entry = byPair.get(key) ?? { fromCell: c.fromCell, toCell: c.toCell, fileCount: 0 };
+      entry.fileCount++;
+      byPair.set(key, entry);
     }
   }
-  const out: CycleCutCandidate[] = [];
-  for (const [key, fileCount] of counts) {
-    const [fromCell, toCell] = key.split('->');
-    out.push({ fromCell, toCell, fileCount });
-  }
-  return out.sort((a, b) => a.fileCount - b.fileCount || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
+  return [...byPair.values()].sort((a, b) => a.fileCount - b.fileCount || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
 }
 
 /**
@@ -166,7 +163,7 @@ export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetr
       out.push({ fromCell: c.fromCell, toCell: c.toCell, fromInstability: fromI, toInstability: toI });
     }
   }
-  return out.sort((a, b) => b.toInstability - b.fromInstability - (a.toInstability - a.fromInstability));
+  return out.sort((a, b) => b.toInstability - b.fromInstability - (a.toInstability - a.fromInstability) || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
 }
 
 /** Format SDP violations as an info-only report. Returns null when there are none. Pure. */
@@ -223,7 +220,13 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     for (const cyc of cycles) {
       lines.push(`  ⚠ ${cyc.cells.join(' ↔ ')}`);
       const cuts = cycleCutCandidates(cyc, crossings);
-      if (cuts.length > 0) lines.push(`    cheapest edges (fewest files): ${cuts.slice(0, 3).map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`).join(', ')}`);
+      if (cuts.length > 0)
+        lines.push(
+          `    cheapest edges (fewest files): ${cuts
+            .slice(0, 3)
+            .map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`)
+            .join(', ')}`,
+        );
     }
   }
 

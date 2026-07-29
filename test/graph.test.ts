@@ -3,7 +3,11 @@ import { formatCellGraph, formatCellGraphAscii } from '../src/graph.js';
 import type { Crossing } from '../src/crossings.js';
 
 const e = (fromCell: string, toCell: string): Crossing => ({
-  fromCell, toCell, fromFile: 'f', toFile: 't', import: 'i',
+  fromCell,
+  toCell,
+  fromFile: 'f',
+  toFile: 't',
+  import: 'i',
 });
 
 describe('formatCellGraph', () => {

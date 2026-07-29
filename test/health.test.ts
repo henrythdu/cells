@@ -77,10 +77,7 @@ describe('cells health', () => {
       mkdirSync(join(repo, '.cells'), { recursive: true });
 
       writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-      writeFileSync(
-        join(repo, 'tsconfig.json'),
-        JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }),
-      );
+      writeFileSync(join(repo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
 
       // one big file in one cell — no crossings, valid partition, but over the ceiling
       writeFileSync(join(repo, 'src', 'big.ts'), `export const pad = '${'x'.repeat(600)}';\n`);

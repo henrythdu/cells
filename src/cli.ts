@@ -16,7 +16,7 @@ import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport, type PeelCandidate } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { unassignFiles, planAssignment, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, detectProject, type CellsContext } from './io.js';
@@ -154,12 +154,10 @@ async function cmdSize(ctx: CellsContext): Promise<void> {
     const size = computePayloadSize(cell, owned, neighborsOf(cell, declarations));
     // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
     // (a big file few others import is the cheapest chunk to carve out).
-    let peel: { file: string; tokens: number; fanIn: number }[] | undefined;
+    let peel: PeelCandidate[] | undefined;
     if (size.tokens > config.maxPayloadTokens) {
       const contents = readFiles(owned);
-      peel = owned
-        .map((f) => ({ file: f, tokens: Math.ceil((contents[f] ?? '').length / 3), fanIn: fileFanIn.get(f) ?? 0 }))
-        .sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
+      peel = owned.map((f) => ({ file: f, tokens: Math.ceil((contents[f] ?? '').length / 3), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
     }
     return { name, size, peel };
   });
