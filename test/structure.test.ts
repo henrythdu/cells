@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { Crossing } from '../src/crossings.js';
+import type { Crossing, CellMetrics } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, checkDirection, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
+import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -71,6 +71,62 @@ describe('checkDirection', () => {
   it('dedupes multiple crossings between the same cell pair', () => {
     const decls = { core: cell('core', 0), periph: cell('periph', 2) };
     expect(checkDirection([c('core', 'periph'), c('core', 'periph')], decls)).toHaveLength(1);
+  });
+});
+
+describe('checkSDP', () => {
+  /** Instability: I = fanOut / (fanIn + fanOut). 0 = stable, 1 = unstable. */
+  const m = (instability: number): CellMetrics => ({ fanIn: 0, fanOut: 0, instability });
+
+  it('flags a stable cell depending on a less-stable one (I(from) < I(to))', () => {
+    const metrics = { stable: m(0.0), unstable: m(0.8) };
+    expect(checkSDP([c('stable', 'unstable')], metrics)).toEqual([
+      { fromCell: 'stable', toCell: 'unstable', fromInstability: 0.0, toInstability: 0.8 },
+    ]);
+  });
+
+  it('allows an edge toward stability (I(from) > I(to))', () => {
+    const metrics = { unstable: m(0.8), stable: m(0.0) };
+    expect(checkSDP([c('unstable', 'stable')], metrics)).toEqual([]);
+  });
+
+  it('allows an equal-instability edge (borderline, not a violation)', () => {
+    const metrics = { a: m(0.5), b: m(0.5) };
+    expect(checkSDP([c('a', 'b')], metrics)).toEqual([]);
+  });
+
+  it('dedupes multiple crossings between the same cell pair', () => {
+    const metrics = { stable: m(0.1), unstable: m(0.9) };
+    expect(checkSDP([c('stable', 'unstable'), c('stable', 'unstable')], metrics)).toHaveLength(1);
+  });
+
+  it('sorts violations by gap (worst inversion first)', () => {
+    const metrics = { a: m(0.0), b: m(0.3), d: m(0.9), e: m(0.4) };
+    // a→d gap 0.9 (worst); b→e gap 0.1
+    const out = checkSDP([c('a', 'd'), c('b', 'e')], metrics);
+    expect(out[0]).toMatchObject({ fromCell: 'a', toCell: 'd' });
+    expect(out[1]).toMatchObject({ fromCell: 'b', toCell: 'e' });
+  });
+
+  it('skips an edge when a cell has no metric', () => {
+    const metrics = { stable: m(0.1) };
+    expect(checkSDP([c('stable', 'unknown')], metrics)).toEqual([]);
+  });
+});
+
+describe('formatSdpReport', () => {
+  const m = (instability: number): CellMetrics => ({ fanIn: 0, fanOut: 0, instability });
+
+  it('returns null when there are no violations', () => {
+    expect(formatSdpReport([])).toBeNull();
+  });
+
+  it('renders violations with instability values', () => {
+    const metrics = { stable: m(0.0), unstable: m(0.8) };
+    const report = formatSdpReport(checkSDP([c('stable', 'unstable')], metrics));
+    expect(report).toContain('SDP');
+    expect(report).toContain('stable (I=0.00)');
+    expect(report).toContain('unstable (I=0.80)');
   });
 });
 

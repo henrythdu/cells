@@ -51,7 +51,10 @@ function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
     const key = byFrom ? c.fromCell : c.toCell;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([cell, n]) => `${cell}×${n}`).join(', ');
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([cell, n]) => `${cell}×${n}`)
+    .join(', ');
 }
 
 export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false): string {

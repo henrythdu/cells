@@ -59,7 +59,7 @@ COMMANDS
   health                   THE GATE: all checks at once (integrity + crossings + structure + size)
   crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
   size                     context-fit: each payload vs the ceiling (warning)
-  structure                layer tiers + ADP (no cycles) + Direction (no edges to a higher layer) (warnings)
+  structure                layers + ADP (no cycles) + Direction (deps→core) + SDP (deps→stability) — info
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)

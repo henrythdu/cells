@@ -1,13 +1,15 @@
-import type { Crossing } from './crossings.js';
+import type { Crossing, CellMetrics } from './crossings.js';
 import type { Cell } from './declaration.js';
 
 /**
- * Structure governance — two Clean-Architecture principles as pure checks on
+ * Structure governance — three Clean-Architecture principles as pure checks on
  * the crossing graph:
  *   - ADP (Acyclic Dependencies Principle): the cell graph must have no cycles.
  *   - Direction: edges should run toward the core (layer 0); an edge to a
  *     higher layer (core→peripheral) is a Dependency-Inversion smell.
- * Both are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
+ *   - SDP (Stable Dependencies Principle): edges should run toward stability
+ *     (lower I); an edge from a stable cell to a less-stable one is a smell.
+ * All are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
  */
 
 /** A cycle — the cells in one strongly-connected component (mutual dependency). */
@@ -81,7 +83,6 @@ export interface DirectionViolation {
   toCell: string;
   toLayer: number;
 }
-
 /**
  * Check edge direction against each cell's numeric `layer` (0 = core/foundation;
  * higher = more peripheral). Dependencies must point TOWARD 0 (peripheral→core);
@@ -103,6 +104,49 @@ export function checkDirection(crossings: Crossing[], declarations: Record<strin
     }
   }
   return out;
+}
+
+/** An SDP violation — a stable cell (lower I) depending on a less-stable one (higher I). */
+export interface SdpViolation {
+  fromCell: string;
+  toCell: string;
+  fromInstability: number;
+  toInstability: number;
+}
+
+/**
+ * SDP (Stable Dependencies Principle): edges should run toward stability — depend on
+ * things at least as stable as yourself. A violation is an edge A→B where A is MORE
+ * stable than B (I(A) < I(B)): the stable cell is coupled to a less-stable one, so
+ * churn in the unstable cell can ripple into the stable one. Dedupes cell pairs
+ * (multiple file-edges between the same pair count once). Sorted by gap (worst first).
+ * Pure. Info-only — Cells surfaces the smell, doesn't enforce a fix.
+ */
+export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetrics>): SdpViolation[] {
+  const seen = new Set<string>();
+  const out: SdpViolation[] = [];
+  for (const c of crossings) {
+    const key = `${c.fromCell}->${c.toCell}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fromI = metrics[c.fromCell]?.instability;
+    const toI = metrics[c.toCell]?.instability;
+    if (fromI === undefined || toI === undefined) continue;
+    if (fromI < toI) {
+      out.push({ fromCell: c.fromCell, toCell: c.toCell, fromInstability: fromI, toInstability: toI });
+    }
+  }
+  return out.sort((a, b) => (b.toInstability - b.fromInstability) - (a.toInstability - a.fromInstability));
+}
+
+/** Format SDP violations as an info-only report. Returns null when there are none. Pure. */
+export function formatSdpReport(violations: SdpViolation[]): string | null {
+  if (violations.length === 0) return null;
+  const lines = ['SDP (Stable Dependencies Principle) — edges depending away from stability:'];
+  for (const v of violations) {
+    lines.push(`  ${v.fromCell} (I=${v.fromInstability.toFixed(2)}) → ${v.toCell} (I=${v.toInstability.toFixed(2)})   depends on a less stable cell`);
+  }
+  return lines.join('\n') + '\n';
 }
 
 /**
