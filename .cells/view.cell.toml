@@ -1,6 +1,6 @@
 name = "view"
-purpose = "Format the partition for human navigation: cell list + single-cell detail."
-provides = ["formatCellList", "formatCellShow", "formatSizeReport"]
+purpose = "Format the partition for human navigation: cell list, single-cell detail, size report, and the health (four-check) report."
+provides = ["formatCellList", "formatCellShow", "formatSizeReport", "formatHealthReport"]
 requires = ["declaration", "ownership", "crossings", "payload"]
 
 layer = 3

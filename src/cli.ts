@@ -16,7 +16,7 @@ import { serializeOwnership, owningCell } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, type PeelCandidate } from './view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { unassignFiles, planAssignment, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, detectProject, type CellsContext } from './io.js';
@@ -436,7 +436,6 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
 
   const violations = validatePartition(ownership, declarations, codeFiles);
   const leakage = checkLeakage(crossings, declarations);
-  const undeclared = leakage.filter((l) => l.kind === 'undeclared');
   const stale = leakage.filter((l) => l.kind === 'stale');
   const cycles = detectCycles(crossings);
   const dirViolations = checkDirection(crossings, declarations);
@@ -445,64 +444,31 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   let maxPercent = 0;
   for (const name of cellNames) {
     const cell = declarations[name];
-    const size = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
-    const pct = size.tokens / config.maxPayloadTokens;
+    const pct = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)).tokens / config.maxPayloadTokens;
     if (pct > maxPercent) maxPercent = pct;
   }
 
-  const valOk = violations.length === 0;
-  const xOk = undeclared.length === 0; // only undeclared gate-fails; stale is informational
-  const structOk = cycles.length === 0 && dirViolations.length === 0;
-  const sizeOk = maxPercent <= 1;
-  // Strict gate: exit 1 ONLY on hard violations (integrity + undeclared leakage).
-  // size/structure are warnings (exit 0) — suboptimal, not broken.
-  const gateOk = valOk && xOk;
+  // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
+  const { report, gateOk } = formatHealthReport({
+    cellCount: cellNames.length,
+    fileCount: codeFiles.length,
+    crossingCount: crossings.length,
+    violationCount: violations.length,
+    violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
+    undeclaredCount: leakage.filter((l) => l.kind === 'undeclared').length,
+    staleCount: stale.length,
+    staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
+    cycleCount: cycles.length,
+    dirViolationCount: dirViolations.length,
+    maxPercent,
+    uncoveredExts,
+  });
 
-  const structParts: string[] = [];
-  if (cycles.length > 0) structParts.push(`${cycles.length} cycle(s)`);
-  if (dirViolations.length > 0) structParts.push(`${dirViolations.length} direction`);
-  const structLabel = structParts.length > 0 ? structParts.join(', ') : 'acyclic, direction OK';
-
-  process.stdout.write(
-    `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${cellNames.length} cells, ${codeFiles.length} files)` : `     (${violations.length} violations)`}\n` +
-      `  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${crossings.length} edges${stale.length > 0 ? `, ${stale.length} stale` : ''})` : `    (${crossings.length} edges, ${undeclared.length} undeclared)`}
-` +
-      `  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})\n` +
-      `  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${Math.round(maxPercent * 100)}% of ceiling)` : `    (max ${Math.round(maxPercent * 100)}% — over ceiling)`}\n`,
-  );
-  if (uncoveredExts.length > 0) {
-    process.stdout.write(`  — coverage    (${uncoveredExts.length} blind ext(s): ${uncoveredExts.join(', ')})\n`);
-  }
-
-  process.stdout.write('\n');
-  if (!valOk) {
-    for (const v of violations) process.stdout.write(`  validate: ${v.kind} — ${v.detail}\n`);
-  }
-  if (stale.length > 0) {
-    process.stdout.write(`(info) ${stale.length} stale require(s) — declared but no import found (maybe a data dependency or future plan):\n`);
-    for (const s of stale) process.stdout.write(`  ${s.fromCell} → ${s.toCell}\n`);
-    process.stdout.write('\n');
-  }
-  const warnings: string[] = [];
-  if (!structOk) warnings.push('structure');
-  if (!sizeOk) warnings.push('size');
-  if (gateOk) {
-    if (warnings.length > 0) {
-      const warnHint = warnings.map((w) => `\`cells ${w}\``).join(' / ');
-      process.stdout.write(`→ Gate passed with ${warnings.length} warning(s). Run ${warnHint} for details.\n`);
-    } else {
-      process.stdout.write('→ All checks passed.\n');
-    }
-  } else {
-    const drill: string[] = [];
-    if (!valOk) drill.push('validate');
-    if (!xOk) drill.push('crossings');
-    const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
-    const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
-    process.stdout.write(`→ Gate failed.${aside}${drillHint}\n`);
-    process.exit(1);
-  }
+  process.stdout.write(report);
+  if (!gateOk) process.exit(1);
 }
+
+
 
 /** `cells plan` — scan code-dirs and propose a partition: group files by parent
  *  directory, print suggested .cell.toml declarations + ownership.toml to stdout.

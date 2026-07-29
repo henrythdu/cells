@@ -124,3 +124,76 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
   lines.push(overCount > 0 ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).` : 'all cells within ceiling.');
   return `${lines.join('\n')}\n`;
 }
+
+/** Pre-computed values for the health report — `cmdHealth` gathers these (with I/O),
+ *  `formatHealthReport` renders them (pure). Kept free of domain types so view stays
+ *  decoupled from validate/crossings/structure. */
+export interface HealthValues {
+  cellCount: number;
+  fileCount: number;
+  crossingCount: number;
+  violationCount: number;
+  violationDetails: string[];
+  undeclaredCount: number;
+  staleCount: number;
+  staleEdges: string[];
+  cycleCount: number;
+  dirViolationCount: number;
+  maxPercent: number;
+  uncoveredExts: string[];
+}
+
+export interface HealthReport {
+  report: string;
+  gateOk: boolean;
+}
+
+/**
+ * Render the four-check health report + the strict-gate verdict. Pure: takes the
+ * pre-computed values, returns the formatted report and whether the gate holds
+ * (exit 1 only on integrity + undeclared leakage — size/structure are warnings).
+ * The one read command that previously inlined its markup + gate decision; now
+ * joins the format* pattern (formatCellList / formatSizeReport / …) and is unit-testable.
+ */
+export function formatHealthReport(v: HealthValues): HealthReport {
+  const valOk = v.violationCount === 0;
+  const xOk = v.undeclaredCount === 0;
+  const structOk = v.cycleCount === 0 && v.dirViolationCount === 0;
+  const sizeOk = v.maxPercent <= 1;
+  const gateOk = valOk && xOk; // strict gate: integrity + undeclared leakage only
+
+  const structParts: string[] = [];
+  if (v.cycleCount > 0) structParts.push(`${v.cycleCount} cycle(s)`);
+  if (v.dirViolationCount > 0) structParts.push(`${v.dirViolationCount} direction`);
+  const structLabel = structParts.length > 0 ? structParts.join(', ') : 'acyclic, direction OK';
+  const pct = Math.round(v.maxPercent * 100);
+
+  const lines: string[] = [];
+  lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files)` : `     (${v.violationCount} violations)`}`);
+  lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
+  lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
+  lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
+  if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
+  lines.push('');
+  for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
+  if (v.staleCount > 0) {
+    lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
+    for (const s of v.staleEdges) lines.push(`  ${s}`);
+    lines.push('');
+  }
+
+  const warnings: string[] = [];
+  if (!structOk) warnings.push('structure');
+  if (!sizeOk) warnings.push('size');
+  if (gateOk) {
+    lines.push(warnings.length > 0 ? `→ Gate passed with ${warnings.length} warning(s). Run ${warnings.map((w) => `\`cells ${w}\``).join(' / ')} for details.` : '→ All checks passed.');
+  } else {
+    const drill: string[] = [];
+    if (!valOk) drill.push('validate');
+    if (!xOk) drill.push('crossings');
+    const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
+    const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
+    lines.push(`→ Gate failed.${aside}${drillHint}`);
+  }
+  return { report: lines.join('\n') + '\n', gateOk };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport } from '../src/view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport } from '../src/view.js';
 import type { CellSize } from '../src/payload.js';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
@@ -204,5 +204,43 @@ describe('formatSizeReport', () => {
   it('omits peel candidates when not provided (within-ceiling cells)', () => {
     const entries = [{ name: 'a', size: { files: 1, chars: 400, tokens: 100 } }];
     expect(formatSizeReport(entries, 16000)).not.toContain('peel candidates');
+  });
+});
+
+describe('formatHealthReport', () => {
+  const clear = { cellCount: 3, fileCount: 10, crossingCount: 5, violationCount: 0, violationDetails: [], undeclaredCount: 0, staleCount: 0, staleEdges: [], cycleCount: 0, dirViolationCount: 0, maxPercent: 0.4, uncoveredExts: [] };
+
+  it('all-clear: all ✓, gateOk true, "All checks passed"', () => {
+    const { report, gateOk } = formatHealthReport(clear);
+    expect(gateOk).toBe(true);
+    expect(report).toContain('✓ validate');
+    expect(report).toContain('✓ crossings');
+    expect(report).toContain('✓ structure');
+    expect(report).toContain('✓ size');
+    expect(report).toContain('All checks passed');
+  });
+
+  it('undeclared leakage gate-fails (✗ crossings, exit 1)', () => {
+    const { report, gateOk } = formatHealthReport({ ...clear, undeclaredCount: 2 });
+    expect(gateOk).toBe(false);
+    expect(report).toContain('✗ crossings');
+    expect(report).toContain('Gate failed');
+    expect(report).toContain('`cells crossings`'); // drill hint
+  });
+
+  it('size warning keeps the gate green (⚠, "Gate passed with warning")', () => {
+    const { report, gateOk } = formatHealthReport({ ...clear, maxPercent: 1.17 });
+    expect(gateOk).toBe(true);
+    expect(report).toContain('⚠ size');
+    expect(report).toContain('over ceiling');
+    expect(report).toContain('Gate passed with 1 warning(s)');
+    expect(report).not.toContain('All checks passed');
+  });
+
+  it('renders stale requires as an info section (not a gate failure)', () => {
+    const { report, gateOk } = formatHealthReport({ ...clear, staleCount: 1, staleEdges: ['a → b'] });
+    expect(gateOk).toBe(true);
+    expect(report).toContain('(info) 1 stale require(s)');
+    expect(report).toContain('a → b');
   });
 });
