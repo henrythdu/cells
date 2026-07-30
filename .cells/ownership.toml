@@ -40,6 +40,9 @@ files = ["src/help.ts"]
 [importers]
 files = ["src/importers.ts", "test/importers.test.ts"]
 
+[imports]
+files = ["src/imports.ts"]
+
 [toml]
 files = ["test/toml.test.ts", "src/toml.ts"]
 

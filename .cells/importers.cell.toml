@@ -6,5 +6,5 @@ provides = [
   "selectImporters(exts, importers) — pure dispatch by extension",
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
 ]
-requires = ["io", "crossings", "python", "rust"]
+requires = ["imports", "io", "python", "rust"]
 layer = 5

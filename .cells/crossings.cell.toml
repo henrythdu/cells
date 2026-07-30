@@ -4,16 +4,12 @@ provides = [
   "deriveCrossings",
   "checkLeakage",
   "computeMetrics",
-  "ImportEdge",
   "Crossing",
   "CellMetrics",
   "Leakage",
-  "Importer",
-  "SourceFile",
-  "ImportContext",
   "diffCrossings",
   "CrossingsDelta",
 ]
-requires = ["ownership", "declaration"]
+requires = ["imports", "ownership", "declaration"]
 
-layer = 2
+layer = 3

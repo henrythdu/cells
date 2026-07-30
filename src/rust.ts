@@ -1,5 +1,5 @@
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge } from './crossings.js';
+import type { ImportEdge } from './imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → Rust module path ---

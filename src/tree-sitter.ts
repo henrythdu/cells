@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Language, type Node, Parser } from 'web-tree-sitter';
-import type { ImportEdge, Importer } from './crossings.js';
+import type { ImportEdge, Importer } from './imports.js';
 
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +

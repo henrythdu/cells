@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rustImporter, fileToModule, resolveImportPath } from '../src/rust.js';
-import type { SourceFile } from '../src/crossings.js';
+import type { SourceFile } from '../src/imports.js';
 import type { Ownership } from '../src/ownership.js';
 
 describe('fileToModule', () => {

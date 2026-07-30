@@ -1,6 +1,6 @@
 import { extname, join, resolve, relative } from 'node:path';
 import { cruise, type ICruiseResult } from 'dependency-cruiser';
-import type { ImportEdge, SourceFile, Importer } from './crossings.js';
+import type { ImportEdge, SourceFile, Importer } from './imports.js';
 import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
 
 /** dep-cruiser importer — TS/JS. Source-based; handles aliases and `.js`→`.ts`. */
