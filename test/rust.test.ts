@@ -71,11 +71,11 @@ describe('rust importer', () => {
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
     expect(set).toEqual(
       new Set([
-        'src/lib.rs -> src/app/mod.rs',                       // crate::app::App
-        'src/app/mod.rs -> src/reading/tokenization.rs',      // group {tokenize_text, ReadingState} → submodule (deduped)
-        'src/app/mod.rs -> src/config/mod.rs',                // crate::config::Config
-        'src/reading/mod.rs -> src/reading/tokenization.rs',  // pub use re-export
-        'src/config/file.rs -> src/config/mod.rs',            // super::Config
+        'src/lib.rs -> src/app/mod.rs', // crate::app::App
+        'src/app/mod.rs -> src/reading/tokenization.rs', // group {tokenize_text, ReadingState} → submodule (deduped)
+        'src/app/mod.rs -> src/config/mod.rs', // crate::config::Config
+        'src/reading/mod.rs -> src/reading/tokenization.rs', // pub use re-export
+        'src/config/file.rs -> src/config/mod.rs', // super::Config
       ]),
     );
     // cli.rs has only external + an unresolved crate:: path → no edges

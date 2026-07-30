@@ -6,6 +6,8 @@ Code organized into **context-bounded cells** — so an LLM (or human) can work 
 
 Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate; the model is the primary consumer.
 
+**Why:** an LLM coding in a repo drifts fast — it forgets the partition between sessions, duplicates a helper that already lives one cell over, drops a new file in the wrong layer, and erodes the architecture. Retrieval (repo-maps, embeddings) *guesses* at structure; the guesses are lossy. Cells makes the structure **authored and visible** — every file has a named home, every cross-cell dependency a declared crossing, every cell its own design intent. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
+
 ---
 
 ## The mental model
@@ -85,7 +87,7 @@ cells list                          # see the whole partition
 | `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage (strict gate); size/structure are exit-0 warnings (⚠). `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
-| `cells structure` | layer tiers + ADP (no cycles) + Direction (deps point to core) + SDP (deps run toward stability) — all info/warnings; cycles suggest the cheapest edge to cut |
+| `cells structure` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 
 ---
@@ -188,4 +190,4 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 20 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 21 cells. Run `cells list` to see.*

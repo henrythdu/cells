@@ -9,9 +9,8 @@ provides = [
   "formatSdpReport",
   "formatLayerOverview",
   "formatLayerSuggestions",
-  "inferLayers",
   "computeImpact",
   "formatImpactReport",
 ]
 requires = ["crossings", "declaration"]
-layer = 4
+layer = 3

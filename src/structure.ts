@@ -307,94 +307,34 @@ export function formatImpactReport(impact: Impact): string {
 }
 
 /**
- * Infer layers from the `requires` DAG. A cell's layer = 1 + max(layer of each
- * required cell that is also declared (internal dep). External deps (not owned
- * cells) are ignored. Returns null when a requires-cycle is detected (mutual
- * declared dependency — layering is impossible). Pure.
+ * Format layer suggestions: flag only cells that sit BELOW a declared dependency —
+ * a real Direction risk (a cell importing something in a higher layer) — and
+ * prescribe the minimal fix (raise to that dependency's layer). Same-layer and
+ * higher-than-dependency assignments are Direction-valid, so they are NOT flagged.
+ * Returns null when every layered cell satisfies Direction. Pure.
  */
-export function inferLayers(declarations: Record<string, Cell>): Record<string, number> | null {
-  // adjacency: cell → set of declared cells it requires
-  const internalDeps = new Map<string, Set<string>>();
-  for (const [name, cell] of Object.entries(declarations)) {
-    const reqs = new Set<string>();
-    for (const r of cell.requires) {
-      if (declarations[r]) reqs.add(r);
-    }
-    internalDeps.set(name, reqs);
-  }
-
-  // detect requires-cycle with DFS coloring
-  const WHITE = 0,
-    GRAY = 1,
-    BLACK = 2;
-  const color = new Map<string, number>();
-  const hasCycle = (): boolean => {
-    const dfs = (node: string): boolean => {
-      color.set(node, GRAY);
-      for (const dep of internalDeps.get(node)!) {
-        const c = color.get(dep) ?? WHITE;
-        if (c === GRAY) return true;
-        if (c === WHITE && dfs(dep)) return true;
-      }
-      color.set(node, BLACK);
-      return false;
-    };
-    for (const name of internalDeps.keys()) {
-      if (!color.has(name) && dfs(name)) return true;
-    }
-    return false;
-  };
-  if (hasCycle()) return null;
-
-  // memoized recursive layer computation (DAG guaranteed acyclic)
-  const memo = new Map<string, number>();
-  const computeLayer = (name: string): number => {
-    if (memo.has(name)) return memo.get(name)!;
-    let max = 0;
-    for (const dep of internalDeps.get(name)!) {
-      max = Math.max(max, computeLayer(dep) + 1);
-    }
-    memo.set(name, max);
-    return max;
-  };
-
-  const result: Record<string, number> = {};
-  for (const name of Object.keys(declarations)) {
-    result[name] = computeLayer(name);
-  }
-  return result;
-}
-
-/**
- * Format layer suggestions: for each cell whose declared `layer` differs from the
- * DAG-inferred value, show current → suggested with the reasoning (which required
- * cell sets the ceiling). Returns null when all layers match or inference is
- * unavailable (requires-cycle). Pure.
- */
-export function formatLayerSuggestions(declarations: Record<string, Cell>, inferred: Record<string, number>): string | null {
+export function formatLayerSuggestions(declarations: Record<string, Cell>): string | null {
   const mismatches: { name: string; current: number; suggested: number; reason: string }[] = [];
   for (const [name, cell] of Object.entries(declarations)) {
     if (cell.layer === undefined) continue;
-    const sug = inferred[name];
-    if (sug === undefined) continue;
-    if (cell.layer !== sug) {
-      // reason: which required cell sets the ceiling
-      let maxDep = '';
-      let maxLayer = 0;
-      for (const r of cell.requires) {
-        const rLayer = inferred[r];
-        if (rLayer !== undefined && rLayer >= maxLayer) {
-          maxLayer = rLayer;
-          maxDep = r;
-        }
+    // deepest declared internal dependency
+    let maxDepLayer = 0;
+    let maxDep = '';
+    for (const r of cell.requires) {
+      const rLayer = declarations[r]?.layer;
+      if (rLayer !== undefined && rLayer > maxDepLayer) {
+        maxDepLayer = rLayer;
+        maxDep = r;
       }
-      const reason = maxDep ? `max required layer = ${maxLayer}, from ${maxDep}` : 'no internal dependencies';
-      mismatches.push({ name, current: cell.layer, suggested: sug, reason });
+    }
+    // Direction risk: this cell's layer is below one of its dependencies
+    if (cell.layer < maxDepLayer) {
+      mismatches.push({ name, current: cell.layer, suggested: maxDepLayer, reason: `depends on ${maxDep} at layer ${maxDepLayer}` });
     }
   }
   if (mismatches.length === 0) return null;
 
-  const lines = ['Suggested layers (from the requires DAG):'];
+  const lines = ['Layer suggestions (cells below a dependency — Direction risk):'];
   for (const m of mismatches) {
     lines.push(`  ${m.name}: ${m.current} → ${m.suggested}  (${m.reason})`);
   }

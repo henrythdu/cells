@@ -23,7 +23,7 @@ import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, 
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { buildConfig, type CellsConfig } from './config.js';
-import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, inferLayers, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
+import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
 
 /** Warn (stderr) when census files exist that no importer handles — the
@@ -177,11 +177,8 @@ async function cmdStructure(ctx: CellsContext): Promise<void> {
   const overview = formatLayerOverview(declarations, config.layers);
   process.stdout.write(overview ? `${overview}\n${report}` : report);
 
-  const inferred = inferLayers(declarations);
-  if (inferred !== null) {
-    const suggestions = formatLayerSuggestions(declarations, inferred);
-    if (suggestions !== null) process.stdout.write(`\n${suggestions}`);
-  }
+  const suggestions = formatLayerSuggestions(declarations);
+  if (suggestions !== null) process.stdout.write(`\n${suggestions}`);
 
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const sdp = formatSdpReport(checkSDP(crossings, metrics));
