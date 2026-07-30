@@ -1,5 +1,12 @@
 name = "imports"
 purpose = "The importer contract: file→file import edges (ImportEdge) + the per-language plugin interface (Importer, ImportContext, SourceFile). More fundamental than crossings — importers PRODUCE edges; crossings DERIVE cell→cell pairs from them."
-provides = ["ImportEdge", "UnresolvedImport", "ImportResult", "SourceFile", "ImportContext", "Importer"]
+provides = [
+  "ImportEdge",
+  "UnresolvedImport",
+  "ImportResult",
+  "SourceFile",
+  "ImportContext",
+  "Importer",
+]
 requires = ["ownership"]
 layer = 1

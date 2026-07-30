@@ -112,9 +112,7 @@ describe('unresolved local imports', () => {
       codeDirs: ['src'],
       moduleRoot: 'src',
       ownership: { domain: ['src/domain/symbol.py'] },
-      files: [
-        { path: 'src/domain/symbol.py', content: 'from domain.missing import X\n' },
-      ],
+      files: [{ path: 'src/domain/symbol.py', content: 'from domain.missing import X\n' }],
     });
     expect(unresolved.map((u) => u.import)).toContain('domain.missing');
   });
@@ -123,9 +121,7 @@ describe('unresolved local imports', () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       ownership: { app: ['src/app.py'] },
-      files: [
-        { path: 'src/app.py', content: 'import numpy\nfrom openai import X\n' },
-      ],
+      files: [{ path: 'src/app.py', content: 'import numpy\nfrom openai import X\n' }],
     });
     expect(unresolved).toEqual([]);
   });
@@ -134,9 +130,7 @@ describe('unresolved local imports', () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       ownership: { app: ['src/app/main.py'] },
-      files: [
-        { path: 'src/app/main.py', content: 'from .missing import X\n' },
-      ],
+      files: [{ path: 'src/app/main.py', content: 'from .missing import X\n' }],
     });
     expect(unresolved.length).toBeGreaterThan(0);
   });

@@ -208,7 +208,22 @@ describe('formatSizeReport', () => {
 });
 
 describe('formatHealthReport', () => {
-  const clear = { cellCount: 3, fileCount: 10, crossingCount: 5, violationCount: 0, violationDetails: [], undeclaredCount: 0, staleCount: 0, staleEdges: [], cycleCount: 0, dirViolationCount: 0, maxPercent: 0.4, uncoveredExts: [], unresolvedCount: 0, unresolvedDetails: [] };
+  const clear = {
+    cellCount: 3,
+    fileCount: 10,
+    crossingCount: 5,
+    violationCount: 0,
+    violationDetails: [],
+    undeclaredCount: 0,
+    staleCount: 0,
+    staleEdges: [],
+    cycleCount: 0,
+    dirViolationCount: 0,
+    maxPercent: 0.4,
+    uncoveredExts: [],
+    unresolvedCount: 0,
+    unresolvedDetails: [],
+  };
 
   it('all-clear: all ✓, gateOk true, "All checks passed"', () => {
     const { report, gateOk } = formatHealthReport(clear);
