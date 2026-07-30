@@ -14,6 +14,6 @@ body:
     attributes:
       label: Why does it matter?
       description: What problem solves and how it aligns with Cells' vision
-          (authored partitions, not retrieval; LLM as primary consumer).
+        (authored partitions, not retrieval; LLM as primary consumer).
     validations:
       required: true

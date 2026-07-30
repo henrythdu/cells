@@ -35,10 +35,6 @@ export function formatCellList(declarations: Record<string, Cell>, _ownership: O
   return `${lines.join('\n')}\n`;
 }
 
-/**
- * Format one cell's detail: declaration, owned files, the crossings it makes
- * (imports) and the crossings made against it (imported by). Pure.
- */
 /** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
  *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise
  *  dump dozens of lines of noise. */

@@ -575,10 +575,13 @@ async function main(): Promise<void> {
   }
   if (command.needsCells) requireCells();
   // --dry-run is a pure boolean flag (never takes a value) — strip it before the arg-count
-  // gate so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args.
+  // gate so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args. The gate
+  // counts only non-flag args, but commands still receive the full array (they read their
+  // own flags like --diff/--force/--mermaid/--verbose from it via .includes()).
   const dryRun = args.includes('--dry-run');
   const positional = args.filter((a) => a !== '--dry-run');
-  if (positional.length < command.minArgs) {
+  const realArgs = positional.filter((a) => !a.startsWith('--')).length;
+  if (realArgs < command.minArgs) {
     console.error(`usage: ${command.usage}`);
     process.exit(1);
   }
