@@ -1,0 +1,19 @@
+name: Feature request
+description: An idea that fits Cells' north star.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should it do?
+      description: Short, concrete. How does this help the LLM?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Why does it matter?
+      description: What problem solves and how it aligns with Cells' vision
+          (authored partitions, not retrieval; LLM as primary consumer).
+    validations:
+      required: true

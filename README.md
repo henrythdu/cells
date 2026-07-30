@@ -1,5 +1,10 @@
 # Cells
 
+> New issues and PRs from new contributors are auto-closed by default.
+> Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+[![npm version](https://img.shields.io/npm/v/@henrythdu/cells?style=flat-square)](https://www.npmjs.com/package/@henrythdu/cells)
+
 Code organized into **context-bounded cells** — so an LLM (or human) can work **one cell at a time** instead of drowning in the whole codebase.
 
 > **The bet:** mainstream agent tooling computes context by *retrieval* (repo-maps, embeddings, inferred maps). Cells is a contrarian bet on **declared partitions** — the structure is *authored and visible*, not guessed. Coherent membranes + complete ownership beat lossy retrieval.
