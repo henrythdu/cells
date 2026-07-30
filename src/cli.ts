@@ -465,8 +465,6 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   if (!gateOk) process.exit(1);
 }
 
-
-
 /** `cells plan` — scan code-dirs and propose a partition: group files by parent
  *  directory, print suggested .cell.toml declarations + ownership.toml to stdout.
  *  The LLM reviews and curates — no files are written. */

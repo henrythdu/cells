@@ -1,6 +1,6 @@
 {
   "name": "@henrythdu/cells",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publishConfig": {
     "access": "public"
   },
@@ -27,11 +27,11 @@
     "dependency-cruiser": "^18.1.0",
     "minimatch": "^10.2.5",
     "smol-toml": "^1.3.1",
+    "typescript": "^5.6.0",
     "web-tree-sitter": "^0.26.11"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
 }
