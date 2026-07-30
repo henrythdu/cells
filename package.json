@@ -1,10 +1,12 @@
 {
-  "name": "cells",
-  "version": "0.0.5",
-  "private": true,
+  "name": "@henrythdu/cells",
+  "version": "0.0.6",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
-    "cells": "./dist/cli.js"
+    "cells": "dist/cli.js"
   },
   "files": [
     "dist",

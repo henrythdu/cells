@@ -33,13 +33,14 @@ Cells is **for the model**: its job is to give an LLM a clean, bounded, self-des
 
 ## Install
 
-**For users** — one command, from GitHub:
+**For users:**
 
 ```bash
-npm install -g github:henrythdu/cells
+npm install -g @henrythdu/cells          # from npm (latest published version)
+npm install -g github:henrythdu/cells    # from GitHub (HEAD — latest commit)
 ```
 
-npm fetches the repo, builds `dist/` via the `prepare` script, and links the `cells` command. Requires Node (ESM).
+Both fetch the repo, build `dist/` via the `prepare` script, and link the `cells` command. Requires Node (ESM).
 
 **From source** (development):
 
