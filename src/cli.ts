@@ -47,7 +47,7 @@ function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): void {
  *  uncommitted edits added/removed (working tree vs HEAD). */
 async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
   const { ownership, declarations } = ctx;
-  const { edges, uncoveredExts } = await collectImportEdges();
+  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
   warnIfBlind(uncoveredExts);
   const crossings = deriveCrossings(edges, ownership);
 
@@ -86,6 +86,13 @@ async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
       console.error(`  [${l.kind}] ${l.detail}`);
     }
     process.exit(1);
+  }
+
+  if (unresolved.length > 0) {
+    console.error(`\nUnresolved local imports (${unresolved.length}):`);
+    for (const u of unresolved) {
+      console.error(`  ${u.fromFile} imports "${u.import}" — no matching owned file. Check the specifier or set module-root in config.toml.`);
+    }
   }
 }
 
@@ -428,7 +435,7 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
 
-  const { edges, uncoveredExts } = await collectImportEdges();
+  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
   const crossings = deriveCrossings(edges, ownership);
 
   const violations = validatePartition(ownership, declarations, codeFiles);
@@ -459,6 +466,8 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
     dirViolationCount: dirViolations.length,
     maxPercent,
     uncoveredExts,
+    unresolvedCount: unresolved.length,
+    unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
   });
 
   process.stdout.write(report);

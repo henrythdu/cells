@@ -1,5 +1,5 @@
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge } from './imports.js';
+import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → Rust module path ---
@@ -107,10 +107,18 @@ export const rustImporter = createTreeSitterImporter({
   fileToModule,
   extractEdges: (root, sourcePath, importerModule, moduleToFile) => {
     const edges: ImportEdge[] = [];
+    const unresolved: UnresolvedImport[] = [];
     for (const imp of extractImports(root)) {
       const toFile = resolveImportPath(imp, importerModule, moduleToFile);
-      if (toFile && toFile !== sourcePath) edges.push({ fromFile: sourcePath, toFile, import: imp });
+      if (toFile && toFile !== sourcePath) {
+        edges.push({ fromFile: sourcePath, toFile, import: imp });
+      } else if (!toFile && absoluteModulePath(imp, importerModule) !== null) {
+        // crate::/self::/super:: path that didn't resolve to any owned file.
+        // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
+        // my_mod — not unresolved, just self-referential.)
+        unresolved.push({ fromFile: sourcePath, import: imp });
+      }
     }
-    return edges;
+    return { edges, unresolved };
   },
 });

@@ -5,6 +5,7 @@ export interface CellsConfig {
   layers: Record<number, string>; // optional legend: tier rank → label (output readability). Empty = show raw numbers.
   codeDirs: string[]; // directories scanned for code (default: src, test)
   codeExts: string[]; // extensions counted as code (default: .ts) — set per language
+  moduleRoot?: string; // path prefix stripped from module names (e.g. "src" for Python src-layout: src/utils/schema.py → utils.schema)
 }
 
 /**
@@ -40,6 +41,11 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
       '# Extensions counted as code. Add one per language: .ts .py .rs .go ...',
       `code-exts = [${exts}]`,
       '',
+      '# Module root: path prefix stripped from module names for import resolution.',
+      '# Python src-layout: set to "src" so src/utils/schema.py → utils.schema (matching `from utils.schema import ...`).',
+      '# Leave unset if your code sits directly in code-dirs (no extra nesting).',
+      '# module-root = "src"',
+      '',
       '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
       '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
       '[layers]',
@@ -61,6 +67,7 @@ export function parseConfig(content: string): CellsConfig {
     layers?: unknown;
     'code-dirs'?: unknown;
     'code-exts'?: unknown;
+    'module-root'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
   const layersRaw = raw.layers;
@@ -73,10 +80,12 @@ export function parseConfig(content: string): CellsConfig {
   }
   const codeDirs = raw['code-dirs'];
   const codeExts = raw['code-exts'];
+  const moduleRoot = raw['module-root'];
   return {
     maxPayloadTokens: typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
     codeDirs: Array.isArray(codeDirs) ? (codeDirs as string[]) : ['src', 'test'],
     codeExts: Array.isArray(codeExts) ? (codeExts as string[]) : ['.ts'],
+    moduleRoot: typeof moduleRoot === 'string' ? moduleRoot : undefined,
   };
 }

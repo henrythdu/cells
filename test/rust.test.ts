@@ -67,7 +67,7 @@ describe('rust importer', () => {
       cli: ['src/cli.rs'],
     };
 
-    const edges = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
     expect(set).toEqual(
       new Set([
@@ -80,5 +80,23 @@ describe('rust importer', () => {
     );
     // cli.rs has only external + an unresolved crate:: path → no edges
     expect(edges.some((e) => e.fromFile === 'src/cli.rs')).toBe(false);
+  });
+
+  it('surfaces unresolved crate:: paths as diagnostics', async () => {
+    const { unresolved } = await rustImporter.extract({
+      codeDirs: ['src'],
+      files: [{ path: 'src/cli.rs', content: 'use crate::missing::Thing;\n' }],
+      ownership: { cli: ['src/cli.rs'] },
+    });
+    expect(unresolved.map((u) => u.import)).toContain('crate::missing::Thing');
+  });
+
+  it('external crates (std, serde) do not appear in unresolved', async () => {
+    const { unresolved } = await rustImporter.extract({
+      codeDirs: ['src'],
+      files: [{ path: 'src/lib.rs', content: 'use std::collections::HashMap;\nuse serde::Serialize;\n' }],
+      ownership: { lib: ['src/lib.rs'] },
+    });
+    expect(unresolved).toEqual([]);
   });
 });

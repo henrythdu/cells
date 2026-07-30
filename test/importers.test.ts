@@ -7,13 +7,13 @@ describe('importer selection', () => {
     const ts: Importer = {
       extensions: ['.ts'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     const py: Importer = {
       extensions: ['.py'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     expect(selectImporters(['.ts'], [ts, py])).toEqual([ts]);
@@ -25,7 +25,7 @@ describe('importer selection', () => {
     const ts: Importer = {
       extensions: ['.ts'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     expect(selectImporters(['.go'], [ts])).toEqual([]);
@@ -33,7 +33,7 @@ describe('importer selection', () => {
 
   it('python importer is registered with the .py extension', async () => {
     expect(pythonImporter.extensions).toContain('.py');
-    const edges = await pythonImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
+    const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
     expect(edges).toEqual([]);
   });
 });
@@ -43,13 +43,13 @@ describe('uncoveredImporterExts', () => {
     const ts: Importer = {
       extensions: ['.ts'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     const py: Importer = {
       extensions: ['.py'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     expect(uncoveredImporterExts(['.rs'], [ts, py])).toEqual(['.rs']);
@@ -60,7 +60,7 @@ describe('uncoveredImporterExts', () => {
     const ts: Importer = {
       extensions: ['.ts'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     expect(uncoveredImporterExts(['.ts', '.rs', '.go', '.rs'], [ts])).toEqual(['.go', '.rs']);
@@ -70,7 +70,7 @@ describe('uncoveredImporterExts', () => {
     const ts: Importer = {
       extensions: ['.ts', '.js'],
       async extract() {
-        return [];
+        return { edges: [], unresolved: [] };
       },
     };
     expect(uncoveredImporterExts(['.ts', '.js'], [ts])).toEqual([]);

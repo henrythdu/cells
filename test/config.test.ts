@@ -50,6 +50,14 @@ describe('parseConfig', () => {
       codeExts: ['.go'],
     });
   });
+
+  it('reads module-root (Python src-layout)', () => {
+    expect(parseConfig('module-root = "src"\n').moduleRoot).toBe('src');
+  });
+
+  it('module-root defaults to undefined when absent', () => {
+    expect(parseConfig('').moduleRoot).toBeUndefined();
+  });
 });
 
 describe('buildConfig', () => {

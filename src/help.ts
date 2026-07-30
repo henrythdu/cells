@@ -87,7 +87,8 @@ FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
   ownership.toml     the file → cell map (tracked)
   config.toml        max-payload-tokens, [layers] legend (optional; 0 = core),
-                     code-dirs[], code-exts[] (per language; init auto-detects)
+                     code-dirs[], code-exts[] (per language; init auto-detects),
+                     module-root? (strip a path prefix for import resolution; Python src-layout: "src")
   ignore             gitignore-style patterns for intentionally cell-free files
 
 LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts

@@ -1,24 +1,16 @@
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge } from './imports.js';
+import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → python module path ---
 
-/** `src/domain/symbol.py` → `src.domain.symbol`; `src/domain/__init__.py` → `src.domain`. */
-export function fileToModule(path: string): string {
-  const noExt = path.replace(/\.py$/, '');
-  const parts = noExt.split('/').filter(Boolean);
+/** `src/domain/symbol.py` → `src.domain.symbol`; `src/domain/__init__.py` → `src.domain`.
+ *  With `moduleRoot` (e.g. "src"): `src/domain/symbol.py` → `domain.symbol` (for Python src-layout). */
+export function fileToModule(path: string, moduleRoot?: string): string {
+  let p = path.replace(/\.py$/, '');
+  if (moduleRoot && p.startsWith(moduleRoot + '/')) p = p.slice(moduleRoot.length + 1);
+  const parts = p.split('/').filter(Boolean);
   if (parts[parts.length - 1] === '__init__') parts.pop();
-  return parts.join('.');
-}
-
-/** The package containing a file (for relative-import resolution). */
-function filePackage(path: string): string {
-  const mod = fileToModule(path);
-  const basename = path.split('/').pop() ?? '';
-  if (basename === '__init__.py') return mod; // __init__ IS its package
-  const parts = mod.split('.');
-  parts.pop();
   return parts.join('.');
 }
 
@@ -76,15 +68,18 @@ function collectImports(node: Node, out: ImportDesc[]): void {
 
 // --- resolution: descriptor + source file → candidate module paths → files ---
 
-function resolveEdges(desc: ImportDesc, sourcePath: string, moduleToFile: Map<string, string>): ImportEdge[] {
+function resolveEdges(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   let base: string;
   if (desc.dots === 0) {
     base = desc.module; // absolute
   } else {
-    const pkg = filePackage(sourcePath).split('.');
+    // The package containing this file. For __init__.py, the module IS the package;
+    // for a regular file, the package is module minus the last segment.
+    const isInit = sourcePath.endsWith('/__init__.py');
+    const pkg = (isInit ? importerModule : importerModule.split('.').slice(0, -1).join('.')).split('.').filter(Boolean);
     // `.` = current package; each extra dot goes up one level.
     const keep = pkg.length - (desc.dots - 1);
-    if (keep < 0) return []; // relative import goes above the root — invalid; skip (avoid false edges).
+    if (keep < 0) return { edges: [], unresolved: [] }; // relative import goes above the root — invalid; skip (avoid false edges).
     const targetPkg = pkg.slice(0, keep);
     base = desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
   }
@@ -98,7 +93,21 @@ function resolveEdges(desc: ImportDesc, sourcePath: string, moduleToFile: Map<st
       edges.push({ fromFile: sourcePath, toFile, import: cand });
     }
   }
-  return edges;
+  // Only flag unresolved if NO candidate from this import descriptor resolved.
+  // If the base module resolved, the name candidates are symbols (functions/classes) within
+  // it, not missing submodules — don't false-positive on them.
+  const unresolved: UnresolvedImport[] = [];
+  if (edges.length === 0 && base && looksLocal(base, desc.dots, localPackages)) {
+    unresolved.push({ fromFile: sourcePath, import: base });
+  }
+  return { edges, unresolved };
+}
+
+/** Does this candidate import look local? Relative imports (dots > 0) always do.
+ *  Absolute imports look local if the first segment matches a known local package. */
+function looksLocal(candidate: string, dots: number, localPackages: Set<string>): boolean {
+  if (dots > 0) return true;
+  return localPackages.has(candidate.split('.')[0]);
 }
 
 /** Python importer — tree-sitter extraction + module→file resolution via ownership. */
@@ -106,5 +115,21 @@ export const pythonImporter = createTreeSitterImporter({
   extensions: ['.py'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,
-  extractEdges: (root, sourcePath, _importerModule, moduleToFile) => extractImports(root).flatMap((desc) => resolveEdges(desc, sourcePath, moduleToFile)),
+  extractEdges: (root, sourcePath, importerModule, moduleToFile) => {
+    // Local top-level packages = first segment of each module in the map. Used to distinguish
+    // local-but-unresolved imports (warn) from external packages (skip silently).
+    const localPackages = new Set<string>();
+    for (const mod of moduleToFile.keys()) {
+      const firstSeg = mod.split('.')[0];
+      if (firstSeg) localPackages.add(firstSeg);
+    }
+    const edges: ImportEdge[] = [];
+    const unresolved: UnresolvedImport[] = [];
+    for (const desc of extractImports(root)) {
+      const r = resolveEdges(desc, sourcePath, importerModule, moduleToFile, localPackages);
+      edges.push(...r.edges);
+      unresolved.push(...r.unresolved);
+    }
+    return { edges, unresolved };
+  },
 });

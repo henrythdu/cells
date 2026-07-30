@@ -13,6 +13,13 @@ export interface ImportEdge {
   import: string;
 }
 
+/** An import that looks local (relative, or matches a local package) but resolved to no owned file.
+ *  Surfaced as a diagnostic — a likely broken import or module-root mismatch. */
+export interface UnresolvedImport {
+  fromFile: string;
+  import: string; // the raw specifier as written in the source
+}
+
 /** A source file with its content — the unit importers parse. */
 export interface SourceFile {
   path: string;
@@ -27,6 +34,15 @@ export interface ImportContext {
   /** Where code lives ('.' = the working repo). Set to a HEAD-tree dir for `crossings --diff`;
    *  importers that cruise the FS (dep-cruiser) remap their output paths to repo-relative. */
   baseDir?: string;
+  /** Path prefix stripped from module names (e.g. "src" for Python src-layout). Passed to each
+   *  importer's fileToModule. Languages with fixed/derived roots (Rust's `src/`, Go's go.mod) ignore it. */
+  moduleRoot?: string;
+}
+
+/** What an importer returns: resolved edges + imports that look local but didn't resolve. */
+export interface ImportResult {
+  edges: ImportEdge[];
+  unresolved: UnresolvedImport[];
 }
 
 /**
@@ -41,6 +57,6 @@ export interface Importer {
   extensions: readonly string[];
   /** If true, the importer needs file *contents* (not just paths). */
   needsContent?: boolean;
-  /** Extract file→file edges. Pure wrt its inputs (may read the FS via a lib). */
-  extract(ctx: ImportContext): Promise<ImportEdge[]>;
+  /** Extract file→file edges + unresolved local imports. Pure wrt its inputs (may read the FS via a lib). */
+  extract(ctx: ImportContext): Promise<ImportResult>;
 }

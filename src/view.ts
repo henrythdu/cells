@@ -137,6 +137,8 @@ export interface HealthValues {
   dirViolationCount: number;
   maxPercent: number;
   uncoveredExts: string[];
+  unresolvedCount: number;
+  unresolvedDetails: string[];
 }
 
 export interface HealthReport {
@@ -170,11 +172,17 @@ export function formatHealthReport(v: HealthValues): HealthReport {
   lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
+  if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s) — no matching file; check specifiers or module-root)`);
   lines.push('');
   for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
   if (v.staleCount > 0) {
     lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
     for (const s of v.staleEdges) lines.push(`  ${s}`);
+    lines.push('');
+  }
+  if (v.unresolvedCount > 0) {
+    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s) — likely a broken specifier or module-root mismatch:`);
+    for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
     lines.push('');
   }
 

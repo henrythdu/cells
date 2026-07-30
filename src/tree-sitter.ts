@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Language, type Node, Parser } from 'web-tree-sitter';
-import type { ImportEdge, Importer } from './imports.js';
+import type { ImportEdge, ImportResult, UnresolvedImport, Importer } from './imports.js';
 
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
@@ -44,10 +44,10 @@ export function getGrammarParser(wasmBasename: string): Promise<Parser> {
 export interface TreeSitterImporterSpec {
   extensions: readonly string[];
   wasmBasename: string;
-  fileToModule(path: string): string;
-  /** Parse a tree's root into import edges (extraction + resolution). Self-loops
-   *  and duplicate targets are de-duped by the factory. */
-  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>): ImportEdge[];
+  fileToModule(path: string, moduleRoot?: string): string;
+  /** Parse a tree's root into import edges + unresolved local imports (extraction + resolution).
+   *  Self-loops and duplicate targets are de-duped by the factory. */
+  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
 }
 
 /**
@@ -61,30 +61,33 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
   return {
     extensions: spec.extensions,
     needsContent: true,
-    async extract({ files }): Promise<ImportEdge[]> {
+    async extract({ files, moduleRoot }): Promise<ImportResult> {
       const moduleToFile = new Map<string, string>();
-      for (const f of files) if (matches(f.path)) moduleToFile.set(spec.fileToModule(f.path), f.path);
+      for (const f of files) if (matches(f.path)) moduleToFile.set(spec.fileToModule(f.path, moduleRoot), f.path);
 
       const parser = await getGrammarParser(spec.wasmBasename);
       const edges: ImportEdge[] = [];
+      const unresolved: UnresolvedImport[] = [];
       for (const f of files) {
         if (!matches(f.path)) continue;
         const tree = parser.parse(f.content);
         if (!tree) continue;
         try {
-          const importerModule = spec.fileToModule(f.path);
+          const importerModule = spec.fileToModule(f.path, moduleRoot);
           const seen = new Set<string>();
-          for (const e of spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile)) {
+          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile);
+          for (const e of fileEdges) {
             if (e.toFile !== f.path && !seen.has(e.toFile)) {
               seen.add(e.toFile);
               edges.push(e);
             }
           }
+          unresolved.push(...fileUnresolved);
         } finally {
           tree.delete(); // web-tree-sitter Trees are WASM-backed — free each one to avoid leaking.
         }
       }
-      return edges;
+      return { edges, unresolved };
     },
   };
 }
