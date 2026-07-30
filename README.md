@@ -175,6 +175,8 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 
 ## Working with a Cells project (for agents)
 
+> **Cold start? Run `cells help`.** The command list and descriptions are self-describing — it's the real front door for this tool. Point an agent at a repo and ask it to run `cells help`; that alone is enough to orient and pick up the loop below, whether the repo has a `.cells/` dir yet or not.
+
 Drop into a repo with a `.cells/` dir and follow this loop:
 
 1. **Orient** — `cells list`: see the cells, their sizes, and any unowned files.
