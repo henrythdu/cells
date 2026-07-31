@@ -12,15 +12,14 @@ export const depCruiserImporter: Importer = {
     try {
       const { output } = await cruise(dirs, {
         tsPreCompilationDeps: true,
-        outputType: 'json', // explicit — a silent non-JSON default would fake an empty graph
         doNotFollow: { path: 'node_modules' },
       });
-      // cruise returns a JSON string with outputType:'json', an object without it — accept both
-      const parsed = typeof output === 'string' ? (JSON.parse(output) as ICruiseResult) : output;
-      if (typeof parsed !== 'object' || parsed === null || !Array.isArray(parsed.modules)) {
+      // guard the shape — a future cruise() default that stops returning the result object
+      // would silently fake an empty graph (false green) if unchecked
+      if (typeof output !== 'object' || output === null || !Array.isArray((output as ICruiseResult).modules)) {
         throw new Error('dependency-cruiser returned a non-JSON result');
       }
-      result = parsed;
+      result = output as ICruiseResult;
     } catch (err) {
       // dep-cruiser couldn't handle the paths/language — surface it; silent zero-edges
       // would fake a green gate on a blind graph. (collectImportEdges turns this into

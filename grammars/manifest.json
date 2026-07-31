@@ -1,8 +1,4 @@
 {
-  "//": "The bundled tree-sitter grammar set. `cells health` smoke-loads every wasm here — a missing file or ABI mismatch with the bundled web-tree-sitter runtime fails the gate. Regeneration recipe: see README.md in this directory.",
   "runtime": "web-tree-sitter",
-  "grammars": [
-    { "lang": "python", "wasm": "tree-sitter-python.wasm" },
-    { "lang": "rust", "wasm": "tree-sitter-rust.wasm" }
-  ]
+  "grammars": [{ "lang": "python", "wasm": "tree-sitter-python.wasm" }, { "lang": "rust", "wasm": "tree-sitter-rust.wasm" }]
 }

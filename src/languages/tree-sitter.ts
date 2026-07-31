@@ -54,19 +54,19 @@ export function getGrammarParser(wasmBasename: string): Promise<Parser> {
  *  of that language (the lazy per-language failure would otherwise stay silent). Called by
  *  `cells health`; runs loads through the same serialized chain as real parsing, so it can't
  *  race concurrent grammar loads. */
-export async function checkGrammars(): Promise<{ lang: string; wasm: string; ok: boolean; error?: string }[]> {
+export async function checkGrammars(): Promise<{ lang: string; ok: boolean; error?: string }[]> {
   const grammarsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'grammars');
   let manifest: { grammars: { lang: string; wasm: string }[] };
   try {
     manifest = JSON.parse(readFileSync(join(grammarsDir, 'manifest.json'), 'utf8')) as typeof manifest;
   } catch {
     // never throw — health renders this as a failing grammars line (broken package = gate failure)
-    return [{ lang: 'manifest', wasm: 'manifest.json', ok: false, error: `missing or unreadable at ${grammarsDir}` }];
+    return [{ lang: 'manifest', ok: false, error: `missing or unreadable at ${grammarsDir}` }];
   }
-  const results: { lang: string; wasm: string; ok: boolean; error?: string }[] = [];
+  const results: { lang: string; ok: boolean; error?: string }[] = [];
   if (!Array.isArray(manifest.grammars)) {
     // malformed shape (bad edit/merge) must fail the gate, not crash health
-    return [{ lang: 'manifest', wasm: 'manifest.json', ok: false, error: `malformed manifest (no grammars array) at ${grammarsDir}` }];
+    return [{ lang: 'manifest', ok: false, error: `malformed manifest (no grammars array) at ${grammarsDir}` }];
   }
   for (const g of manifest.grammars) {
     try {
@@ -74,9 +74,9 @@ export async function checkGrammars(): Promise<{ lang: string; wasm: string; ok:
         await Parser.init();
         await Language.load(readFileSync(join(grammarsDir, g.wasm)));
       });
-      results.push({ lang: g.lang, wasm: g.wasm, ok: true });
+      results.push({ lang: g.lang, ok: true });
     } catch (err) {
-      results.push({ lang: g.lang, wasm: g.wasm, ok: false, error: err instanceof Error ? err.message : String(err) });
+      results.push({ lang: g.lang, ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   }
   return results;

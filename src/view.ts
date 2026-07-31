@@ -187,7 +187,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
   const grammars = v.grammarResults.filter((g) => !g.ok);
-  lines.push(`  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`);
+  lines.push(
+    `  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`,
+  );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s) — no matching file; check specifiers or module-root)`);
 
