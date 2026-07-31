@@ -27,6 +27,19 @@ describe('formatCellGraph', () => {
   it('handles empty crossings', () => {
     expect(formatCellGraph([])).toBe('flowchart LR\n');
   });
+
+  it('renders isolated cells when no edges exist (no empty diagram)', () => {
+    const out = formatCellGraph([], ['alpha', 'beta']);
+    expect(out).toContain('  alpha');
+    expect(out).toContain('  beta');
+  });
+
+  it('does not duplicate a cell that already has edges', () => {
+    const out = formatCellGraph([e('cli', 'io')], ['cli', 'io', 'orphan']);
+    expect(out.split('cli --> io').length).toBe(2); // the edge, once
+    expect(out).not.toMatch(/\n {2}cli\n/); // no extra bare 'cli' node line
+    expect(out).toContain('  orphan');
+  });
 });
 
 describe('formatCellGraphAscii', () => {
@@ -52,6 +65,10 @@ describe('formatCellGraphAscii', () => {
 
   it('renders multiple roots', () => {
     expect(formatCellGraphAscii([e('a', 'b'), e('c', 'd')])).toBe('a\n└── b\nc\n└── d\n');
+  });
+
+  it('renders isolated cells with no edges (turborepo: 2 cells, 0 edges)', () => {
+    expect(formatCellGraphAscii([], ['alpha', 'beta'])).toBe('alpha\nbeta\n');
   });
 
   it('returns empty for no crossings', () => {

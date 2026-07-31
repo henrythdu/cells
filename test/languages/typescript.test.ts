@@ -61,4 +61,49 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     expect(edges.some((e) => e.import === '@/b')).toBe(false); // no tsconfig → cannot resolve
     expect(unresolved.some((u) => u.import === '@/b')).toBe(true); // …but surfaced, not swallowed
   });
+
+  it('resolves workspace package-name imports to the package entry source (monorepo)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ws-ts-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'packages', 'utils', 'src'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'utils', 'src', 'dir'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'create-turbo', 'src'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'legacy', 'src'), { recursive: true });
+    // dist-only main → must land on src/index.ts; exports subpath key → dir/index.default.js
+    writeFileSync(join(dir, 'packages', 'utils', 'package.json'), JSON.stringify({ name: '@turbo/utils', main: './dist/index.js', exports: { '.': './dist/index.js', './with-module': './src/dir/index.default.js' } }));
+    writeFileSync(join(dir, 'packages', 'create-turbo', 'package.json'), JSON.stringify({ name: '@turbo/create-turbo' }));
+    writeFileSync(join(dir, 'packages', 'legacy', 'package.json'), JSON.stringify({ name: '@vitejs/plugin-legacy' }));
+    writeFileSync(join(dir, 'packages', 'utils', 'src', 'index.ts'), 'export const foo = 1;\n');
+    writeFileSync(join(dir, 'packages', 'utils', 'src', 'deep.ts'), 'export const bar = 2;\n');
+    writeFileSync(join(dir, 'packages', 'utils', 'src', 'dir', 'index.default.js'), 'export const baz = 3;\n');
+    writeFileSync(join(dir, 'packages', 'create-turbo', 'src', 'cli.ts'), "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n");
+
+    const prev = process.cwd();
+    process.chdir(dir);
+    try {
+      const { edges, unresolved } = await depCruiserImporter.extract({
+        codeDirs: ['packages'],
+        files: [
+          { path: 'packages/create-turbo/src/cli.ts', content: '' },
+          { path: 'packages/utils/src/index.ts', content: '' },
+          { path: 'packages/utils/src/deep.ts', content: '' },
+          { path: 'packages/utils/src/dir/index.default.js', content: '' },
+        ],
+        ownership: {},
+      });
+      const exact = edges.find((e) => e.import === '@turbo/utils');
+      expect(exact).toBeDefined();
+      expect(exact!.toFile).toContain('packages/utils/src/index.ts'); // dist-only main → source via probes
+      const sub = edges.find((e) => e.import === '@turbo/utils/deep');
+      expect(sub).toBeDefined();
+      expect(sub!.toFile).toContain('packages/utils/src/deep.ts'); // heuristic: entry dir + rest
+      const mod = edges.find((e) => e.import === '@turbo/utils/with-module');
+      expect(mod).toBeDefined();
+      expect(mod!.toFile).toContain('packages/utils/src/dir/index.default.js'); // exports subpath key
+      expect(edges.some((e) => e.import === '@turbo/nope')).toBe(false); // unknown name → external, silent
+      expect(unresolved.some((u) => u.import === '@turbo/nope')).toBe(false);
+    } finally {
+      process.chdir(prev);
+    }
+  });
 });

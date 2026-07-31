@@ -22,6 +22,7 @@ describe('isIgnored', () => {
 
   it('matches a suffix glob', () => {
     expect(isIgnored('notes.tmp', patterns)).toBe(true);
+    expect(isIgnored('.notes.tmp', patterns)).toBe(false); // `*` keeps gitignore's leading-dot rule (dot only for ** patterns)
   });
 
   it('matches an exact path', () => {
@@ -41,5 +42,11 @@ describe('isIgnored', () => {
     expect(isIgnored('dist/a/b.js', ['dist/'])).toBe(true);
     expect(isIgnored('src/dist/foo.ts', ['dist/'])).toBe(true);
     expect(isIgnored('src/x.js', ['dist/'])).toBe(false);
+  });
+
+  it('traverses hidden dirs under a glob (gitignore parity — dot:true)', () => {
+    expect(isIgnored('playground/optimize-deps/.hidden-dir/foo.js', ['playground/**'])).toBe(true);
+    expect(isIgnored('playground/.cache/foo.js', ['playground/**'])).toBe(true);
+    expect(isIgnored('src/x.ts', ['playground/**'])).toBe(false);
   });
 });

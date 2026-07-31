@@ -5,11 +5,23 @@ import type { Crossing } from './crossings.js';
  * natively in GitHub READMEs; the model reads `list`/`crossings` instead).
  * Dedupes file-level crossings to unique cell->cell edges. Pure.
  */
-export function formatCellGraph(crossings: Crossing[]): string {
+export function formatCellGraph(crossings: Crossing[], allCells: string[] = []): string {
   const edges = new Set<string>();
-  for (const c of crossings) edges.add(`${c.fromCell} --> ${c.toCell}`);
+  const nodes = new Set(allCells);
+  for (const c of crossings) {
+    edges.add(`${c.fromCell} --> ${c.toCell}`);
+    nodes.add(c.fromCell);
+    nodes.add(c.toCell);
+  }
   const lines = ['flowchart LR'];
   for (const e of [...edges].sort()) lines.push(`  ${e}`);
+  // cells with no crossings still render — an empty diagram hides them (both endpoints count)
+  const hasEdge = new Set<string>();
+  for (const c of crossings) {
+    hasEdge.add(c.fromCell);
+    hasEdge.add(c.toCell);
+  }
+  for (const n of [...nodes].sort()) if (!hasEdge.has(n)) lines.push(`  ${n}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -18,9 +30,9 @@ export function formatCellGraph(crossings: Crossing[]): string {
  * needed). DFS from roots (cells nothing depends on); shared dependents are
  * marked ↩ and not re-expanded. Pure.
  */
-export function formatCellGraphAscii(crossings: Crossing[]): string {
+export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] = []): string {
   const adj = new Map<string, string[]>();
-  const nodes = new Set<string>();
+  const nodes = new Set<string>(allCells);
   const incoming = new Set<string>();
   for (const c of crossings) {
     nodes.add(c.fromCell);

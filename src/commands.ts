@@ -240,7 +240,8 @@ export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> 
 export async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<void> {
   const { ownership } = ctx;
   const { crossings } = await loadCrossings(ownership);
-  process.stdout.write(mermaid ? formatCellGraph(crossings) : formatCellGraphAscii(crossings));
+  const allCells = Object.keys(ownership);
+  process.stdout.write(mermaid ? formatCellGraph(crossings, allCells) : formatCellGraphAscii(crossings, allCells));
 }
 
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
