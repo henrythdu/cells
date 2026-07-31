@@ -49,7 +49,7 @@ export function loadOwnership(): Ownership {
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'] };
+  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
   return readParsed(path, parseConfig, '.cells/config.toml');
 }
 

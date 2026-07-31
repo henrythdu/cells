@@ -50,6 +50,15 @@ describe('formatCellList', () => {
     expect(out).toContain('examples/demo.ts');
   });
 
+  it('caps the unowned dump at 20 files with a count hint (orphan flood)', () => {
+    const many = Array.from({ length: 30 }, (_, i) => `src/loose_${i}.ts`);
+    const out = formatCellList(decls, ownership, sizes, listMetrics, many);
+    expect(out).toContain('30 orphan');
+    expect(out).toContain('src/loose_0.ts');
+    expect(out).not.toContain('src/loose_29.ts'); // lexicographic cut at 20
+    expect(out).toContain('and 10 more');
+  });
+
   it('reports zero orphans cleanly', () => {
     expect(formatCellList(decls, ownership, sizes, listMetrics, [])).toContain('0 orphan');
   });

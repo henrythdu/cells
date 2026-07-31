@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG, buildConfig } from '../src/config.js';
 
-const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'] };
+const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
 
 describe('parseConfig', () => {
   it('reads max-payload-tokens', () => {
@@ -48,11 +48,17 @@ describe('parseConfig', () => {
       layers: {},
       codeDirs: ['lib', 'cmd'],
       codeExts: ['.go'],
+      ignoreBlindExts: [],
     });
   });
 
   it('reads module-root (Python src-layout)', () => {
     expect(parseConfig('module-root = "src"\n').moduleRoot).toBe('src');
+  });
+
+  it('reads ignore-blind-exts (per-ext blind-warning silence)', () => {
+    expect(parseConfig('ignore-blind-exts = [".c", ".h"]\n').ignoreBlindExts).toEqual(['.c', '.h']);
+    expect(parseConfig('').ignoreBlindExts).toEqual([]);
   });
 
   it('module-root defaults to undefined when absent', () => {
@@ -68,6 +74,7 @@ describe('buildConfig', () => {
       layers: {},
       codeDirs: ['src', 'tests'],
       codeExts: ['.py'],
+      ignoreBlindExts: [],
     });
   });
 

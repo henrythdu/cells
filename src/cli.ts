@@ -2,7 +2,7 @@
 /** CLI entry + mutation commands. Read/analysis handlers live in commands.ts (this file
  *  stays a thin dispatcher: argv → COMMANDS row → handler; state-writes live here). */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { serializeOwnership } from './ownership.js';
@@ -283,8 +283,9 @@ async function cmdPruneStale(apply: boolean): Promise<void> {
   console.log(lines.join('\n'));
 }
 
-/** `cells plan` — scan code-dirs and propose a partition: group files by parent
- *  directory, print suggested .cell.toml declarations + ownership.toml to stdout.
+/** `cells plan` — scan code-dirs and propose a partition: group files by directory
+ *  (relative path, not basename — same-named dirs in a monorepo must not merge),
+ *  print suggested .cell.toml declarations + ownership.toml to stdout.
  *  The LLM reviews and curates — no files are written. */
 function cmdPlan(): void {
   const config = loadConfig();
@@ -292,9 +293,14 @@ function cmdPlan(): void {
   warnIfNoCodeFiles(config, codeFiles);
   const groups: Record<string, string[]> = {};
   for (const f of codeFiles) {
-    const dir = basename(dirname(f)) || 'root';
-    if (!(dir in groups)) groups[dir] = [];
-    groups[dir].push(f);
+    // key = full relative dir ('.' → 'root' for files at the scan root);
+    // name = dir path escaped to a valid cell name: '-' → '--', separator → '-'
+    // (injective: 'src/api' and 'src-api' can't collide; backslashes normalize for Windows)
+    const dir = dirname(f).replaceAll('\\', '/');
+    const key = dir === '.' ? 'root' : dir;
+    const name = key.replaceAll('-', '--').replaceAll('/', '-');
+    if (!Object.hasOwn(groups, name)) groups[name] = [];
+    groups[name].push(f);
   }
 
   console.log('# Proposed cell declarations (.cells/*.cell.toml files)');

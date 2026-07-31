@@ -90,8 +90,10 @@ export async function collectImportEdges(
   uncoveredExts: string[];
   unresolved: UnresolvedImport[];
   failures: ImporterFailure[];
+  ignoreBlindExts: string[];
 }> {
-  const { codeDirs, moduleRoot } = loadConfig();
+  const config = loadConfig();
+  const { codeDirs, moduleRoot } = config;
   const ownership = loadOwnership();
   const paths = listCodeFiles(baseDir);
   const exts = Array.from(new Set(paths.map((p) => extname(p))));
@@ -122,7 +124,7 @@ export async function collectImportEdges(
       failures.push({ importer: imp.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { edges, uncoveredExts, unresolved, failures };
+  return { edges, uncoveredExts, unresolved, failures, ignoreBlindExts: config.ignoreBlindExts };
 }
 
 /** An importer that failed to extract — its language's edges are missing, the graph is blind for it. */

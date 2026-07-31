@@ -6,6 +6,7 @@ export interface CellsConfig {
   codeDirs: string[]; // directories scanned for code (default: src, test)
   codeExts: string[]; // extensions counted as code (default: .ts) — set per language
   moduleRoot?: string; // path prefix stripped from module names (e.g. "src" for Python src-layout: src/utils/schema.py → utils.schema)
+  ignoreBlindExts: string[]; // extensions to silence the "no importer — crossings BLIND" warning for (e.g. a lone .c vendored file)
 }
 
 /**
@@ -46,6 +47,10 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
       '# Leave unset if your code sits directly in code-dirs (no extra nesting).',
       '# module-root = "src"',
       '',
+      '# Extensions to silence the "no importer — crossings BLIND" warning for',
+      '# (e.g. a lone vendored .c file in a Rust repo).',
+      '# ignore-blind-exts = [".c"]',
+      '',
       '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
       '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
       '[layers]',
@@ -68,6 +73,7 @@ export function parseConfig(content: string): CellsConfig {
     'code-dirs'?: unknown;
     'code-exts'?: unknown;
     'module-root'?: unknown;
+    'ignore-blind-exts'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
   const layersRaw = raw.layers;
@@ -81,11 +87,13 @@ export function parseConfig(content: string): CellsConfig {
   const codeDirs = raw['code-dirs'];
   const codeExts = raw['code-exts'];
   const moduleRoot = raw['module-root'];
+  const ignoreBlindExts = raw['ignore-blind-exts'];
   return {
     maxPayloadTokens: typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
     codeDirs: Array.isArray(codeDirs) ? (codeDirs as string[]) : ['src', 'test'],
     codeExts: Array.isArray(codeExts) ? (codeExts as string[]) : ['.ts'],
     moduleRoot: typeof moduleRoot === 'string' ? moduleRoot : undefined,
+    ignoreBlindExts: Array.isArray(ignoreBlindExts) ? (ignoreBlindExts as string[]) : [],
   };
 }

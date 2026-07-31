@@ -30,10 +30,16 @@ export function formatCellList(declarations: Record<string, Cell>, _ownership: O
   if (orphanFiles.length > 0) {
     lines.push('');
     lines.push('unowned (assign or add to .cells/ignore):');
-    for (const f of orphanFiles.sort()) lines.push(`  ${f}`);
+    const shown = orphanFiles.sort().slice(0, ORPHAN_LIST_CAP);
+    for (const f of shown) lines.push(`  ${f}`);
+    const rest = orphanFiles.length - shown.length;
+    if (rest > 0) lines.push(`  … and ${rest} more`);
   }
   return `${lines.join('\n')}\n`;
 }
+
+/** Above this many files, `list` truncates the unowned dump (the count stays in the header). */
+const ORPHAN_LIST_CAP = 20;
 
 /** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
  *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise

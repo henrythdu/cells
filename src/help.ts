@@ -92,6 +92,7 @@ FILES (.cells/)
   ownership.toml     the file → cell map (tracked)
   config.toml        max-payload-tokens, [layers] legend (optional; 0 = core),
                      code-dirs[], code-exts[] (per language; init auto-detects),
+                     ignore-blind-exts[] (silence per-ext blind warning)
                      module-root? (strip a path prefix for import resolution; Python src-layout: "src")
   ignore             gitignore-style patterns for intentionally cell-free files
 

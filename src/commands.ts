@@ -17,9 +17,10 @@ import type { Cell } from './declaration.js';
 
 /** Warn (stderr) when census files exist that no importer handles — the
  * crossings-derived output may be BLIND. Goes to stderr so machine output (stdout) stays clean. */
-function warnIfBlind(uncoveredExts: string[]): void {
-  if (uncoveredExts.length > 0) {
-    console.error(`⚠ no importer for ${uncoveredExts.join(', ')} — crossings/impact/structure/graph are BLIND (unverified). Partition/size/validate are unaffected.`);
+function warnIfBlind(uncoveredExts: string[], ignoreBlindExts: string[]): void {
+  const noisy = uncoveredExts.filter((e) => !ignoreBlindExts.includes(e));
+  if (noisy.length > 0) {
+    console.error(`⚠ no importer for ${noisy.join(', ')} — crossings/impact/structure/graph are BLIND (unverified). Partition/size/validate are unaffected. Silence per-ext via ignore-blind-exts in config.toml.`);
   }
 }
 
@@ -36,7 +37,7 @@ export function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): voi
  *  crossings. Every analysis command routes through this (one drift surface). `warn` lets
  *  health skip the stderr blind-warning — its report already covers it. */
 export async function loadCrossings(ownership: Ownership, warn = true): Promise<{ edges: ImportEdge[]; crossings: Crossing[]; uncoveredExts: string[]; unresolved: UnresolvedImport[] }> {
-  const { edges, uncoveredExts, unresolved, failures } = await collectImportEdges();
+  const { edges, uncoveredExts, unresolved, failures, ignoreBlindExts } = await collectImportEdges();
   if (failures.length > 0) {
     // Importer failed → its language's edges are missing → the graph is blind → any
     // crossing verdict (incl. the gate) is unreliable. Fail loudly: a false green is
@@ -44,7 +45,7 @@ export async function loadCrossings(ownership: Ownership, warn = true): Promise<
     const detail = failures.map((f) => `importer "${f.importer}" failed: ${f.error}`).join('; ');
     throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);
   }
-  if (warn) warnIfBlind(uncoveredExts);
+  if (warn) warnIfBlind(uncoveredExts, ignoreBlindExts);
   return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved };
 }
 
@@ -288,6 +289,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
   warnIfNoCodeFiles(config, codeFiles);
 
   const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
+  const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
 
   const violations = validatePartition(ownership, declarations, codeFiles);
   const leakage = checkLeakage(crossings, declarations);
@@ -319,7 +321,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
       cycleCount: cycles.length,
       dirViolationCount: dirViolations.length,
       maxPercent,
-      uncoveredExts,
+      uncoveredExts: visibleUncoveredExts,
       unresolvedCount: unresolved.length,
       unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
     },
