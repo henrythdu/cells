@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport } from '../src/view.js';
 import type { CellSize } from '../src/payload.js';
 import type { Cell } from '../src/declaration.js';
-import type { Ownership } from '../src/ownership.js';
 import type { CellMetrics, Crossing } from '../src/crossings.js';
 
 const decls: Record<string, Cell> = {
@@ -18,10 +17,6 @@ const decls: Record<string, Cell> = {
     provides: ['main'],
     requires: ['declaration'],
   },
-};
-const ownership: Ownership = {
-  declaration: ['src/declaration.ts'],
-  cli: ['src/cli.ts', 'test/cli.test.ts'],
 };
 const sizes: Record<string, CellSize> = {
   declaration: { files: 1, chars: 400, tokens: 100 },
