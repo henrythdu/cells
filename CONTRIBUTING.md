@@ -10,6 +10,15 @@ If you find an idea that doesn't sit well with that north star, it won't fit her
 
 Pull requests that bloat the core or drift from the north star will be closed.
 
+### Facts vs decisions
+
+Cells reports structural facts; the LLM makes structural decisions. Commands that mutate state (`assign`, `new`, `remove`, `prune-stale --apply`) are explicit opt-ins that apply a decision the LLM already made — the tool never changes structure on its own.
+
+Two corollaries keep this line honest:
+
+1. **Cleanup after a decision is fine.** `prune-stale --apply` rewrites declarations without a re-read, because the structure entered the LLM's context *at decision time* (the refactor that made requires stale). The cleanup is residue bookkeeping.
+2. **Gate failures are mandatory confrontations — never auto-resolved.** There is deliberately no `fix-crossings`-style command: an exit-1 failure forces the agent to edit the `.cell.toml` itself, and that read is the point — it brings the structure back into context. Fixing an undeclared crossing is a structural decision (it declares a dependency edge in the graph that cycle/direction checks run on). A command that resolved it silently would let a crossing complete with the structure never entering the LLM's context. **The friction is the feature.** Do not propose autofixes for the gate.
+
 ## The One Rule
 
 **You must understand your code.** If you cannot explain what your changes do and how they interact with the rest of the system, your PR will be closed.

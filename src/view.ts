@@ -179,22 +179,12 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s) — no matching file; check specifiers or module-root)`);
-  lines.push('');
-  for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
-  if (v.staleCount > 0) {
-    lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
-    for (const s of v.staleEdges) lines.push(`  ${s}`);
-    lines.push('');
-  }
-  if (v.unresolvedCount > 0) {
-    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s) — likely a broken specifier or module-root mismatch:`);
-    for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
-    lines.push('');
-  }
 
+  // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];
   if (!structOk) warnings.push('structure');
   if (!sizeOk) warnings.push('size');
+  lines.push('');
   if (gateOk) {
     lines.push(warnings.length > 0 ? `→ Gate passed with ${warnings.length} warning(s). Run ${warnings.map((w) => `\`cells ${w}\``).join(' / ')} for details.` : '→ All checks passed.');
   } else {
@@ -204,6 +194,17 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
     lines.push(`→ Gate failed.${aside}${drillHint}`);
+  }
+
+  // Detail/info sections BELOW the verdict — optional reading on the failing path.
+  for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
+  if (v.staleCount > 0) {
+    lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
+    for (const s of v.staleEdges) lines.push(`  ${s}`);
+  }
+  if (v.unresolvedCount > 0) {
+    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s) — likely a broken specifier or module-root mismatch:`);
+    for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
   return { report: lines.join('\n') + '\n', gateOk };
 }
