@@ -53,6 +53,8 @@ export interface ImportResult {
  * the IDE on file resolution. (TS/JS impl: dep-cruiser; Python: tree-sitter.)
  */
 export interface Importer {
+  /** Human name for error messages (e.g. "python"). */
+  name: string;
   /** Extensions this importer handles, e.g. ['.ts', '.tsx']. */
   extensions: readonly string[];
   /** If true, the importer needs file *contents* (not just paths). */

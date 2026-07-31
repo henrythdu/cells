@@ -73,6 +73,16 @@ describe('detectProject', () => {
     expect(codeDirs).toEqual(['.']);
   });
 
+  it('collapses subdirs when root code files exist ("." covers them)', () => {
+    // regression: ['.', 'src'] double-counted every file in ownership/plan
+    writeFileSync(join(dir, 'tool.py'), 'x = 1');
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src', 'app.py'), 'x = 2');
+    const { codeExts, codeDirs } = detectProject(dir);
+    expect(codeExts).toEqual(['.py']);
+    expect(codeDirs).toEqual(['.']);
+  });
+
   it('falls back to TS defaults when no code files found', () => {
     writeFileSync(join(dir, 'README.md'), '# hi');
     writeFileSync(join(dir, 'data.json'), '{}');

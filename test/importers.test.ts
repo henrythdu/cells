@@ -5,12 +5,14 @@ import type { Importer } from '../src/imports.js';
 describe('importer selection', () => {
   it('selects only importers whose extensions are present', () => {
     const ts: Importer = {
+      name: 'ts',
       extensions: ['.ts'],
       async extract() {
         return { edges: [], unresolved: [] };
       },
     };
     const py: Importer = {
+      name: 'py',
       extensions: ['.py'],
       async extract() {
         return { edges: [], unresolved: [] };
@@ -23,6 +25,7 @@ describe('importer selection', () => {
 
   it('selects nothing for an unsupported extension (graceful — no edges)', () => {
     const ts: Importer = {
+      name: 'ts',
       extensions: ['.ts'],
       async extract() {
         return { edges: [], unresolved: [] };
@@ -41,12 +44,14 @@ describe('importer selection', () => {
 describe('uncoveredImporterExts', () => {
   it('returns extensions no importer covers', () => {
     const ts: Importer = {
+      name: 'ts',
       extensions: ['.ts'],
       async extract() {
         return { edges: [], unresolved: [] };
       },
     };
     const py: Importer = {
+      name: 'py',
       extensions: ['.py'],
       async extract() {
         return { edges: [], unresolved: [] };
@@ -58,6 +63,7 @@ describe('uncoveredImporterExts', () => {
 
   it('sorts and dedupes the uncovered extensions', () => {
     const ts: Importer = {
+      name: 'ts',
       extensions: ['.ts'],
       async extract() {
         return { edges: [], unresolved: [] };
@@ -68,6 +74,7 @@ describe('uncoveredImporterExts', () => {
 
   it('returns [] when every extension is covered', () => {
     const ts: Importer = {
+      name: 'ts',
       extensions: ['.ts', '.js'],
       async extract() {
         return { edges: [], unresolved: [] };

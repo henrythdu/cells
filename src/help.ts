@@ -61,7 +61,7 @@ COMMANDS
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
   health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage; size/structure are warnings (--verbose names failing edges inline)
-  crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
+  crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
   structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)

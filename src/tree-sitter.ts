@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Language, type Node, Parser } from 'web-tree-sitter';
-import type { ImportEdge, ImportResult, UnresolvedImport, Importer } from './imports.js';
+import { Language, type Node, Parser, type Tree } from 'web-tree-sitter';
+import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from './imports.js';
 
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
@@ -13,11 +13,22 @@ import type { ImportEdge, ImportResult, UnresolvedImport, Importer } from './imp
 // --- grammar singleton cache (one Parser per grammar WASM; lazy + memoized) ---
 const parsers = new Map<string, Promise<Parser>>();
 
+// Serialize grammar loading: web-tree-sitter's Language.load shares WASM state, and two
+// concurrent loads race it (one grammar loads corrupted → silent empty extraction). This
+// chain makes loads strictly sequential even if callers parallelize; the chain survives
+// individual failures so a broken grammar doesn't wedge the others.
+let loadChain: Promise<unknown> = Promise.resolve();
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = loadChain.then(fn);
+  loadChain = run.catch(() => {});
+  return run;
+}
+
 /** Load (once) + cache the tree-sitter Parser for a bundled grammar WASM. */
 export function getGrammarParser(wasmBasename: string): Promise<Parser> {
   let p = parsers.get(wasmBasename);
   if (!p) {
-    p = (async () => {
+    p = serialized(async () => {
       await Parser.init();
       // WASMs ship as static assets in grammars/ (built ABI-matched to web-tree-sitter;
       // the prebuilt tree-sitter-wasms pack is OLD-CLI/incompatible — see memory 155).
@@ -31,20 +42,30 @@ export function getGrammarParser(wasmBasename: string): Promise<Parser> {
       const parser = new Parser();
       parser.setLanguage(lang);
       return parser;
-    })().catch((err) => {
-      parsers.delete(wasmBasename); // don't cache the rejection — allow retry on the next call
-      throw err;
     });
     parsers.set(wasmBasename, p);
+    p.catch(() => parsers.delete(wasmBasename)); // don't cache the rejection — allow retry on the next call
   }
   return p;
 }
 
 /** Spec for a tree-sitter language importer: the language-specific pieces. */
 export interface TreeSitterImporterSpec {
+  /** Human name for error messages (e.g. "rust"). */
+  name: string;
   extensions: readonly string[];
   wasmBasename: string;
-  fileToModule(path: string, moduleRoot?: string): string;
+  fileToModule(path: string, moduleRoot?: string, baseDir?: string): string;
+  /** Optional: the crate root a file belongs to (null = none). When a run spans MULTIPLE
+   *  crates, the factory namespaces every module key by crate root so two crates' `crate::…`
+   *  paths can't collide in the shared module→file map (single-crate runs keep plain keys). */
+  crateRootOf?(path: string, baseDir?: string): string | null;
+  /** Declared submodules with their module-path chain relative to the containing file,
+   *  e.g. `mod x;` → [['x'], 'x.rs'], inline `mod x {}` → [['x'], null] (lives in this file),
+   *  nested inline blocks → [['x','y'], null]. null targetFile = inline block. The factory
+   *  enriches the module→file map with these so deep `crate::a::b::c` paths resolve to the
+   *  file containing the deepest module instead of reporting false "unresolved". */
+  declareModules?(root: Node, sourcePath: string, fileSet: Set<string>): { path: string[]; targetFile: string | null }[];
   /** Parse a tree's root into import edges + unresolved local imports (extraction + resolution).
    *  Self-loops and duplicate targets are de-duped by the factory. */
   extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
@@ -59,21 +80,67 @@ export interface TreeSitterImporterSpec {
 export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer {
   const matches = (path: string) => spec.extensions.some((e) => path.endsWith(e));
   return {
+    name: spec.name,
     extensions: spec.extensions,
     needsContent: true,
-    async extract({ files, moduleRoot }): Promise<ImportResult> {
+    async extract({ files, moduleRoot, baseDir }): Promise<ImportResult> {
+      // Namespace module keys by crate root when the run spans multiple crates — two crates
+      // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
+      let moduleKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);
+      if (spec.crateRootOf) {
+        const roots = new Set(
+          files
+            .filter((f) => matches(f.path))
+            .map((f) => spec.crateRootOf!(f.path, baseDir))
+            .filter((r): r is string => r !== null),
+        );
+        if (roots.size > 1) {
+          moduleKey = (f) => {
+            const m = spec.fileToModule(f.path, moduleRoot, baseDir);
+            const r = spec.crateRootOf!(f.path, baseDir);
+            if (!r || r === '.') return m; // scan-root crate — no prefix
+            return m === 'crate' ? r : `${r}::${m.slice('crate::'.length)}`;
+          };
+        }
+      }
       const moduleToFile = new Map<string, string>();
-      for (const f of files) if (matches(f.path)) moduleToFile.set(spec.fileToModule(f.path, moduleRoot), f.path);
+      for (const f of files) if (matches(f.path)) moduleToFile.set(moduleKey(f), f.path);
 
       const parser = await getGrammarParser(spec.wasmBasename);
+      // parse + tree ownership: the Tree is WASM-backed — the caller must delete() it.
+      const parse = (content: string): Tree | null => {
+        const tree = parser.parse(content);
+        return tree ?? null;
+      };
+
+      // Enrich the module→file map with every declared submodule (inline + `mod x;`). The
+      // declared key always equals the target's own path-derived module (rust `mod x;` targets
+      // are path-aligned: sibling or name/ dir), so one pass over all files is order-free.
+      if (spec.declareModules) {
+        const fileSet = new Set(files.map((f) => f.path));
+        for (const f of files) {
+          if (!matches(f.path)) continue;
+          const tree = parse(f.content);
+          if (!tree) continue;
+          try {
+            const base = moduleKey(f);
+            for (const m of spec.declareModules(tree.rootNode, f.path, fileSet)) {
+              moduleToFile.set(`${base}::${m.path.join('::')}`, m.targetFile ?? f.path);
+            }
+          } finally {
+            tree.delete();
+          }
+        }
+      }
+
       const edges: ImportEdge[] = [];
       const unresolved: UnresolvedImport[] = [];
       for (const f of files) {
         if (!matches(f.path)) continue;
-        const tree = parser.parse(f.content);
+        const tree = parse(f.content);
         if (!tree) continue;
         try {
-          const importerModule = spec.fileToModule(f.path, moduleRoot);
+          const importerModule = moduleKey(f);
           const seen = new Set<string>();
           const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile);
           for (const e of fileEdges) {

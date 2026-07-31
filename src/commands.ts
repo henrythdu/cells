@@ -36,18 +36,28 @@ export function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): voi
  *  crossings. Every analysis command routes through this (one drift surface). `warn` lets
  *  health skip the stderr blind-warning — its report already covers it. */
 export async function loadCrossings(ownership: Ownership, warn = true): Promise<{ edges: ImportEdge[]; crossings: Crossing[]; uncoveredExts: string[]; unresolved: UnresolvedImport[] }> {
-  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
+  const { edges, uncoveredExts, unresolved, failures } = await collectImportEdges();
+  if (failures.length > 0) {
+    // Importer failed → its language's edges are missing → the graph is blind → any
+    // crossing verdict (incl. the gate) is unreliable. Fail loudly: a false green is
+    // worse than a false red. Mandatory confrontation, same as a gate failure.
+    const detail = failures.map((f) => `importer "${f.importer}" failed: ${f.error}`).join('; ');
+    throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);
+  }
   if (warn) warnIfBlind(uncoveredExts);
   return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved };
 }
 
-/** `cells crossings [--diff]` — real cross-cell imports + leakage; `--diff` shows what your
- *  uncommitted edits added/removed (working tree vs HEAD). */
-export async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
+/** `cells crossings [--diff] [--verbose] [--json]` — real cross-cell imports + leakage.
+ *  Default: cell-pair summary (the overview question: "which cells are coupled?");
+ *  `--verbose` shows every file→file edge; `--diff` shows what your uncommitted edits
+ *  added/removed (working tree vs HEAD); `--json` emits raw JSON (stdout stays machine-clean;
+ *  human notes go to stderr). */
+export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; verbose?: boolean; json?: boolean } = {}): Promise<void> {
   const { ownership, declarations } = ctx;
   const { crossings, unresolved } = await loadCrossings(ownership);
 
-  if (diff) {
+  if (opts.diff) {
     const delta = await crossingsDelta(crossings, ownership);
     if (delta !== null) {
       // Flag leakage introduced by these edits. Only UNDECLARED is meaningful on a
@@ -68,11 +78,27 @@ export async function cmdCrossings(ctx: CellsContext, diff = false): Promise<voi
   }
 
   if (crossings.length === 0) {
-    console.log('No cross-cell imports.');
+    if (opts.json) {
+      process.stdout.write('[]\n'); // machine consumers always get valid JSON
+    } else {
+      console.log('No cross-cell imports.');
+    }
+  } else if (opts.json) {
+    process.stdout.write(JSON.stringify(crossings, null, 2) + '\n');
   } else {
-    console.log(`Cross-cell imports (${crossings.length}):`);
+    // default: aggregate summary; --verbose: every file→file edge under its cell pair
+    const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
     for (const c of crossings) {
-      console.log(`  ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+      const k = `${c.fromCell}|${c.toCell}`;
+      const p = byPair.get(k) ?? { from: c.fromCell, to: c.toCell, files: [] };
+      p.files.push([c.fromFile, c.toFile]);
+      byPair.set(k, p);
+    }
+    const pairs = [...byPair.values()].sort((a, b) => b.files.length - a.files.length || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+    console.log(`Cross-cell imports (${pairs.length} cell pairs, ${crossings.length} edges):`);
+    for (const p of pairs) {
+      console.log(`  ${p.from} → ${p.to}   (${p.files.length} edge${p.files.length === 1 ? '' : 's'})`);
+      if (opts.verbose) for (const [f, t] of p.files) console.log(`      ${f} → ${t}`);
     }
   }
 

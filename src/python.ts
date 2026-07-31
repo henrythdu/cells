@@ -112,6 +112,7 @@ function looksLocal(candidate: string, dots: number, localPackages: Set<string>)
 
 /** Python importer — tree-sitter extraction + module→file resolution via ownership. */
 export const pythonImporter = createTreeSitterImporter({
+  name: 'python',
   extensions: ['.py'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,

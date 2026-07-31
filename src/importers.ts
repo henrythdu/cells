@@ -5,6 +5,7 @@ import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
 
 /** dep-cruiser importer — TS/JS. Source-based; handles aliases and `.js`→`.ts`. */
 export const depCruiserImporter: Importer = {
+  name: 'typescript',
   extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'],
   async extract({ codeDirs, baseDir }): Promise<ImportResult> {
     const dirs = codeDirs.map((d) => (d.endsWith('/') ? d : `${d}/`));
@@ -15,8 +16,11 @@ export const depCruiserImporter: Importer = {
         doNotFollow: { path: 'node_modules' },
       });
       result = output as ICruiseResult;
-    } catch {
-      return { edges: [], unresolved: [] }; // dep-cruiser couldn't handle the paths/language — no edges.
+    } catch (err) {
+      // dep-cruiser couldn't handle the paths/language — surface it; silent zero-edges
+      // would fake a green gate on a blind graph. (collectImportEdges turns this into
+      // a gate failure.)
+      throw new Error(`dependency-cruiser failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     // dep-cruiser emits paths relative to cwd; when cruising a HEAD tree (baseDir) remap them
     // to repo-relative so they match ownership. (Tree-sitter importers already emit repo-relative.)
@@ -74,18 +78,25 @@ export function uncoveredImporterExts(exts: readonly string[], importers: readon
  * Collect raw file→file import edges by dispatching to importers by extension.
  * The only language-coupled seam in Cells; everything downstream consumes ImportEdge[].
  * Also returns unresolved local imports (diagnostics — imports that look local but resolved to no file).
+ * Sequential dispatch: web-tree-sitter's shared WASM state races when two grammars load
+ * concurrently (silent empty results — see headroom P0). Importer failures are surfaced
+ * in `failures`, never swallowed — a zero-edge result on a blind graph must not fake green.
  */
-export async function collectImportEdges(baseDir = '.'): Promise<{
+export async function collectImportEdges(
+  baseDir = '.',
+  importers: readonly Importer[] = DEFAULT_IMPORTERS,
+): Promise<{
   edges: ImportEdge[];
   uncoveredExts: string[];
   unresolved: UnresolvedImport[];
+  failures: ImporterFailure[];
 }> {
   const { codeDirs, moduleRoot } = loadConfig();
   const ownership = loadOwnership();
   const paths = listCodeFiles(baseDir);
   const exts = Array.from(new Set(paths.map((p) => extname(p))));
-  const selected = selectImporters(exts, DEFAULT_IMPORTERS);
-  const uncoveredExts = uncoveredImporterExts(exts, DEFAULT_IMPORTERS);
+  const selected = selectImporters(exts, importers);
+  const uncoveredExts = uncoveredImporterExts(exts, importers);
   let files: SourceFile[];
   if (selected.some((i) => i.needsContent)) {
     const contents = readFiles(paths, baseDir);
@@ -96,12 +107,26 @@ export async function collectImportEdges(baseDir = '.'): Promise<{
   // dep-cruiser cruises dirs (FS); tree-sitter reads `files`. Point both at `baseDir` so a
   // HEAD tree can be derived for `crossings --diff`. `.cells/` stays in the working repo.
   const dirs = codeDirs.map((d) => join(baseDir, d));
-  const results = await Promise.all(selected.map((imp) => imp.extract({ codeDirs: dirs, files, ownership, baseDir, moduleRoot }).catch(() => ({ edges: [], unresolved: [] }))));
+  const ctx = { codeDirs: dirs, files, ownership, baseDir, moduleRoot };
   const edges: ImportEdge[] = [];
   const unresolved: UnresolvedImport[] = [];
-  for (const result of results) {
-    edges.push(...result.edges);
-    unresolved.push(...result.unresolved);
+  const failures: ImporterFailure[] = [];
+  // Sequential, not Promise.all: two tree-sitter grammars loading concurrently race
+  // web-tree-sitter's shared WASM state → one importer silently returns empty.
+  for (const imp of selected) {
+    try {
+      const result = await imp.extract(ctx);
+      edges.push(...result.edges);
+      unresolved.push(...result.unresolved);
+    } catch (err) {
+      failures.push({ importer: imp.name, error: err instanceof Error ? err.message : String(err) });
+    }
   }
-  return { edges, uncoveredExts, unresolved };
+  return { edges, uncoveredExts, unresolved, failures };
+}
+
+/** An importer that failed to extract — its language's edges are missing, the graph is blind for it. */
+export interface ImporterFailure {
+  importer: string;
+  error: string;
 }

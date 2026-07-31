@@ -327,7 +327,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] [--verbose] [--json] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -341,7 +341,7 @@ const COMMANDS: Record<string, Command> = {
       await cmdHealth(ctx!);
     },
   },
-  crossings: { usage: 'cells crossings [--diff]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, a.includes('--diff')) },
+  crossings: { usage: 'cells crossings [--diff] [--verbose] [--json]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json') }) },
   list: { usage: 'cells list', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdList(ctx!) },
   size: { usage: 'cells size', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
   structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdStructure(ctx!) },

@@ -102,7 +102,9 @@ export function listFiles(dir: string, exts: string[], visited = new Set<string>
  *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */
 export function listCodeFiles(baseDir = '.'): string[] {
   const { codeDirs, codeExts } = loadConfig();
-  const all = codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f)));
+  const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f))))];
+  // Set: overlapping code-dirs (e.g. "." + "crates") must not double-list files — ownership,
+  // plan and size all count per file. Detection filters at init; this covers hand-edited configs.
   const ignorePath = join(CELLS_DIR, 'ignore');
   if (!existsSync(ignorePath)) return all;
   const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
@@ -203,6 +205,9 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   if (extCounts.size === 0) return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
   const codeExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
   let codeDirs = [...dirHasCode].sort();
+  // Drop dirs covered by another included dir: "." covers everything (root code files make
+  // the list collapse to ["."] — otherwise every file double-counts in ownership/plan).
+  codeDirs = codeDirs.includes('.') ? ['.'] : codeDirs.filter((d) => !codeDirs.some((o) => o !== d && (d + '/').startsWith(o + '/')));
   if (codeDirs.length === 0) codeDirs = ['src', 'test'];
   return { codeExts, codeDirs };
 }
