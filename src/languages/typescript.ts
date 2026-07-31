@@ -40,14 +40,12 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
     `${toPosix}/index.ts`,
     `${toPosix}/index.tsx`,
     toPosix.replace(/\.js$/, '.ts'),
-    toPosix.replace(/\.js$/, '.mjs'),
     srcRel,
     `${srcRel}.ts`,
     `${srcRel}.tsx`,
     `${srcRel}/index.ts`,
     `${srcRel}/index.tsx`,
     srcRel.replace(/\.js$/, '.ts'),
-    srcRel.replace(/\.js$/, '.mjs'),
   ];
   for (const c of candidates) {
     if (existsSync(join(baseDir, c))) {

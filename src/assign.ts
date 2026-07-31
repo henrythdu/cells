@@ -79,7 +79,8 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
       const pkg = existsSync(join(baseDir, d, 'package.json'));
       const pyinit = existsSync(join(baseDir, d, '__init__.py'));
       if (cargo) out.push({ dir: d, kind: 'cargo' });
-      else if (pyinit) out.push({ dir: d, kind: 'pyinit' }); // a python package beats a co-located package.json (hard vs soft)
+      else if (pyinit)
+        out.push({ dir: d, kind: 'pyinit' }); // a python package beats a co-located package.json (hard vs soft)
       else if (pkg) out.push({ dir: d, kind: 'pkg' });
       const parent = dirname(d);
       if (parent === d) return out;
