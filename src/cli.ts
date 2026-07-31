@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { serializeOwnership } from './ownership.js';
 import { checkLeakage } from './crossings.js';
-import { unassignFiles, planAssignment, planGroups, validCellName } from './assign.js';
+import { unassignFiles, planAssignment, planGroups, planApply, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, requireCells, detectProject, computePayloadSize, neighborsOf, type CellsContext } from './io.js';
 import { buildConfig } from './config.js';
 import { cmdCrossings, cmdList, cmdShow, cmdSize, cmdStructure, cmdImpact, cmdGraph, cmdOwns, cmdPayload, cmdHealth, loadCrossings, warnIfNoCodeFiles } from './commands.js';
@@ -287,8 +287,12 @@ async function cmdPruneStale(apply: boolean): Promise<void> {
  *  (crate/package-aware via planGroups — a monorepo's crates/packages collapse to one
  *  cell each instead of every subdir exploding; invalid-name dirs fold to a valid
  *  ancestor), print suggested .cell.toml declarations + ownership.toml to stdout.
- *  The LLM reviews and curates — no files are written. */
-function cmdPlan(): void {
+ *  The LLM reviews and curates — no files are written.
+ *  `--apply` executes the printed plan: creates the stub declarations + ownership
+ *  entries. Existing cells are never overwritten and already-owned files are never
+ *  stolen (curated state survives); newly created cells start with empty requires —
+ *  the gate still confronts you after applying (crossings will be red). */
+function cmdPlan(apply = false, dryRun = false): void {
   const config = loadConfig();
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
@@ -297,6 +301,30 @@ function cmdPlan(): void {
   // name = key path escaped to a valid cell name: '-' → '--', separator → '-'
   // (injective: 'src/api' and 'src-api' can't collide; planGroups pre-folds invalid chars)
   const names = new Map(keys.map((k) => [k, k.replaceAll('-', '--').replaceAll('/', '-')]));
+
+  if (dryRun && !apply) console.error('Note: plain `plan` is read-only — --dry-run only matters with --apply.');
+
+  if (apply) {
+    requireCells();
+
+    const existing = new Set(Object.keys(loadDeclarations()));
+    const proposed = new Map(keys.map((k) => [names.get(k)!, groups.get(k)!]));
+    const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
+    const outcome =
+      `created ${stubs.length} cell declaration(s), skipped ${skipped.length} existing, ` +
+      `adopted ${adopted} file(s), kept ${kept} already-owned.`;
+    const summary = dryRun
+      ? `Would apply: ${outcome}\nDry run — nothing changed. Re-run without --dry-run to apply.`
+      : `Applied plan: ${outcome}\nRun \`cells health\` — crossings will be red until requires are filled.`;
+    if (dryRun) {
+      console.log(summary);
+      return;
+    }
+    for (const s of stubs) writeFileSync(join(CELLS_DIR, `${s.name}.cell.toml`), serializeCell(s)); // stubs before ownership — a write failure leaves no dirty state
+    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+    console.log(summary);
+    return;
+  }
 
   console.log('# Proposed cell declarations (.cells/*.cell.toml files)');
   console.log('# Review and curate, then create them.');
@@ -315,7 +343,12 @@ function cmdPlan(): void {
   console.log('');
   for (const key of keys) {
     console.log(`[${names.get(key)}]`);
-    console.log(`files = [${groups.get(key)!.map((f) => `"${f}"`).join(', ')}]`);
+    console.log(
+      `files = [${groups
+        .get(key)!
+        .map((f) => `"${f}"`)
+        .join(', ')}]`,
+    );
     console.log('');
   }
 }
@@ -328,7 +361,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] [--verbose] [--json] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -378,7 +411,7 @@ const COMMANDS: Record<string, Command> = {
     run: (a) => cmdNew(a),
   },
   'prune-stale': { usage: 'cells prune-stale [--apply]', minArgs: 0, needsCells: true, run: (a) => cmdPruneStale(a.includes('--apply')) },
-  plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
+  plan: { usage: 'cells plan [--apply] [--dry-run]', minArgs: 0, needsCells: false, run: (a, dryRun) => cmdPlan(a.includes('--apply'), dryRun) },
 };
 
 async function main(): Promise<void> {

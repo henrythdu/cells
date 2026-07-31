@@ -115,6 +115,40 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
   return groups;
 }
 
+/** Batch-apply a plan (`cells plan --apply`): create stub declarations for new cells and add
+ *  the proposed files to ownership WITHOUT stealing files already owned elsewhere (the plan is
+ *  for fresh partitioning — curated cells keep their files). Cells with an existing declaration
+ *  are never overwritten (skipped) — their requires/provides may be curated. Pure: cli writes
+ *  the returned stubs + ownership. A proposed cell whose files are all kept gets nothing. */
+export function planApply(
+  ownership: Ownership,
+  proposed: Map<string, string[]>,
+  existingNames: ReadonlySet<string>,
+): { stubs: Cell[]; ownership: Ownership; skipped: string[]; adopted: number; kept: number } {
+  const ownedBy = new Map<string, string>();
+  for (const [cell, files] of Object.entries(ownership)) for (const f of files) ownedBy.set(f, cell);
+  const next: Ownership = { ...ownership };
+  const stubs: Cell[] = [];
+  const skipped: string[] = [];
+  let adopted = 0;
+  let kept = 0;
+  for (const [name, files] of [...proposed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const adopt = files.filter((f) => !ownedBy.has(f));
+    kept += files.length - adopt.length;
+    adopted += adopt.length;
+    if (adopt.length === 0) {
+      if (existingNames.has(name)) skipped.push(name); // already there, nothing to add
+      continue;
+    }
+    for (const f of adopt) ownedBy.set(f, name); // keep the non-overlap invariant for overlapping proposals
+    const cellFiles = next[name] ? [...next[name]] : [];
+    next[name] = [...new Set([...cellFiles, ...adopt])];
+    if (existingNames.has(name)) skipped.push(name);
+    else stubs.push({ name, purpose: STUB_PURPOSE, provides: [], requires: [] });
+  }
+  return { stubs, ownership: next, skipped, adopted, kept };
+}
+
 /** Pure plan for `cells assign <cell> <file...>`: validate the name, decide whether
  *  a stub declaration is needed (cell is new), and compute the next ownership. Does
  *  NO I/O — `cellExists` is passed in (cli reads the filesystem). cli applies the

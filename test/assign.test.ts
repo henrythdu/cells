@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { assignFiles, unassignFiles, validCellName, planAssignment, planGroups } from '../src/assign.js';
+import { assignFiles, unassignFiles, validCellName, planAssignment, planGroups, planApply } from '../src/assign.js';
 import { STUB_PURPOSE } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -203,6 +203,46 @@ describe('planGroups', () => {
   });
 });
 
+describe('planApply', () => {
+  it('creates stubs for new cells and adopts unowned files, merging into existing ownership', () => {
+    const ownership: Ownership = { curated: ['src/kept.ts'] };
+    const proposed = new Map([
+      ['curated', ['src/kept.ts', 'src/new.ts']],
+      ['fresh', ['src/a.ts', 'src/b.ts']],
+    ]);
+    const r = planApply(ownership, proposed, new Set(['curated']));
+    expect(r.stubs).toEqual([{ name: 'fresh', purpose: STUB_PURPOSE, provides: [], requires: [] }]);
+    expect(r.skipped).toEqual(['curated']);
+    expect(r.adopted).toBe(3);
+    expect(r.kept).toBe(1); // src/kept.ts already owned — not stolen
+    expect(r.ownership).toEqual({ curated: ['src/kept.ts', 'src/new.ts'], fresh: ['src/a.ts', 'src/b.ts'] });
+  });
+
+  it('never overwrites an existing declaration, even when the cell is proposed again', () => {
+    const r = planApply({ a: ['src/a.ts'] }, new Map([['a', ['src/a.ts']]]), new Set(['a']));
+    expect(r.stubs).toEqual([]);
+    expect(r.skipped).toEqual(['a']);
+  });
+
+  it('a proposed cell whose files are all kept gets no stub and no entry', () => {
+    const r = planApply({ other: ['src/a.ts'] }, new Map([['ghost', ['src/a.ts']]]), new Set());
+    expect(r.stubs).toEqual([]);
+    expect(r.ownership).toEqual({ other: ['src/a.ts'] });
+  });
+
+  it('files owned by another cell stay put (the plan does not steal)', () => {
+    const r = planApply({ a: ['src/a.ts'] }, new Map([['b', ['src/a.ts', 'src/b.ts']]]), new Set());
+    expect(r.ownership).toEqual({ a: ['src/a.ts'], b: ['src/b.ts'] });
+    expect(r.kept).toBe(1);
+  });
+
+  it('overlapping proposals never double-own a file (non-overlap invariant)', () => {
+    const r = planApply({}, new Map([['x', ['src/shared.ts', 'src/x.ts']], ['y', ['src/shared.ts', 'src/y.ts']]]), new Set());
+    expect(r.ownership.x).toEqual(['src/shared.ts', 'src/x.ts']);
+    expect(r.ownership.y).toEqual(['src/y.ts']);
+    expect(r.kept).toBe(1); // y's shared.ts was already adopted by x
+  });
+});
 
 describe('cmdAssign size pre-flight (CLI integration)', () => {
   let repo: string;
