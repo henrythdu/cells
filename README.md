@@ -63,10 +63,11 @@ Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-
 
 ```bash
 cells init                          # create .cells/ — detects your language (code-exts/code-dirs)
-cells plan                          # propose a partition from your directory layout (review, then curate)
+cells plan                          # propose a partition: crates/packages become one cell each (review, then curate)
+cells plan --apply                  # or create the proposed cells + ownership mechanically (dry-run: add --dry-run)
 cells assign parser src/parser.ts   # assign a file to a cell (records ownership; stubs the declaration)
 $EDITOR .cells/parser.cell.toml     # author the membrane: purpose / provides / requires
-cells health                        # the gate: all checks at once (integrity + crossings + structure + size)
+cells health                        # the gate: every check at once (integrity + crossings + grammars + structure + size)
 cells list                          # see the whole partition
 ```
 
@@ -79,7 +80,7 @@ cells list                          # see the whole partition
 | command | what it does |
 | --- | --- |
 | `cells init` | bootstrap `.cells/` — detects your language (code-exts/code-dirs) (idempotent) |
-| `cells plan` | propose a cell partition from your directory layout (prints declarations + ownership to review — writes nothing) |
+| `cells plan [--apply] [--dry-run]` | propose a cell partition: crates/packages become one cell each, other files group by directory (prints declarations + ownership to review — writes nothing). `--apply` creates the cells + adopts the files mechanically (never overwrites existing cells or steals curated ownership); `--dry-run` previews |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]` | scaffold a cell declaration (`.cell.toml`) — declare the contract first, then `assign` files into it |
 | `cells prune-stale [--apply]` | remove requires that are declared but never imported (stale); dry-run by default, `--apply` rewrites the declaration files |
@@ -91,7 +92,7 @@ cells list                          # see the whole partition
 | `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
-| `cells health [--verbose]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip). `validate` still works (redirects here). |
+| `cells health [--verbose]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip). `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
 | `cells structure` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut |
@@ -132,7 +133,7 @@ files = ["src/cli.ts", "test/cli.test.ts"]
 ### `config.toml` — settings
 
 ```toml
-max-payload-tokens = 16000                                 # context-fit ceiling (default 16000)
+max-payload-tokens = 16000                                 # context-fit ceiling — the per-repo knob for cell size (default 16000)
 # [layers]                              # optional legend (rank → label); 0 = core, higher = peripheral
 # 0 = "domain"
 # 1 = "application"
@@ -179,7 +180,7 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Leakage (undeclared)** | **gate** (exit 1) | a cell imports another it doesn't `require` — a hidden dependency |
 | **Leakage (stale)** | info (exit 0) | a cell `requires` one it never imports — maybe a data dependency or future plan (shown, doesn't fail the gate) |
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
-| **Size** | warning (exit 0) | a cell's payload exceeds `max-payload-tokens` (default 16000) — consider dividing |
+| **Size** | warning (exit 0) | a cell's payload exceeds `max-payload-tokens` (default 16000 — configurable in `config.toml`) — consider dividing |
 | **Structure** | warning (exit 0) | a cycle (ADP), an edge to a higher layer (Direction), or a stable cell depending on a less-stable one (SDP) |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
@@ -199,7 +200,7 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 4. **Assess** — `cells impact <name>`: blast radius — who transitively depends on this cell? Weigh the risk *before* editing (a core cell can break many; a leaf is safe to change).
 5. **Work** — edit the cell's files. Stay within its membrane.
 6. **Place new code** — a new file needs a home. Read `list`, decide which cell (it's *your* judgment, not Cells'), then `cells assign <cell> <file>`. (Unowned files aren't violations — `list` shows them as a reminder; `.cells/ignore` hides the intentional ones.)
-7. **Check** — `cells health` (the gate — all four at once). Drill in if it fails: `cells crossings` (leakage), `cells size` (context-fit), `cells structure` (cycles / direction).
+7. **Check** — `cells health` (the gate — every check at once). Drill in if it fails: `cells crossings` (leakage), `cells size` (context-fit), `cells structure` (cycles / direction).
 8. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
 
 **Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool.

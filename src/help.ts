@@ -32,14 +32,16 @@ WORKING IN A CELLS PROJECT (for agents)
   5. work         edit the cell's files; stay within its membrane
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.
-  7. check        cells health (the gate — all four at once) · or drill in: crossings · crossings --diff · size · structure
+  7. check        cells health (the gate — every check at once) · or drill in: crossings · crossings --diff · size · structure
                   If checks fail: read the hints (each error says what to edit), fix the membrane
                   (.cell.toml requires/provides/tests, reassign files, or remove dead imports),
                   then re-run cells health until green.
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
-  Brownfield adoption? Run cells plan — it scans code-dirs, groups files by directory,
-  and prints a proposed .cell.toml declarations + ownership map. Review, curate, create.
+  Brownfield adoption? Run cells plan — it scans code-dirs, groups files into crates/packages
+  (or directories for the rest), and prints proposed .cell.toml declarations + an ownership map.
+  Review, curate, then cells plan --apply creates the cells and adopts the files for you
+  (existing cells and curated ownership are never overwritten).
 
   A cell past the ceiling? Split its files across new cells with assign
   (no separate divide command — assign IS the repartition tool).
@@ -52,7 +54,10 @@ COMMANDS
   prune-stale [--apply]    remove requires declared but never imported (stale); dry-run by default, --apply rewrites
   rename <old> <new>       rename a cell — updates .cell.toml, ownership, and all requires
   remove <cell> [--force]  delete a cell; --force orphans owned files and strips requires refs
-  plan                     scan code-dirs and propose a partition (review + curate)
+  plan [--apply] [--dry-run]
+                           scan code-dirs and propose a partition: crates/packages become one
+                           cell each, other files group by directory (review + curate; --apply
+                           creates the cells + ownership mechanically, --dry-run previews)
   assign <cell> <file...>  assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)
   unassign <file...>       remove files from their cell (→ orphan; --dry-run previews)
   owns <file>              which cell owns this file? (reverse lookup)
@@ -60,7 +65,9 @@ COMMANDS
   show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage; size/structure are warnings (--verbose names failing edges inline)
+  health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage + a broken
+                           packaged grammar; size/structure are warnings (--verbose names
+                           failing edges inline)
   crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
   structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
@@ -72,7 +79,8 @@ RULES
   leakage    undeclared = GATE (exit 1)   import a cell you don't require
             stale = info (exit 0)            require one never imported (data dep? future plan?)
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
-  size       warning         payload over max-payload-tokens (default 16000)
+  size       warning         payload over max-payload-tokens (config.toml — the per-repo
+                             knob for cell size; default 16000)
   structure  warning         a cycle (ADP), an edge to a higher layer (Direction),
                              or a stable cell depending on a less-stable one (SDP)
   orphans    visibility      unowned files aren't violations; list shows them,
@@ -85,7 +93,8 @@ GLOSSARY (structure terms, plain English)
   instability I = fan-out/(fan-in+fan-out):  0 = rock-solid core (depended on,
                                        depends on nothing); 1 = leaf (depends on
                                        everything, nothing depends on it)
-  strict gate:                       exit 1 only on integrity + undeclared leakage.
+  strict gate:                       exit 1 only on integrity + undeclared leakage +
+                                     a broken packaged grammar WASM.
 
 FILES (.cells/)
   <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
@@ -95,6 +104,7 @@ FILES (.cells/)
                      ignore-blind-exts[] (silence per-ext blind warning)
                      module-root? (strip a path prefix for import resolution; Python src-layout: "src")
   ignore             gitignore-style patterns for intentionally cell-free files
+                     (a trailing / matches the whole dir tree, like gitignore's dir/)
 
 LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts
 in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python and

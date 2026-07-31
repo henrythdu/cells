@@ -33,7 +33,7 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
       '# Cells configuration. Every key is optional — delete one to use its default.',
       '# Run `cells help` for what each command does.',
       '',
-      '# Max tokens per cell payload (the context-fit ceiling). Default: 16000.',
+      '# Max tokens per cell payload — the context-fit ceiling. Default: 16000; edit here to raise/lower cell sizes.',
       'max-payload-tokens = 16000',
       '',
       '# Directories scanned for code (ownership census + import crossings).',
