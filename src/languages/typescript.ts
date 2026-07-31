@@ -34,10 +34,20 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
   // `dist/` at any depth → `src/` (a package's dist entry maps to its source tree)
   const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
   const candidates = [
-    toPosix, `${toPosix}.ts`, `${toPosix}.tsx`, `${toPosix}/index.ts`, `${toPosix}/index.tsx`,
-    toPosix.replace(/\.js$/, '.ts'), toPosix.replace(/\.js$/, '.mjs'),
-    srcRel, `${srcRel}.ts`, `${srcRel}.tsx`, `${srcRel}/index.ts`, `${srcRel}/index.tsx`,
-    srcRel.replace(/\.js$/, '.ts'), srcRel.replace(/\.js$/, '.mjs'),
+    toPosix,
+    `${toPosix}.ts`,
+    `${toPosix}.tsx`,
+    `${toPosix}/index.ts`,
+    `${toPosix}/index.tsx`,
+    toPosix.replace(/\.js$/, '.ts'),
+    toPosix.replace(/\.js$/, '.mjs'),
+    srcRel,
+    `${srcRel}.ts`,
+    `${srcRel}.tsx`,
+    `${srcRel}/index.ts`,
+    `${srcRel}/index.tsx`,
+    srcRel.replace(/\.js$/, '.ts'),
+    srcRel.replace(/\.js$/, '.mjs'),
   ];
   for (const c of candidates) {
     if (existsSync(join(baseDir, c))) {

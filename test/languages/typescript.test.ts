@@ -76,7 +76,10 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     writeFileSync(join(dir, 'packages', 'utils', 'src', 'index.ts'), 'export const foo = 1;\n');
     writeFileSync(join(dir, 'packages', 'utils', 'src', 'deep.ts'), 'export const bar = 2;\n');
     writeFileSync(join(dir, 'packages', 'utils', 'src', 'dir', 'index.default.js'), 'export const baz = 3;\n');
-    writeFileSync(join(dir, 'packages', 'create-turbo', 'src', 'cli.ts'), "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n");
+    writeFileSync(
+      join(dir, 'packages', 'create-turbo', 'src', 'cli.ts'),
+      "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n",
+    );
 
     const prev = process.cwd();
     process.chdir(dir);

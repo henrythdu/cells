@@ -166,6 +166,70 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['crates/uv', 'crates/uv/xtask']);
   });
 
+  it('Python __init__.py dirs are hard boundaries — nested packages stay separate (wave-2 B)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('zerver/__init__.py');
+    touch('zerver/views/__init__.py');
+    touch('zerver/lib/__init__.py');
+    touch('analytics/__init__.py');
+    touch('zerver/views/home.py');
+    touch('zerver/lib/utils.py');
+    touch('analytics/views.py');
+    const g = planGroups(['zerver/views/home.py', 'zerver/lib/utils.py', 'analytics/views.py'], repo);
+    expect([...g.keys()].sort()).toEqual(['analytics', 'zerver/lib', 'zerver/views']);
+  });
+
+  it('a root package.json no longer swallows Python packages (zulip 2-cell collapse)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('package.json', '{}');
+    touch('zerver/__init__.py');
+    touch('starlight_help/package.json', '{}');
+    touch('zerver/views.py');
+    touch('starlight_help/src/foo.ts');
+    const g = planGroups(['zerver/views.py', 'starlight_help/src/foo.ts'], repo);
+    // zerver groups by its package, not the root manifest; starlight_help by its package
+    expect([...g.keys()].sort()).toEqual(['starlight_help', 'zerver']);
+    expect(g.get('zerver')).toEqual(['zerver/views.py']);
+  });
+
+  it('a lone Python package groups as one cell (non-root unit alone)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('mypkg/__init__.py');
+    touch('mypkg/a.py');
+    touch('mypkg/sub/b.py'); // no __init__.py in sub — folds into mypkg
+    const g = planGroups(['mypkg/a.py', 'mypkg/sub/b.py'], repo);
+    expect([...g.keys()].sort()).toEqual(['mypkg']);
+  });
+
+  it('a root __init__.py keeps directory grouping (repo-as-one-package)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('__init__.py');
+    touch('a.py');
+    touch('sub/b.py');
+    const g = planGroups(['a.py', 'sub/b.py'], repo);
+    expect([...g.keys()].sort()).toEqual(['root', 'sub']);
+  });
+
+  it('python bundled inside a crate stays in the crate (cargo owns its subtree)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('crates/uv/Cargo.toml', '[package]\n');
+    touch('crates/uv/python/uv_build/__init__.py');
+    touch('crates/uv/python/uv_build/build.py');
+    const g = planGroups(['crates/uv/python/uv_build/__init__.py', 'crates/uv/python/uv_build/build.py'], repo);
+    expect([...g.keys()].sort()).toEqual(['crates/uv']);
+  });
+
+  it('a python package with a co-located package.json stays a hard boundary (pyinit > pkg)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('pkg/parent/package.json', '{}');
+    touch('pkg/parent/child/package.json', '{}'); // both a TS package AND a python package
+    touch('pkg/parent/child/__init__.py');
+    touch('pkg/parent/child/mod.py');
+    touch('pkg/parent/index.ts');
+    const g = planGroups(['pkg/parent/child/__init__.py', 'pkg/parent/child/mod.py', 'pkg/parent/index.ts'], repo);
+    expect([...g.keys()].sort()).toEqual(['pkg/parent', 'pkg/parent/child']); // not folded into parent
+  });
+
   it('a lone root manifest keeps directory grouping (no whole-repo collapse)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('package.json', '{}');

@@ -50,11 +50,16 @@ export function cellNameOf(key: string): string {
 }
 
 /** Proposed cell keys for `cells plan`, from the code census. Groups by "unit root" — the
- *  deepest ancestor dir holding a package manifest — so `crates/uv/src/…` and
- *  `packages/foo/src/…` collapse to the crate/package (uv's 72 crates stop exploding into
- *  ~180 dir-cells). Rules:
+ *  deepest ancestor dir holding a package manifest or a Python `__init__.py` — so
+ *  `crates/uv/src/…`, `packages/foo/src/…`, and `zerver/actions/*.py` collapse to their
+ *  crate/package (uv's 72 crates stop exploding into ~180 dir-cells; zulip's 2016 files stop
+ *  collapsing into one `root` cell). Rules:
  *  - Cargo.toml is a HARD boundary: any crate, however small, is its own unit (it's the
- *    namespace the importer keys crossings on).
+ *    namespace the importer keys crossings on) — and it owns its subtree, so a python package
+ *    bundled inside a crate (uv's embedded interpreter) folds into the crate.
+ *  - `__init__.py` is a HARD boundary too: a Python package is an importable namespace, so a
+ *    nested package (zerver/actions) is its own unit, never folded into its parent (transformer
+ *    per-model granularity).
  *  - package.json is SOFT: a package nested inside another package dir is scaffolding/template
  *    (vite's create-vite/template-*) and folds into its parent package; the repo root's own
  *    package.json is the workspace manifest, not a package, so it never swallows children.
@@ -66,13 +71,15 @@ export function cellNameOf(key: string): string {
  *  Pure-ish: manifest probes hit the FS (like the rust importer's crate-root walk). */
 export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, string[]> {
   // all manifest dirs above a dir, deepest first (each with its manifest kind)
-  const manifestAncestors = (dir: string): { dir: string; kind: 'cargo' | 'pkg' }[] => {
-    const out: { dir: string; kind: 'cargo' | 'pkg' }[] = [];
+  const manifestAncestors = (dir: string): { dir: string; kind: 'cargo' | 'pkg' | 'pyinit' }[] => {
+    const out: { dir: string; kind: 'cargo' | 'pkg' | 'pyinit' }[] = [];
     let d = dir;
     for (;;) {
       const cargo = existsSync(join(baseDir, d, 'Cargo.toml'));
       const pkg = existsSync(join(baseDir, d, 'package.json'));
+      const pyinit = existsSync(join(baseDir, d, '__init__.py'));
       if (cargo) out.push({ dir: d, kind: 'cargo' });
+      else if (pyinit) out.push({ dir: d, kind: 'pyinit' }); // a python package beats a co-located package.json (hard vs soft)
       else if (pkg) out.push({ dir: d, kind: 'pkg' });
       const parent = dirname(d);
       if (parent === d) return out;
@@ -82,8 +89,10 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
   const unitRoot = (dir: string): string | null => {
     const ancestors = manifestAncestors(dir);
     if (ancestors.length === 0) return null;
+    // a crate owns its whole subtree — bundled python/ dirs stay in the crate (uv embeds one)
+    for (const a of ancestors) if (a.kind === 'cargo') return a.dir;
     const deepest = ancestors[0];
-    if (deepest.kind === 'cargo') return deepest.dir; // crate = hard boundary
+    if (deepest.kind === 'pyinit') return deepest.dir; // python package = hard boundary
     // package: fold a nested package into its parent package (root manifest is the workspace)
     const parent = ancestors[1];
     if (parent && parent.dir !== '.' && parent.kind === 'pkg') return parent.dir;
