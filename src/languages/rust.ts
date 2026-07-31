@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
@@ -38,6 +38,25 @@ export function fileToModule(path: string, _moduleRoot?: string, baseDir = '.'):
  *  The factory uses it to namespace module keys when a run spans multiple crates. */
 export function crateRootOf(path: string, baseDir = '.'): string | null {
   return findCrateRoot(path, baseDir);
+}
+
+/** The crate's Rust-visible name from its Cargo.toml `[package] name` — `use` paths address
+ *  crates by this name with hyphens normalized to underscores (`headroom-core` → `headroom_core`),
+ *  which need NOT match the directory. Virtual workspace manifests have no [package] → null.
+ *  The factory uses it to alias workspace module keys so `use sibling_crate::…` resolves.
+ *  LIMITATION: `name.workspace = true` (workspace-inherited name) resolves to null — such a
+ *  crate's cross-crate imports stay silently external (pre-fix behavior, not a false positive).
+ *  Package names are overwhelmingly literal in practice; revisit if a real repo hits it. */
+export function crateNameOf(crateRoot: string, baseDir = '.'): string | null {
+  let content: string;
+  try {
+    content = readFileSync(join(baseDir, crateRoot, 'Cargo.toml'), 'utf8');
+  } catch {
+    return null;
+  }
+  const section = content.match(/^\[package\][^[]*/m);
+  const name = section?.[0].match(/^\s*name\s*=\s*["']([^"']+)["']/m); // double OR single-quoted TOML string
+  return name ? name[1].replace(/-/g, '_') : null;
 }
 
 /** `src/…` → `crate::…` per Rust module rules. Pure. */
@@ -102,9 +121,11 @@ function collectUses(node: Node, out: string[]): void {
 
 /** Classify a use path + resolve it to an absolute module path.
  *  `crate::` is already absolute (namespaced to the importer's crate root in workspaces);
- *  `self::`/`super::` are relative to the importer; anything else is an external crate
+ *  `self::`/`super::` are relative to the importer; a bare first segment that names a
+ *  workspace member crate (`use sibling_crate::…`) is a cross-crate internal import
+ *  (resolved via the factory's name→module aliases); anything else is an external crate
  *  (std, serde, …) → null. Pure. */
-function absoluteModulePath(imp: string, importerModule: string): string | null {
+function absoluteModulePath(imp: string, importerModule: string, crateNames: ReadonlySet<string>): string | null {
   if (imp === 'crate' || imp.startsWith('crate::')) {
     // workspace namespace = first segment of the importer's module (e.g. `crates/a::app` → `crates/a`);
     // plain `crate` = the legacy single-crate key, unchanged.
@@ -117,7 +138,7 @@ function absoluteModulePath(imp: string, importerModule: string): string | null 
     return rest ? `${importerModule}::${rest}` : importerModule;
   }
   if (imp.startsWith('super::')) return resolveSuper(imp, importerModule);
-  return null; // external crate (std, serde, …) — not an internal edge
+  return crateNames.has(imp.split('::')[0]) ? imp : null; // workspace sibling, or external (std, serde, …)
 }
 
 /** Resolve one-or-more `super::` relative to the importer module; null if it escapes the crate root.
@@ -137,8 +158,8 @@ function resolveSuper(imp: string, importerModule: string): string | null {
 /** Resolve a Rust use path to a source file via the module→file map.
  *  Matches the module OR module-minus-last-item (a use names a module OR an item in one) —
  *  no further fall-back, since `crate::a::b::c` reaching the crate root would be a false edge. Pure. */
-export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>): string | null {
-  const abs = absoluteModulePath(imp, importerModule);
+export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set()): string | null {
+  const abs = absoluteModulePath(imp, importerModule, crateNames);
   if (abs === null) return null;
   const segs = abs.split('::');
   return moduleToFile.get(segs.join('::')) ?? moduleToFile.get(segs.slice(0, -1).join('::')) ?? null;
@@ -189,16 +210,17 @@ export const rustImporter = createTreeSitterImporter({
   wasmBasename: 'tree-sitter-rust.wasm',
   fileToModule,
   crateRootOf,
+  crateNameOf,
   declareModules: (root, sourcePath, fileSet) => collectModDecls(root, sourcePath, fileSet),
-  extractEdges: (root, sourcePath, importerModule, moduleToFile) => {
+  extractEdges: (root, sourcePath, importerModule, moduleToFile, crateNames = new Set<string>()) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const imp of extractImports(root)) {
-      const toFile = resolveImportPath(imp, importerModule, moduleToFile);
+      const toFile = resolveImportPath(imp, importerModule, moduleToFile, crateNames);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
-      } else if (!toFile && absoluteModulePath(imp, importerModule) !== null) {
-        // crate::/self::/super:: path that didn't resolve to any owned file.
+      } else if (!toFile && absoluteModulePath(imp, importerModule, crateNames) !== null) {
+        // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
         // my_mod — not unresolved, just self-referential.)
         unresolved.push({ fromFile: sourcePath, import: imp });

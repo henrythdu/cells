@@ -217,4 +217,41 @@ describe('rust importer', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('cross-crate workspace imports resolve to the sibling crate (wave-1 stress bug)', async () => {
+    // `use headroom_core::…` from headroom-cli: the crate NAME (not the dir path) must
+    // resolve to the sibling's file — previously silently dropped as "external".
+    const root = mkdtempSync(join(tmpdir(), 'cells-ws-x-'));
+    const startCwd = process.cwd();
+    try {
+      mkdirSync(join(root, 'crates', 'headroom-core', 'src', 'signals'), { recursive: true });
+      mkdirSync(join(root, 'crates', 'headroom-cli', 'src'), { recursive: true });
+      writeFileSync(join(root, 'Cargo.toml'), '[workspace]\n');
+      writeFileSync(join(root, 'crates', 'headroom-core', 'Cargo.toml'), '[package]\nname = "headroom-core"\nversion = "0.1.0"\n\n[dependencies]\n');
+      writeFileSync(join(root, 'crates', 'headroom-cli', 'Cargo.toml'), '[package]\nname = "headroom-cli"\nversion = "0.1.0"\n');
+      process.chdir(root);
+      const files: SourceFile[] = [
+        { path: 'crates/headroom-core/src/lib.rs', content: 'pub mod signals;\n' },
+        { path: 'crates/headroom-core/src/signals/mod.rs', content: 'mod plan;\npub use plan::*;\n' },
+        { path: 'crates/headroom-core/src/signals/plan.rs', content: 'pub struct Plan;\n' },
+        { path: 'crates/headroom-cli/src/main.rs', content: 'use headroom_core::signals::plan::Plan;\nuse headroom_core::signals::missing::Nope;\nuse serde_json::Value;\n' },
+      ];
+      const { edges, unresolved } = await rustImporter.extract({
+        codeDirs: ['crates'],
+        files,
+        ownership: {
+          core: ['crates/headroom-core/src/lib.rs', 'crates/headroom-core/src/signals/mod.rs', 'crates/headroom-core/src/signals/plan.rs'],
+          cli: ['crates/headroom-cli/src/main.rs'],
+        },
+      });
+      // cross-crate import resolves to the sibling's file
+      expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan' });
+      // broken workspace import flags as unresolved (vs silently-external serde)
+      expect(unresolved).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', import: 'headroom_core::signals::missing::Nope' });
+      expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'serde_json::Value' }));
+    } finally {
+      process.chdir(startCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

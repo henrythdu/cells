@@ -93,6 +93,9 @@ export interface TreeSitterImporterSpec {
    *  crates, the factory namespaces every module key by crate root so two crates' `crate::…`
    *  paths can't collide in the shared module→file map (single-crate runs keep plain keys). */
   crateRootOf?(path: string, baseDir?: string): string | null;
+  /** The crate's package name from its manifest (hyphens→underscores — the Rust-visible name).
+   *  The factory aliases namespaced module keys by it so `use sibling_crate::…` resolves. */
+  crateNameOf?(crateRoot: string, baseDir?: string): string | null;
   /** Declared submodules with their module-path chain relative to the containing file,
    *  e.g. `mod x;` → [['x'], 'x.rs'], inline `mod x {}` → [['x'], null] (lives in this file),
    *  nested inline blocks → [['x','y'], null]. null targetFile = inline block. The factory
@@ -100,8 +103,10 @@ export interface TreeSitterImporterSpec {
    *  file containing the deepest module instead of reporting false "unresolved". */
   declareModules?(root: Node, sourcePath: string, fileSet: Set<string>): { path: string[]; targetFile: string | null }[];
   /** Parse a tree's root into import edges + unresolved local imports (extraction + resolution).
-   *  Self-loops and duplicate targets are de-duped by the factory. */
-  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
+   *  Self-loops and duplicate targets are de-duped by the factory. `crateNames` = the package
+   *  names of workspace member crates — a bare first segment matching one is a cross-crate
+   *  internal import (vs a silently-dropped external like `serde`). */
+  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, crateNames?: ReadonlySet<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
 }
 
 /**
@@ -120,6 +125,10 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
       let moduleKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);
+      // Package names of workspace member crates — the factory aliases their namespaced
+      // module keys by name so `use sibling_crate::…` resolves (rust.ts crates only).
+      const crateNames = new Set<string>();
+      let aliasByName: (key: string, root: string | null) => void = () => {};
       if (spec.crateRootOf) {
         const roots = new Set(
           files
@@ -134,10 +143,46 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
             if (!r || r === '.') return m; // scan-root crate — no prefix
             return m === 'crate' ? r : `${r}::${m.slice('crate::'.length)}`;
           };
+          if (spec.crateNameOf) {
+            // Read each manifest ONCE — aliasByName runs per file/submodule, and re-reading
+            // the same few Cargo.tomls hundreds of times synchronously would dominate a big
+            // workspace scan.
+            const nameByRoot = new Map<string, string | null>();
+            for (const r of roots) {
+              const name = spec.crateNameOf(r, baseDir);
+              nameByRoot.set(r, name);
+              if (name) crateNames.add(name);
+            }
+            // The scan-root crate ('.') keeps plain `crate::…` keys — it is NEVER aliased by
+            // name. Its name must NOT count as a workspace member: a bin referencing the root
+            // lib by name would otherwise classify internal, fail to resolve, and false-flag as
+            // unresolved (it was silently external before). Rare; stays external, as pre-fix.
+            const scanRootName = roots.has('.') ? (nameByRoot.get('.') ?? null) : null;
+            if (scanRootName) crateNames.delete(scanRootName);
+            // Namespaced keys are addressed by crate ROOT PATH; a use addresses the crate by
+            // its Cargo.toml NAME. Alias every key so `headroom_core::…` → `crates/headroom-core::…`.
+            aliasByName = (key, root) => {
+              if (!root || root === '.') return;
+              const name = nameByRoot.get(root);
+              if (!name) return;
+              const prefix = `${root}::`;
+              let rest: string | null = null;
+              if (key === root) rest = '';
+              else if (key.startsWith(prefix)) rest = key.slice(prefix.length);
+              if (rest === null) return;
+              const alias = rest ? `${name}::${rest}` : name;
+              if (!moduleToFile.has(alias)) moduleToFile.set(alias, moduleToFile.get(key)!);
+            };
+          }
         }
       }
       const moduleToFile = new Map<string, string>();
-      for (const f of files) if (matches(f.path)) moduleToFile.set(moduleKey(f), f.path);
+      for (const f of files) {
+        if (!matches(f.path)) continue;
+        const key = moduleKey(f);
+        moduleToFile.set(key, f.path);
+        aliasByName(key, spec.crateRootOf?.(f.path, baseDir) ?? null);
+      }
 
       const parser = await getGrammarParser(spec.wasmBasename);
       // parse + tree ownership: the Tree is WASM-backed — the caller must delete() it.
@@ -157,8 +202,11 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
           if (!tree) continue;
           try {
             const base = moduleKey(f);
+            const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
             for (const m of spec.declareModules(tree.rootNode, f.path, fileSet)) {
-              moduleToFile.set(`${base}::${m.path.join('::')}`, m.targetFile ?? f.path);
+              const key = `${base}::${m.path.join('::')}`;
+              moduleToFile.set(key, m.targetFile ?? f.path);
+              aliasByName(key, root);
             }
           } finally {
             tree.delete();
@@ -175,7 +223,7 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
         try {
           const importerModule = moduleKey(f);
           const seen = new Set<string>();
-          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile);
+          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile, crateNames);
           for (const e of fileEdges) {
             if (e.toFile !== f.path && !seen.has(e.toFile)) {
               seen.add(e.toFile);
