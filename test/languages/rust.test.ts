@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { rustImporter, fileToModule, resolveImportPath } from '../src/rust.js';
-import type { SourceFile } from '../src/imports.js';
-import type { Ownership } from '../src/ownership.js';
+import { rustImporter, fileToModule, resolveImportPath } from '../../src/languages/rust.js';
+import type { SourceFile } from '../../src/imports.js';
+import type { Ownership } from '../../src/ownership.js';
 
 describe('fileToModule', () => {
   it('derives Rust module paths from file paths', () => {

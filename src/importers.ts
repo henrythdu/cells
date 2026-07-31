@@ -1,61 +1,14 @@
-import { extname, join, resolve, relative } from 'node:path';
-import { cruise, type ICruiseResult } from 'dependency-cruiser';
-import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from './imports.js';
+import { extname, join } from 'node:path';
+import type { ImportEdge, SourceFile, UnresolvedImport, Importer } from './imports.js';
 import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
 
-/** dep-cruiser importer — TS/JS. Source-based; handles aliases and `.js`→`.ts`. */
-export const depCruiserImporter: Importer = {
-  name: 'typescript',
-  extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'],
-  async extract({ codeDirs, baseDir }): Promise<ImportResult> {
-    const dirs = codeDirs.map((d) => (d.endsWith('/') ? d : `${d}/`));
-    let result: ICruiseResult;
-    try {
-      const { output } = await cruise(dirs, {
-        tsPreCompilationDeps: true,
-        doNotFollow: { path: 'node_modules' },
-      });
-      result = output as ICruiseResult;
-    } catch (err) {
-      // dep-cruiser couldn't handle the paths/language — surface it; silent zero-edges
-      // would fake a green gate on a blind graph. (collectImportEdges turns this into
-      // a gate failure.)
-      throw new Error(`dependency-cruiser failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    // dep-cruiser emits paths relative to cwd; when cruising a HEAD tree (baseDir) remap them
-    // to repo-relative so they match ownership. (Tree-sitter importers already emit repo-relative.)
-    const cwd = process.cwd();
-    const norm = (p: string): string => {
-      const n = p.replace(/^\.\//, '');
-      return baseDir && baseDir !== '.' ? relative(baseDir, resolve(cwd, n)) : n;
-    };
-    const edges: ImportEdge[] = [];
-    const unresolved: UnresolvedImport[] = [];
-    for (const mod of result.modules ?? []) {
-      for (const dep of mod.dependencies ?? []) {
-        if (dep.couldNotResolve) {
-          // Relative specifiers that can't resolve look local — likely a broken import.
-          // Bare specifiers (e.g. 'react') are external packages — skip silently.
-          if (dep.module.startsWith('.')) unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          continue;
-        }
-        if (dep.coreModule) continue; // node built-in
-        if (!dep.resolved) continue;
-        edges.push({
-          fromFile: norm(mod.source),
-          toFile: norm(dep.resolved),
-          import: dep.module,
-        });
-      }
-    }
-    return { edges, unresolved };
-  },
-};
-
-// Python importer lives in ./python.js; Rust importer in ./rust.js (tree-sitter extraction + module→file resolution via ownership).
-import { pythonImporter } from './python.js';
-import { rustImporter } from './rust.js';
-export { pythonImporter, rustImporter };
+// Language importer specs live in ./languages/ — add a language = add a spec file there
+// (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
+// a custom extract for others) + one line in DEFAULT_IMPORTERS below.
+import { depCruiserImporter } from './languages/typescript.js';
+import { pythonImporter } from './languages/python.js';
+import { rustImporter } from './languages/rust.js';
+export { depCruiserImporter, pythonImporter, rustImporter };
 
 /** Default importer registry (add a language = add an importer here). */
 export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter];

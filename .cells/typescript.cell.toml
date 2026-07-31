@@ -1,0 +1,5 @@
+name = "typescript"
+purpose = "TS/JS importer (dep-cruiser)"
+provides = ["depCruiserImporter"]
+requires = ["imports"]
+layer = 4

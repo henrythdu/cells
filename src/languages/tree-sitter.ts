@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Language, type Node, Parser, type Tree } from 'web-tree-sitter';
-import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from './imports.js';
+import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from '../imports.js';
 
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
@@ -32,7 +32,7 @@ export function getGrammarParser(wasmBasename: string): Promise<Parser> {
       await Parser.init();
       // WASMs ship as static assets in grammars/ (built ABI-matched to web-tree-sitter;
       // the prebuilt tree-sitter-wasms pack is OLD-CLI/incompatible — see memory 155).
-      const wasm = join(dirname(fileURLToPath(import.meta.url)), '..', 'grammars', wasmBasename);
+      const wasm = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'grammars', wasmBasename);
       let lang: Language;
       try {
         lang = await Language.load(readFileSync(wasm));

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { pythonImporter, fileToModule } from '../src/python.js';
-import type { SourceFile } from '../src/imports.js';
-import type { Ownership } from '../src/ownership.js';
+import { pythonImporter, fileToModule } from '../../src/languages/python.js';
+import type { SourceFile } from '../../src/imports.js';
+import type { Ownership } from '../../src/ownership.js';
 
 const files: SourceFile[] = [
   { path: 'src/domain/symbol.py', content: 'class Symbol: pass\n' },

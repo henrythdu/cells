@@ -1,5 +1,5 @@
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge, UnresolvedImport } from './imports.js';
+import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
 
 // --- module-path derivation: file → python module path ---

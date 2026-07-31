@@ -161,6 +161,11 @@ examples/**
 - **Rust** via `tree-sitter` (WASM; handles `use`/`super`/`self`, groups, re-exports).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
+Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the
+shared factory in `src/languages/tree-sitter.ts`; otherwise a custom `extract`) + one line in
+`DEFAULT_IMPORTERS` in `src/importers.ts`. The repo's own cells show the pattern — `cells new`
+the language cell declare-first, then `cells health` enforces the declaration.
+
 Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading. (Dogfooded on a 50-file Python repo — 56 crossings; and a 61-file Rust repo — 62 crossings, `structure` surfaced a real UI/app cycle.)
 
 ---
