@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { serializeOwnership } from './ownership.js';
 import { checkLeakage } from './crossings.js';
-import { unassignFiles, planAssignment, planGroups, planApply, validCellName } from './assign.js';
+import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, requireCells, detectProject, computePayloadSize, neighborsOf, type CellsContext } from './io.js';
 import { buildConfig } from './config.js';
 import { cmdCrossings, cmdList, cmdShow, cmdSize, cmdStructure, cmdImpact, cmdGraph, cmdOwns, cmdPayload, cmdHealth, loadCrossings, warnIfNoCodeFiles } from './commands.js';
@@ -298,9 +298,7 @@ function cmdPlan(apply = false, dryRun = false): void {
   warnIfNoCodeFiles(config, codeFiles);
   const groups = planGroups(codeFiles);
   const keys = [...groups.keys()].sort();
-  // name = key path escaped to a valid cell name: '-' → '--', separator → '-'
-  // (injective: 'src/api' and 'src-api' can't collide; planGroups pre-folds invalid chars)
-  const names = new Map(keys.map((k) => [k, k.replaceAll('-', '--').replaceAll('/', '-')]));
+  const names = new Map(keys.map((k) => [k, cellNameOf(k)]));
 
   if (dryRun && !apply) console.error('Note: plain `plan` is read-only — --dry-run only matters with --apply.');
 
@@ -310,12 +308,8 @@ function cmdPlan(apply = false, dryRun = false): void {
     const existing = new Set(Object.keys(loadDeclarations()));
     const proposed = new Map(keys.map((k) => [names.get(k)!, groups.get(k)!]));
     const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
-    const outcome =
-      `created ${stubs.length} cell declaration(s), skipped ${skipped.length} existing, ` +
-      `adopted ${adopted} file(s), kept ${kept} already-owned.`;
-    const summary = dryRun
-      ? `Would apply: ${outcome}\nDry run — nothing changed. Re-run without --dry-run to apply.`
-      : `Applied plan: ${outcome}\nRun \`cells health\` — crossings will be red until requires are filled.`;
+    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned.`;
+    const summary = dryRun ? `Would apply: ${outcome}\nDry run — nothing changed. Re-run without --dry-run to apply.` : `Applied plan: ${outcome}\nRun \`cells health\` — crossings will be red until requires are filled.`;
     if (dryRun) {
       console.log(summary);
       return;

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { assignFiles, unassignFiles, validCellName, planAssignment, planGroups, planApply } from '../src/assign.js';
+import { assignFiles, unassignFiles, validCellName, cellNameOf, planAssignment, planGroups, planApply } from '../src/assign.js';
 import { STUB_PURPOSE } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -198,7 +198,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['packages', 'root', 'src']);
     // the guarantee: every emitted name passes validCellName after escaping
     for (const key of g.keys()) {
-      expect(validCellName(key.replaceAll('-', '--').replaceAll('/', '-'))).toBe(true);
+      expect(validCellName(cellNameOf(key))).toBe(true);
     }
   });
 });
@@ -212,7 +212,7 @@ describe('planApply', () => {
     ]);
     const r = planApply(ownership, proposed, new Set(['curated']));
     expect(r.stubs).toEqual([{ name: 'fresh', purpose: STUB_PURPOSE, provides: [], requires: [] }]);
-    expect(r.skipped).toEqual(['curated']);
+    expect(r.skipped).toBe(1); // curated exists — not overwritten
     expect(r.adopted).toBe(3);
     expect(r.kept).toBe(1); // src/kept.ts already owned — not stolen
     expect(r.ownership).toEqual({ curated: ['src/kept.ts', 'src/new.ts'], fresh: ['src/a.ts', 'src/b.ts'] });
@@ -221,7 +221,7 @@ describe('planApply', () => {
   it('never overwrites an existing declaration, even when the cell is proposed again', () => {
     const r = planApply({ a: ['src/a.ts'] }, new Map([['a', ['src/a.ts']]]), new Set(['a']));
     expect(r.stubs).toEqual([]);
-    expect(r.skipped).toEqual(['a']);
+    expect(r.skipped).toBe(1);
   });
 
   it('a proposed cell whose files are all kept gets no stub and no entry', () => {
@@ -237,7 +237,14 @@ describe('planApply', () => {
   });
 
   it('overlapping proposals never double-own a file (non-overlap invariant)', () => {
-    const r = planApply({}, new Map([['x', ['src/shared.ts', 'src/x.ts']], ['y', ['src/shared.ts', 'src/y.ts']]]), new Set());
+    const r = planApply(
+      {},
+      new Map([
+        ['x', ['src/shared.ts', 'src/x.ts']],
+        ['y', ['src/shared.ts', 'src/y.ts']],
+      ]),
+      new Set(),
+    );
     expect(r.ownership.x).toEqual(['src/shared.ts', 'src/x.ts']);
     expect(r.ownership.y).toEqual(['src/y.ts']);
     expect(r.kept).toBe(1); // y's shared.ts was already adopted by x

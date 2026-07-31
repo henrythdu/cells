@@ -42,6 +42,13 @@ export function validCellName(name: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(name);
 }
 
+/** The cell name a plan key (relative dir) maps to: escape the path injectively —
+ *  '-' → '--' (so 'src/api' and 'src-api' can't collide), separator → '-'. The result is
+ *  valid iff the key chars are in [A-Za-z0-9_/-] — planGroups folds anything else. */
+export function cellNameOf(key: string): string {
+  return key.replaceAll('-', '--').replaceAll('/', '-');
+}
+
 /** Proposed cell keys for `cells plan`, from the code census. Groups by "unit root" — the
  *  deepest ancestor dir holding a package manifest — so `crates/uv/src/…` and
  *  `packages/foo/src/…` collapse to the crate/package (uv's 72 crates stop exploding into
@@ -83,28 +90,18 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
     return deepest.dir;
   };
   const roots = new Set<string>();
-  const unitCache = new Map<string, string | null>();
-  const unitOf = (dir: string): string | null => {
-    const cached = unitCache.get(dir);
-    if (cached !== undefined) return cached;
-    const r = unitRoot(dir);
-    unitCache.set(dir, r);
-    return r;
-  };
   for (const f of codeFiles) {
-    const r = unitOf(dirname(f.replaceAll('\\', '/')));
+    const r = unitRoot(dirname(f.replaceAll('\\', '/')));
     if (r) roots.add(r);
   }
   const useUnits = roots.size >= 2 || (roots.size === 1 && !roots.has('.')); // lone root manifest = the repo itself; a lone non-root package is still a unit
   const groups = new Map<string, string[]>();
   for (const f of codeFiles) {
     const dir = dirname(f.replaceAll('\\', '/'));
-    const unit = useUnits ? unitOf(dir) : null;
+    const unit = useUnits ? unitRoot(dir) : null;
     let key = unit ?? dir;
-    // fold invalid-name dirs up to the nearest valid ancestor. The class mirrors the escaped
-    // cell-name alphabet ([A-Za-z0-9_/-] → validCellName after escaping); '.' is excluded —
-    // `.storybook`/`foo.v2` would otherwise propose un-creatable names. 'root' is always valid.
-    while (key !== '.' && !/^[A-Za-z0-9_/-]+$/.test(key)) {
+    // fold until the escaped name is a valid cell name — plan never proposes un-creatable cells
+    while (key !== '.' && !validCellName(cellNameOf(key))) {
       key = dirname(key);
     }
     if (key === '.') key = 'root';
@@ -120,16 +117,12 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
  *  for fresh partitioning — curated cells keep their files). Cells with an existing declaration
  *  are never overwritten (skipped) — their requires/provides may be curated. Pure: cli writes
  *  the returned stubs + ownership. A proposed cell whose files are all kept gets nothing. */
-export function planApply(
-  ownership: Ownership,
-  proposed: Map<string, string[]>,
-  existingNames: ReadonlySet<string>,
-): { stubs: Cell[]; ownership: Ownership; skipped: string[]; adopted: number; kept: number } {
+export function planApply(ownership: Ownership, proposed: Map<string, string[]>, existingNames: ReadonlySet<string>): { stubs: Cell[]; ownership: Ownership; skipped: number; adopted: number; kept: number } {
   const ownedBy = new Map<string, string>();
   for (const [cell, files] of Object.entries(ownership)) for (const f of files) ownedBy.set(f, cell);
   const next: Ownership = { ...ownership };
   const stubs: Cell[] = [];
-  const skipped: string[] = [];
+  let skipped = 0;
   let adopted = 0;
   let kept = 0;
   for (const [name, files] of [...proposed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -137,13 +130,13 @@ export function planApply(
     kept += files.length - adopt.length;
     adopted += adopt.length;
     if (adopt.length === 0) {
-      if (existingNames.has(name)) skipped.push(name); // already there, nothing to add
+      if (existingNames.has(name)) skipped++; // already there, nothing to add
       continue;
     }
     for (const f of adopt) ownedBy.set(f, name); // keep the non-overlap invariant for overlapping proposals
     const cellFiles = next[name] ? [...next[name]] : [];
-    next[name] = [...new Set([...cellFiles, ...adopt])];
-    if (existingNames.has(name)) skipped.push(name);
+    next[name] = [...cellFiles, ...adopt]; // adopt ∩ cellFiles is empty by construction (ownedBy covers this cell's own files)
+    if (existingNames.has(name)) skipped++;
     else stubs.push({ name, purpose: STUB_PURPOSE, provides: [], requires: [] });
   }
   return { stubs, ownership: next, skipped, adopted, kept };
