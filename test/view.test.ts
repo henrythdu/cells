@@ -236,6 +236,7 @@ describe('formatHealthReport', () => {
     uncoveredExts: [],
     unresolvedCount: 0,
     unresolvedDetails: [],
+    grammarResults: [{ lang: 'python', ok: true }],
   };
 
   it('all-clear: all ✓, gateOk true, "All checks passed"', () => {
@@ -243,6 +244,7 @@ describe('formatHealthReport', () => {
     expect(gateOk).toBe(true);
     expect(report).toContain('✓ validate');
     expect(report).toContain('✓ crossings');
+    expect(report).toContain('✓ grammars');
     expect(report).toContain('✓ structure');
     expect(report).toContain('✓ size');
     expect(report).toContain('All checks passed');

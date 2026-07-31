@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Language, type Node, Parser, type Tree } from 'web-tree-sitter';
 import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from '../imports.js';
-
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
  * a factory that owns the parse loop. Each language importer supplies only its
@@ -47,6 +46,40 @@ export function getGrammarParser(wasmBasename: string): Promise<Parser> {
     p.catch(() => parsers.delete(wasmBasename)); // don't cache the rejection — allow retry on the next call
   }
   return p;
+}
+
+/** Verify the bundled grammar set (grammars/manifest.json): every declared wasm exists in
+ *  the package and loads against the bundled runtime — the authoritative ABI check. A missing
+ *  file or ABI mismatch here means the package is broken even if no repo currently has files
+ *  of that language (the lazy per-language failure would otherwise stay silent). Called by
+ *  `cells health`; runs loads through the same serialized chain as real parsing, so it can't
+ *  race concurrent grammar loads. */
+export async function checkGrammars(): Promise<{ lang: string; wasm: string; ok: boolean; error?: string }[]> {
+  const grammarsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'grammars');
+  let manifest: { grammars: { lang: string; wasm: string }[] };
+  try {
+    manifest = JSON.parse(readFileSync(join(grammarsDir, 'manifest.json'), 'utf8')) as typeof manifest;
+  } catch {
+    // never throw — health renders this as a failing grammars line (broken package = gate failure)
+    return [{ lang: 'manifest', wasm: 'manifest.json', ok: false, error: `missing or unreadable at ${grammarsDir}` }];
+  }
+  const results: { lang: string; wasm: string; ok: boolean; error?: string }[] = [];
+  if (!Array.isArray(manifest.grammars)) {
+    // malformed shape (bad edit/merge) must fail the gate, not crash health
+    return [{ lang: 'manifest', wasm: 'manifest.json', ok: false, error: `malformed manifest (no grammars array) at ${grammarsDir}` }];
+  }
+  for (const g of manifest.grammars) {
+    try {
+      await serialized(async () => {
+        await Parser.init();
+        await Language.load(readFileSync(join(grammarsDir, g.wasm)));
+      });
+      results.push({ lang: g.lang, wasm: g.wasm, ok: true });
+    } catch (err) {
+      results.push({ lang: g.lang, wasm: g.wasm, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return results;
 }
 
 /** Spec for a tree-sitter language importer: the language-specific pieces. */

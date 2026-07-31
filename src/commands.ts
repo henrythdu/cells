@@ -7,6 +7,7 @@ import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, t
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
+import { checkGrammars } from './languages/tree-sitter.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { owningCell, type Ownership } from './ownership.js';
@@ -292,6 +293,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
   const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
 
   const violations = validatePartition(ownership, declarations, codeFiles);
+  const grammarResults = await checkGrammars();
   const leakage = checkLeakage(crossings, declarations);
   const stale = leakage.filter((l) => l.kind === 'stale');
   const cycles = detectCycles(crossings);
@@ -324,6 +326,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
       uncoveredExts: visibleUncoveredExts,
       unresolvedCount: unresolved.length,
       unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
+      grammarResults,
     },
     verbose,
   );

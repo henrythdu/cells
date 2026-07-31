@@ -146,6 +146,7 @@ export interface HealthValues {
   uncoveredExts: string[];
   unresolvedCount: number;
   unresolvedDetails: string[];
+  grammarResults: { lang: string; ok: boolean; error?: string }[];
 }
 
 export interface HealthReport {
@@ -154,18 +155,20 @@ export interface HealthReport {
 }
 
 /**
- * Render the four-check health report + the strict-gate verdict. Pure: takes the
- * pre-computed values, returns the formatted report and whether the gate holds
- * (exit 1 only on integrity + undeclared leakage — size/structure are warnings).
- * The one read command that previously inlined its markup + gate decision; now
- * joins the format* pattern (formatCellList / formatSizeReport / …) and is unit-testable.
+ * Render the health report (validate / crossings / structure / size / grammars)
+ * + the strict-gate verdict. Pure: takes the pre-computed values, returns the
+ * formatted report and whether the gate holds (exit 1 on integrity, undeclared
+ * leakage, or a broken grammar bundle — size/structure are warnings; a failing
+ * grammar is named inline on the line itself). Joins the format* pattern
+ * (formatCellList / formatSizeReport / …) and is unit-testable.
  */
 export function formatHealthReport(v: HealthValues, verbose = false): HealthReport {
   const valOk = v.violationCount === 0;
   const xOk = v.undeclaredCount === 0;
   const structOk = v.cycleCount === 0 && v.dirViolationCount === 0;
   const sizeOk = v.maxPercent <= 1;
-  const gateOk = valOk && xOk; // strict gate: integrity + undeclared leakage only
+  const grammarsOk = v.grammarResults.length > 0 && v.grammarResults.every((g) => g.ok);
+  const gateOk = valOk && xOk && grammarsOk; // strict gate: integrity + undeclared leakage + packaged grammars
 
   const structParts: string[] = [];
   if (v.cycleCount > 0) structParts.push(`${v.cycleCount} cycle(s)`);
@@ -183,6 +186,8 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   }
   lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
+  const grammars = v.grammarResults.filter((g) => !g.ok);
+  lines.push(`  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`);
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s) — no matching file; check specifiers or module-root)`);
 
