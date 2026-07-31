@@ -337,7 +337,7 @@ const COMMANDS: Record<string, Command> = {
     minArgs: 0,
     needsCells: true,
     run: async (_a, _d, ctx) => {
-      console.log('Note: `cells validate` is now `cells health` (the full gate). Running it.');
+      console.error('Note: `cells validate` is now `cells health` (the full gate). Running it.'); // stderr — stdout stays machine-clean
       await cmdHealth(ctx!);
     },
   },

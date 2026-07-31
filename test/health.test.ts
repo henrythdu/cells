@@ -123,10 +123,10 @@ describe('cells health', () => {
   });
 
   describe('validate is now an alias for health', () => {
-    it('runs the full gate and prints a redirect note', () => {
-      const out = execSync(`node ${cellsBin} validate`, { encoding: 'utf8' });
-      expect(out).toContain('is now `cells health`');
-      expect(out).toMatch(/All checks passed|Gate passed/);
+    it('runs the full gate and prints a redirect note (stderr, stdout stays machine-clean)', () => {
+      const res = spawnSync(`node`, [cellsBin, 'validate'], { encoding: 'utf8' });
+      expect(res.stderr).toContain('is now `cells health`');
+      expect(res.stdout).toMatch(/All checks passed|Gate passed/);
     });
   });
 });
