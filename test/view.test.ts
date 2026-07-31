@@ -63,6 +63,7 @@ describe('formatCellShow', () => {
     requires: ['ownership', 'declaration'],
   };
   const owned = ['src/validate.ts', 'test/validate.test.ts'];
+  const ownedWithTokens = owned.map((file) => ({ file, tokens: 42 }));
   const out: Crossing[] = [
     {
       fromCell: 'validate',
@@ -91,7 +92,7 @@ describe('formatCellShow', () => {
   const size: CellSize = { files: 2, chars: 640, tokens: 160 };
   // out: validate → {ownership, declaration} (fanOut 2); in: cli → validate (fanIn 1) → I = 2/3 ≈ 0.67
   const metrics: CellMetrics = { fanIn: 1, fanOut: 2, instability: 2 / 3 };
-  const out2 = formatCellShow(cell, owned, out, inc, size, metrics);
+  const out2 = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics);
 
   it('shows the declaration (purpose, provides, requires)', () => {
     expect(out2).toContain('cell: validate');
@@ -101,9 +102,11 @@ describe('formatCellShow', () => {
     expect(out2).toContain('declaration');
   });
 
-  it('lists owned files', () => {
+  it('lists owned files with per-file token counts', () => {
     expect(out2).toContain('src/validate.ts');
     expect(out2).toContain('test/validate.test.ts');
+    expect(out2).toMatch(/src\/validate\.ts\s+\(~42 tok\)/);
+    expect(out2).toMatch(/test\/validate\.test\.ts\s+\(~42 tok\)/);
   });
 
   it('lists imports (out) and imported-by (in) crossings', () => {
@@ -120,7 +123,7 @@ describe('formatCellShow', () => {
   });
 
   it('shows the layer when set; omits the line when layerless', () => {
-    const layered = formatCellShow({ ...cell, layer: 1 }, owned, out, inc, size, metrics);
+    const layered = formatCellShow({ ...cell, layer: 1 }, ownedWithTokens, out, inc, size, metrics);
     expect(layered).toContain('layer: 1');
     expect(out2).not.toMatch(/^layer:/m); // the `cell` fixture (validate) has no layer
   });
@@ -130,7 +133,7 @@ describe('formatCellShow', () => {
       ...cell,
       signatures: ['parseCell(raw: string): Cell', 'serializeCell(cell: Cell): string'],
     };
-    const out3 = formatCellShow(signed, owned, out, inc, size, metrics);
+    const out3 = formatCellShow(signed, ownedWithTokens, out, inc, size, metrics);
     expect(out3).toContain('\u2022 parseCell(raw: string): Cell');
     expect(out3).toContain('\u2022 serializeCell(cell: Cell): string');
     // signatures line appears after provides, before requires
@@ -139,7 +142,7 @@ describe('formatCellShow', () => {
 
   it('shows test files when the cell declares them', () => {
     const withTests: Cell = { ...cell, tests: ['test/validate.test.ts'] };
-    const out4 = formatCellShow(withTests, owned, out, inc, size, metrics);
+    const out4 = formatCellShow(withTests, ownedWithTokens, out, inc, size, metrics);
     expect(out4).toContain('tests (1 file):');
     expect(out4).toContain('test/validate.test.ts');
   });
@@ -149,7 +152,7 @@ describe('formatCellShow', () => {
     const manyIn: Crossing[] = [];
     for (let i = 0; i < 6; i++) manyIn.push({ fromCell: 'placement', toCell: 'validate', fromFile: `src/p${i}.ts`, toFile: 'src/validate.ts', import: './v' });
     for (let i = 0; i < 4; i++) manyIn.push({ fromCell: 'infra', toCell: 'validate', fromFile: `src/i${i}.ts`, toFile: 'src/validate.ts', import: './v' });
-    const out5 = formatCellShow(cell, owned, out, manyIn, size, { ...metrics, fanIn: 10 });
+    const out5 = formatCellShow(cell, ownedWithTokens, out, manyIn, size, { ...metrics, fanIn: 10 });
     expect(out5).toContain('imported by (10):');
     expect(out5).toContain('placement×6, infra×4');
     expect(out5).toContain('--verbose for per-file detail');
@@ -159,7 +162,7 @@ describe('formatCellShow', () => {
   it('--verbose shows raw per-file edges even past the threshold', () => {
     const manyIn: Crossing[] = [];
     for (let i = 0; i < 9; i++) manyIn.push({ fromCell: 'placement', toCell: 'validate', fromFile: `src/p${i}.ts`, toFile: 'src/validate.ts', import: './v' });
-    const out5 = formatCellShow(cell, owned, out, manyIn, size, { ...metrics, fanIn: 9 }, true);
+    const out5 = formatCellShow(cell, ownedWithTokens, out, manyIn, size, { ...metrics, fanIn: 9 }, true);
     expect(out5).toContain('← placement   (src/p0.ts → src/validate.ts)');
     expect(out5).not.toContain('placement×9');
   });
@@ -215,6 +218,7 @@ describe('formatHealthReport', () => {
     violationCount: 0,
     violationDetails: [],
     undeclaredCount: 0,
+    undeclaredEdges: [],
     staleCount: 0,
     staleEdges: [],
     cycleCount: 0,
@@ -241,6 +245,16 @@ describe('formatHealthReport', () => {
     expect(report).toContain('✗ crossings');
     expect(report).toContain('Gate failed');
     expect(report).toContain('`cells crossings`'); // drill hint
+  });
+
+  it('--verbose names undeclared edges inline and drops the crossings drill hint', () => {
+    const { report, gateOk } = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ["b imports a (src/b.ts → src/a.ts) but doesn't require it"] }, true);
+    expect(gateOk).toBe(false);
+    expect(report).toContain('b imports a (src/b.ts → src/a.ts)');
+    expect(report).not.toContain('`cells crossings`');
+    // terse default still names nothing
+    const terse = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ['b imports a'] });
+    expect(terse.report).not.toContain('b imports a');
   });
 
   it('size warning keeps the gate green (⚠, "Gate passed with warning")', () => {

@@ -81,6 +81,8 @@ cells list                          # see the whole partition
 | `cells init` | bootstrap `.cells/` — detects your language (code-exts/code-dirs) (idempotent) |
 | `cells plan` | propose a cell partition from your directory layout (prints declarations + ownership to review — writes nothing) |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
+| `cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]` | scaffold a cell declaration (`.cell.toml`) — declare the contract first, then `assign` files into it |
+| `cells prune-stale [--apply]` | remove requires that are declared but never imported (stale); dry-run by default, `--apply` rewrites the declaration files |
 | `cells unassign <file...>` | remove file(s) from their cell (→ orphan) |
 | `cells rename <old> <new>` | rename a cell across the store (file, ownership keys, requires refs) |
 | `cells remove <cell> [--force]` | delete a cell's declaration (ownership freed → orphans unless `--force` also clears them) |
@@ -89,7 +91,7 @@ cells list                          # see the whole partition
 | `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
-| `cells health` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage (strict gate); size/structure are exit-0 warnings (⚠). `validate` still works (redirects here). |
+| `cells health [--verbose]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip). `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
 | `cells structure` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut |

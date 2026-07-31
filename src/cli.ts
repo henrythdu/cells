@@ -152,11 +152,13 @@ async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promis
     process.exit(1);
   }
   const ownedFiles = ownership[name] ?? [];
+  const contents = readFiles(ownedFiles);
+  const perFile = ownedFiles.map((f) => ({ file: f, tokens: Math.ceil((contents[f] ?? '').length / 3) }));
   const { crossings } = await loadCrossings(ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
-  process.stdout.write(formatCellShow(cell, ownedFiles, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose));
+  process.stdout.write(formatCellShow(cell, perFile, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose));
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
@@ -435,8 +437,9 @@ function cmdPayload(ctx: CellsContext, name: string): void {
 }
 
 /** `cells health` — all four checks at once (validate + crossings + structure + size).
- *  One command instead of four for the LLM's check step. Exit 1 if any check fails. */
-async function cmdHealth(ctx: CellsContext): Promise<void> {
+ *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
+ *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
+async function cmdHealth(ctx: CellsContext, verbose = false): Promise<void> {
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
@@ -458,25 +461,119 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   }
 
   // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
-  const { report, gateOk } = formatHealthReport({
-    cellCount: cellNames.length,
-    fileCount: codeFiles.length,
-    crossingCount: crossings.length,
-    violationCount: violations.length,
-    violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
-    undeclaredCount: leakage.filter((l) => l.kind === 'undeclared').length,
-    staleCount: stale.length,
-    staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
-    cycleCount: cycles.length,
-    dirViolationCount: dirViolations.length,
-    maxPercent,
-    uncoveredExts,
-    unresolvedCount: unresolved.length,
-    unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
-  });
+  const undeclared = leakage.filter((l) => l.kind === 'undeclared');
+  const { report, gateOk } = formatHealthReport(
+    {
+      cellCount: cellNames.length,
+      fileCount: codeFiles.length,
+      crossingCount: crossings.length,
+      violationCount: violations.length,
+      violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
+      undeclaredCount: undeclared.length,
+      undeclaredEdges: undeclared.map((u) => u.detail),
+      staleCount: stale.length,
+      staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
+      cycleCount: cycles.length,
+      dirViolationCount: dirViolations.length,
+      maxPercent,
+      uncoveredExts,
+      unresolvedCount: unresolved.length,
+      unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
+    },
+    verbose,
+  );
 
   process.stdout.write(report);
   if (!gateOk) process.exit(1);
+}
+
+/** `cells new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N]` — scaffold a
+ *  .cell.toml declaration. Declare-first flow: `cells new` writes the contract, then `cells assign`
+ *  moves files in (assign also stubs on demand — new is for declaring the contract up front). */
+function cmdNew(args: string[]): void {
+  // Name must be the first token — flag VALUES are not positions: `cells new --layer 2 db`
+  // must not silently create a cell named "2".
+  if (args[0] === undefined || args[0].startsWith('--')) {
+    console.error('usage: cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]');
+    process.exit(1);
+  }
+  const name = args[0];
+  if (!validCellName(name)) {
+    console.error(`cells: invalid cell name "${name}" — use only letters, numbers, dashes, underscores.`);
+    process.exit(1);
+  }
+
+  const flags: Record<string, string | undefined> = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('--')) continue;
+    const val = args[i + 1];
+    flags[a] = val !== undefined && !val.startsWith('--') ? val : undefined;
+  }
+  const declPath = join(CELLS_DIR, `${name}.cell.toml`);
+  if (existsSync(declPath)) {
+    console.error(`cells: cell "${name}" already exists (${declPath}) — use assign or rename instead.`);
+    process.exit(1);
+  }
+  const split = (v: string | undefined) =>
+    (v ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  const cell: Cell = {
+    name,
+    purpose: flags['--purpose'] ?? STUB_PURPOSE,
+    provides: split(flags['--provides']),
+    requires: split(flags['--requires']),
+  };
+  const layer = flags['--layer'];
+  if (layer !== undefined) {
+    // strict decimal — Number() alone would accept '', '0x10', '1e3'
+    if (!/^\d+$/.test(layer)) {
+      console.error(`cells: --layer must be a non-negative integer, got "${layer}".`);
+      process.exit(1);
+    }
+    cell.layer = Number(layer);
+  }
+  writeFileSync(declPath, serializeCell(cell));
+  console.log(`Created cell "${name}" (${declPath}).`);
+  console.log(`Next: \`cells assign ${name} <file...>\` then \`cells health\`.`);
+  if (cell.purpose === STUB_PURPOSE) console.log(`Note: purpose is a stub — edit ${declPath} to describe the cell.`);
+}
+
+/** `cells prune-stale [--apply]` — remove requires that are declared but never imported (stale).
+ *  Dry-run by default: prints what would change, touches nothing. --apply rewrites the .cell.toml files.
+ *  Stale stays info-level in health ("maybe a data dependency or future plan") — this command is the
+ *  explicit opt-in cleanup; the agent decides, the tool applies. */
+async function cmdPruneStale(apply: boolean): Promise<void> {
+  const ownership = loadOwnership();
+  const { crossings } = await loadCrossings(ownership, false);
+  const declarations = loadDeclarations();
+  const stale = checkLeakage(crossings, declarations).filter((l) => l.kind === 'stale');
+  if (stale.length === 0) {
+    console.log('No stale requires — every declared requirement is imported.');
+    return;
+  }
+  const byCell = new Map<string, string[]>();
+  for (const s of stale) {
+    const list = byCell.get(s.fromCell) ?? [];
+    list.push(s.toCell);
+    byCell.set(s.fromCell, list);
+  }
+  const lines = [`${stale.length} stale require(s) — declared but no import found:`];
+  for (const [cell, reqs] of byCell) lines.push(`  ${cell} → ${reqs.join(', ')}`);
+  if (!apply) {
+    lines.push('Dry run — nothing changed. Re-run with --apply to remove them.');
+    console.log(lines.join('\n'));
+    return;
+  }
+  for (const [cellName, reqs] of byCell) {
+    const decl = declarations[cellName];
+    decl.requires = decl.requires.filter((r) => !reqs.includes(r));
+    writeFileSync(join(CELLS_DIR, `${cellName}.cell.toml`), serializeCell(decl));
+  }
+  lines.push(`Removed from ${byCell.size} cell declaration(s). Run \`cells health\` to confirm.`);
+  console.log(lines.join('\n'));
 }
 
 /** `cells plan` — scan code-dirs and propose a partition: group files by parent
@@ -523,7 +620,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health | crossings [--diff] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] | plan | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -565,7 +662,14 @@ const COMMANDS: Record<string, Command> = {
     needsCells: true,
     run: (a, dryRun) => cmdUnassign(a, dryRun),
   },
-  health: { usage: 'cells health', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdHealth(ctx!) },
+  health: { usage: 'cells health [--verbose]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdHealth(ctx!, a.includes('--verbose')) },
+  new: {
+    usage: 'cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]',
+    minArgs: 1,
+    needsCells: true,
+    run: (a) => cmdNew(a),
+  },
+  'prune-stale': { usage: 'cells prune-stale [--apply]', minArgs: 0, needsCells: true, run: (a) => cmdPruneStale(a.includes('--apply')) },
   plan: { usage: 'cells plan', minArgs: 0, needsCells: false, run: () => cmdPlan() },
 };
 

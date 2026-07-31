@@ -53,7 +53,7 @@ function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
     .join(', ');
 }
 
-export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false): string {
+export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: number }[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -66,7 +66,7 @@ export function formatCellShow(cell: Cell, ownedFiles: string[], outCrossings: C
   lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
   lines.push('');
   lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
-  for (const f of ownedFiles) lines.push(`  ${f}`);
+  for (const f of ownedFiles) lines.push(`  ${f.file}  (~${f.tokens} tok)`);
   if (cell.tests && cell.tests.length > 0) {
     lines.push('');
     lines.push(`tests (${cell.tests.length} file${cell.tests.length === 1 ? '' : 's'}):`);
@@ -131,6 +131,7 @@ export interface HealthValues {
   violationCount: number;
   violationDetails: string[];
   undeclaredCount: number;
+  undeclaredEdges: string[];
   staleCount: number;
   staleEdges: string[];
   cycleCount: number;
@@ -153,7 +154,7 @@ export interface HealthReport {
  * The one read command that previously inlined its markup + gate decision; now
  * joins the format* pattern (formatCellList / formatSizeReport / …) and is unit-testable.
  */
-export function formatHealthReport(v: HealthValues): HealthReport {
+export function formatHealthReport(v: HealthValues, verbose = false): HealthReport {
   const valOk = v.violationCount === 0;
   const xOk = v.undeclaredCount === 0;
   const structOk = v.cycleCount === 0 && v.dirViolationCount === 0;
@@ -169,6 +170,11 @@ export function formatHealthReport(v: HealthValues): HealthReport {
   const lines: string[] = [];
   lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files)` : `     (${v.violationCount} violations)`}`);
   lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
+  if (!xOk && verbose) {
+    // --verbose: name the failing edges inline — saves the `cells crossings` round-trip on the common failure.
+    for (const d of v.undeclaredEdges) lines.push(`    ${d}`);
+    lines.push('');
+  }
   lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
@@ -194,7 +200,7 @@ export function formatHealthReport(v: HealthValues): HealthReport {
   } else {
     const drill: string[] = [];
     if (!valOk) drill.push('validate');
-    if (!xOk) drill.push('crossings');
+    if (!xOk && !verbose) drill.push('crossings'); // already named inline under --verbose
     const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
     lines.push(`→ Gate failed.${aside}${drillHint}`);

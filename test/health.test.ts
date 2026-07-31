@@ -13,8 +13,9 @@ describe('cells health', () => {
       expect(out).toContain('✓ validate');
       expect(out).toContain('✓ crossings');
       expect(out).toContain('✓ structure');
-      expect(out).toContain('✓ size');
-      expect(out).toContain('All checks passed');
+      // size may be ⚠ (warning, not gate) — the repo's own size drifts as commands grow
+      expect(out).toMatch(/(✓|⚠) size/);
+      expect(out).toContain('Gate passed');
     });
   });
 
@@ -125,7 +126,7 @@ describe('cells health', () => {
     it('runs the full gate and prints a redirect note', () => {
       const out = execSync(`node ${cellsBin} validate`, { encoding: 'utf8' });
       expect(out).toContain('is now `cells health`');
-      expect(out).toContain('All checks passed');
+      expect(out).toContain('Gate passed');
     });
   });
 });

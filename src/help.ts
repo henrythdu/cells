@@ -46,6 +46,10 @@ WORKING IN A CELLS PROJECT (for agents)
 
 COMMANDS
   init [--dry-run]         bootstrap .cells/ (idempotent; --dry-run previews)
+  new <name> [--purpose "..."]
+    [--provides a,b] [--requires a,b] [--layer N]
+                           scaffold a cell declaration (.cell.toml) — declare first, then assign files to it
+  prune-stale [--apply]    remove requires declared but never imported (stale); dry-run by default, --apply rewrites
   rename <old> <new>       rename a cell — updates .cell.toml, ownership, and all requires
   remove <cell> [--force]  delete a cell; --force orphans owned files and strips requires refs
   plan                     scan code-dirs and propose a partition (review + curate)
@@ -56,7 +60,7 @@ COMMANDS
   show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  health                   THE GATE: exit 1 on integrity + undeclared leakage; size/structure are warnings
+  health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage; size/structure are warnings (--verbose names failing edges inline)
   crossings [--diff]       cross-cell imports + leakage; --diff = +/- from your edits
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
   structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
