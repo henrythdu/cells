@@ -141,7 +141,7 @@ const SKIP_DIRS = new Set([
 /** Extensions recognised as code (for census + ownership). Cells has importers for
  *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
  *  (no crossing analysis) — surfaced by the blind-ext warning in health. */
-const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs']);
+const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyx', '.pxd', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs']);
 
 /** Detect the project's code languages + directories by scanning the repo (used by `cells init`
  *  so a Python/Rust repo doesn't ship TypeScript-only defaults). Scans top-level dirs (skipping

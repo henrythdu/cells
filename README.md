@@ -143,11 +143,13 @@ code-exts = [".ts"]                                        # extensions counted 
 
 ### `ignore` — intentionally cell-free files
 
-gitignore-style globs. Matched files aren't counted as code and never surface as orphans (examples, scratch, scripts):
+gitignore-style globs (a trailing `/` marks a directory → its whole tree, like gitignore's `dir/`).
+Matched files aren't counted as code and never surface as orphans (examples, scratch, scripts):
 
 ```text
 examples/**
 *.tmp
+vendor/
 ```
 
 ### Language support

@@ -35,4 +35,11 @@ describe('isIgnored', () => {
   it('returns false when there are no patterns', () => {
     expect(isIgnored('anything.ts', [])).toBe(false);
   });
+
+  it('trailing slash ignores the whole tree (gitignore dir semantics)', () => {
+    expect(isIgnored('dist/x.js', ['dist/'])).toBe(true);
+    expect(isIgnored('dist/a/b.js', ['dist/'])).toBe(true);
+    expect(isIgnored('src/dist/foo.ts', ['dist/'])).toBe(true);
+    expect(isIgnored('src/x.js', ['dist/'])).toBe(false);
+  });
 });

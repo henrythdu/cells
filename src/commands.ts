@@ -47,7 +47,11 @@ export async function loadCrossings(ownership: Ownership, warn = true): Promise<
     throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);
   }
   if (warn) warnIfBlind(uncoveredExts, ignoreBlindExts);
-  return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved };
+  // Unresolved imports only matter for the partition: an unowned file's broken specifier
+  // affects nothing until the file is owned. Filtering here keeps health/crossings info
+  // sections actionable (stress test: 280 noise entries from unowned files).
+  const ownedUnresolved = unresolved.filter((u) => owningCell(ownership, u.fromFile) !== undefined);
+  return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved: ownedUnresolved };
 }
 
 /** `cells crossings [--diff] [--verbose] [--json]` — real cross-cell imports + leakage.

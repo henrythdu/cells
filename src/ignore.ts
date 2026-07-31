@@ -16,7 +16,11 @@ export function parseIgnore(content: string): string[] {
 }
 
 /** Does `path` match any ignore pattern (gitignore-style globs, `**` supported; basename
- *  patterns match at any depth via matchBase)? Pure. */
+ *  patterns match at any depth via matchBase; a trailing `/` marks a directory → matches
+ *  the whole tree under it, like gitignore's `dir/`)? Pure. */
 export function isIgnored(path: string, patterns: string[]): boolean {
-  return patterns.some((p) => minimatch(path, p, { matchBase: true }));
+  return patterns.some((p) => {
+    const pattern = p.endsWith('/') ? `**/${p}**` : p; // `dist/` → `**/dist/**` — gitignore dir semantics, any depth
+    return minimatch(path, pattern, { matchBase: true });
+  });
 }

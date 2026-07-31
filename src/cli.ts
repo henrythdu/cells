@@ -409,6 +409,12 @@ async function main(): Promise<void> {
     console.error(USAGE);
     process.exit(1);
   }
+  // `cells <cmd> --help` must answer help, not run the command (minArgs:0 commands
+  // like plan/size would otherwise execute with --help silently ignored).
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(`usage: ${command.usage}\n`);
+    return;
+  }
   if (command.needsCells) requireCells();
   // --dry-run is a pure boolean flag (never takes a value) — strip it before the arg-count
   // gate so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args. The gate
