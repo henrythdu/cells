@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
@@ -90,6 +90,34 @@ describe('cells health', () => {
       expect(out).toContain('Gate passed with 1 warning(s)');
       expect(out).not.toContain('All checks passed');
       expect(out).not.toContain('Gate failed');
+    });
+  });
+
+  describe('on a repo with only a stale require', () => {
+    let repo: string;
+
+    afterEach(() => {
+      if (repo) rmSync(repo, { recursive: true, force: true });
+    });
+
+    it('cells crossings exits 0 and prints stale as info (not gate failure)', () => {
+      repo = mkdtempSync(join(tmpdir(), 'cells-crossings-stale-'));
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      mkdirSync(join(repo, '.cells'), { recursive: true });
+
+      writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
+      writeFileSync(join(repo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
+      writeFileSync(join(repo, 'src', 'a.ts'), `export const x = 1;\n`);
+      writeFileSync(join(repo, '.cells', 'config.toml'), `code-dirs = ["src"]\n`);
+      // a requires b but nothing imports b — stale only, must NOT fail the gate
+      writeFileSync(join(repo, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = ["b"]\n`);
+      writeFileSync(join(repo, '.cells', 'b.cell.toml'), `name = "b"\npurpose = "p"\nprovides = []\nrequires = []\n`);
+      writeFileSync(join(repo, '.cells', 'ownership.toml'), `[a]\nfiles = ["src/a.ts"]\n`);
+
+      const res = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
+      expect(res.status).toBe(0); // stale is info — must not fail the gate
+      expect(res.stderr).toContain('(info) 1 stale require');
+      expect(res.stderr).not.toContain('Undeclared');
     });
   });
 

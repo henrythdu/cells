@@ -12,16 +12,17 @@ function readVersion(): string {
   }
 }
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
-import { serializeOwnership, owningCell } from './ownership.js';
+import { serializeOwnership, owningCell, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { validatePartition } from './validate.js';
-import { deriveCrossings, checkLeakage, computeMetrics, type CrossingsDelta } from './crossings.js';
+import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { unassignFiles, planAssignment, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, computePayloadSize, neighborsOf, readFiles, requireCells, detectProject, type CellsContext } from './io.js';
 import { crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
+import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { buildConfig, type CellsConfig } from './config.js';
 import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
 import { HELP } from './help.js';
@@ -43,13 +44,20 @@ function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): void {
   }
 }
 
+/** The shared read-command pipeline: collect import edges, warn on blind exts, derive cell
+ *  crossings. Every analysis command routes through this (one drift surface). `warn` lets
+ *  health skip the stderr blind-warning — its report already covers it. */
+async function loadCrossings(ownership: Ownership, warn = true): Promise<{ edges: ImportEdge[]; crossings: Crossing[]; uncoveredExts: string[]; unresolved: UnresolvedImport[] }> {
+  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
+  if (warn) warnIfBlind(uncoveredExts);
+  return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved };
+}
+
 /** `cells crossings [--diff]` — real cross-cell imports + leakage; `--diff` shows what your
  *  uncommitted edits added/removed (working tree vs HEAD). */
 async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
   const { ownership, declarations } = ctx;
-  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings, unresolved } = await loadCrossings(ownership);
 
   if (diff) {
     const delta = await crossingsDelta(crossings, ownership);
@@ -80,11 +88,16 @@ async function cmdCrossings(ctx: CellsContext, diff = false): Promise<void> {
   }
 
   const leakage = checkLeakage(crossings, declarations);
-  if (leakage.length > 0) {
-    console.error(`\nLeakage (${leakage.length}):`);
-    for (const l of leakage) {
-      console.error(`  [${l.kind}] ${l.detail}`);
-    }
+  const stale = leakage.filter((l) => l.kind === 'stale');
+  const undeclared = leakage.filter((l) => l.kind === 'undeclared');
+  if (stale.length > 0) {
+    // stale = declared-but-never-imported — info (exit 0), same as health. Gate fails on undeclared only.
+    console.error(`(info) ${stale.length} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
+    for (const l of stale) console.error(`  ${l.detail}`);
+  }
+  if (undeclared.length > 0) {
+    console.error(`\nUndeclared crossings (${undeclared.length}) — add a requires entry (or remove the import):`);
+    for (const l of undeclared) console.error(`  ${l.detail}`);
     process.exit(1);
   }
 
@@ -119,8 +132,7 @@ async function cmdList(ctx: CellsContext): Promise<void> {
     const cell = declarations[name];
     sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
   }
-  const { edges } = await collectImportEdges();
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const codeFiles = listCodeFiles();
@@ -140,9 +152,7 @@ async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promis
     process.exit(1);
   }
   const ownedFiles = ownership[name] ?? [];
-  const { edges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings } = await loadCrossings(ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
@@ -152,7 +162,9 @@ async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promis
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
 async function cmdSize(ctx: CellsContext): Promise<void> {
   const { config, declarations, ownership } = ctx;
-  const { edges } = await collectImportEdges();
+  // warn=false: the blind-ext warning's own text says "Partition/size/validate are unaffected" —
+  // noise on `cells size`. (list/health keep their coverage: list's coupling columns ARE crossings-derived.)
+  const { edges } = await loadCrossings(ownership, false);
   const fileFanIn = new Map<string, number>();
   for (const e of edges) fileFanIn.set(e.toFile, (fileFanIn.get(e.toFile) ?? 0) + 1);
   const entries = Object.keys(declarations).map((name) => {
@@ -174,9 +186,7 @@ async function cmdSize(ctx: CellsContext): Promise<void> {
 /** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0). */
 async function cmdStructure(ctx: CellsContext): Promise<void> {
   const { declarations, ownership, config } = ctx;
-  const { edges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings } = await loadCrossings(ownership);
   const cycles = detectCycles(crossings);
   const violations = checkDirection(crossings, declarations);
   const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
@@ -199,18 +209,14 @@ async function cmdImpact(ctx: CellsContext, name: string): Promise<void> {
     console.error(`error: no cell named "${name}"`);
     process.exit(1);
   }
-  const { edges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings } = await loadCrossings(ownership);
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
 
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
 async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<void> {
   const { ownership } = ctx;
-  const { edges, uncoveredExts } = await collectImportEdges();
-  warnIfBlind(uncoveredExts);
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings } = await loadCrossings(ownership);
   process.stdout.write(mermaid ? formatCellGraph(crossings) : formatCellGraphAscii(crossings));
 }
 
@@ -435,8 +441,7 @@ async function cmdHealth(ctx: CellsContext): Promise<void> {
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
 
-  const { edges, uncoveredExts, unresolved } = await collectImportEdges();
-  const crossings = deriveCrossings(edges, ownership);
+  const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
 
   const violations = validatePartition(ownership, declarations, codeFiles);
   const leakage = checkLeakage(crossings, declarations);

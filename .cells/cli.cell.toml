@@ -15,6 +15,7 @@ requires = [
   "graph",
   "assign",
   "structure",
+  "imports",
   "help",
 ]
 
