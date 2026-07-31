@@ -38,7 +38,7 @@ WORKING IN A CELLS PROJECT (for agents)
                   then re-run cells health until green.
   8. navigate     cells graph (deps at a glance) · cells owns <file>
 
-  Brownfield adoption? Run cells plan — it scans code-dirs, groups files into crates/packages
+  Brownfield adoption? Run cells plan — it scans code-dirs, groups files into crates / npm packages / Python __init__ packages
   (or directories for the rest), and prints proposed .cell.toml declarations + an ownership map.
   Review, curate, then cells plan --apply creates the cells and adopts the files for you
   (existing cells and curated ownership are never overwritten).
@@ -55,7 +55,7 @@ COMMANDS
   rename <old> <new>       rename a cell — updates .cell.toml, ownership, and all requires
   remove <cell> [--force]  delete a cell; --force orphans owned files and strips requires refs
   plan [--apply] [--dry-run]
-                           scan code-dirs and propose a partition: crates/packages become one
+                           scan code-dirs and propose a partition: crates / npm packages / Python __init__ packages become one
                            cell each, other files group by directory (review + curate; --apply
                            creates the cells + ownership mechanically, --dry-run previews)
   assign <cell> <file...>  assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)

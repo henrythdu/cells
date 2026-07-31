@@ -63,7 +63,7 @@ Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-
 
 ```bash
 cells init                          # create .cells/ — detects your language (code-exts/code-dirs)
-cells plan                          # propose a partition: crates/packages become one cell each (review, then curate)
+cells plan                          # propose a partition: crates / npm packages / Python packages become one cell each (review, then curate)
 cells plan --apply                  # or create the proposed cells + ownership mechanically (dry-run: add --dry-run)
 cells assign parser src/parser.ts   # assign a file to a cell (records ownership; stubs the declaration)
 $EDITOR .cells/parser.cell.toml     # author the membrane: purpose / provides / requires
@@ -80,7 +80,7 @@ cells list                          # see the whole partition
 | command | what it does |
 | --- | --- |
 | `cells init` | bootstrap `.cells/` — detects your language (code-exts/code-dirs) (idempotent) |
-| `cells plan [--apply] [--dry-run]` | propose a cell partition: crates/packages become one cell each, other files group by directory (prints declarations + ownership to review — writes nothing). `--apply` creates the cells + adopts the files mechanically (never overwrites existing cells or steals curated ownership); `--dry-run` previews |
+| `cells plan [--apply] [--dry-run]` | propose a cell partition: crates / npm packages / Python __init__ packages become one cell each, other files group by directory (prints declarations + ownership to review — writes nothing). `--apply` creates the cells + adopts the files mechanically (never overwrites existing cells or steals curated ownership); `--dry-run` previews |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]` | scaffold a cell declaration (`.cell.toml`) — declare the contract first, then `assign` files into it |
 | `cells prune-stale [--apply]` | remove requires that are declared but never imported (stale); dry-run by default, `--apply` rewrites the declaration files |
