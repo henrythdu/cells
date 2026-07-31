@@ -3,20 +3,12 @@ purpose = "CLI entry: dispatch commands; wire the io layer + logic cells to argv
 provides = ["main"]
 requires = [
   "io",
-  "diff",
-  "importers",
+  "commands",
   "config",
   "declaration",
   "ownership",
-  "payload",
-  "validate",
   "crossings",
-  "view",
-  "graph",
   "assign",
-  "structure",
-  "imports",
   "help",
 ]
-
 layer = 7

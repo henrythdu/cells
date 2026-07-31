@@ -219,5 +219,11 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
   const testFiles = cell.tests ?? [];
   const testContents = testFiles.length > 0 ? readFiles(testFiles) : undefined;
   const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors, undefined, testFiles, testContents).length;
-  return { files: ownedFiles.length + testFiles.length, chars, tokens: Math.ceil(chars / 3) };
+  return { files: ownedFiles.length + testFiles.length, chars, tokens: estimateTokens(chars) };
+}
+
+/** chars → token estimate (the payload heuristic: ~3 chars/token). Single home — all
+ *  size displays must route through here so they never disagree. */
+export function estimateTokens(chars: number): number {
+  return Math.ceil(chars / 3);
 }

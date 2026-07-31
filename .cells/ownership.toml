@@ -60,3 +60,6 @@ files = ["src/tree-sitter.ts"]
 
 [diff]
 files = ["src/diff.ts", "test/diff.test.ts"]
+
+[commands]
+files = ["src/commands.ts"]

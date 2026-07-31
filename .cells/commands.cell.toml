@@ -1,0 +1,32 @@
+name = "commands"
+purpose = "Read/analysis command handlers (crossings, list, show, size, structure, impact, graph, owns, payload, health) — the payload-shaped half of the CLI."
+provides = [
+  "cmdCrossings",
+  "cmdList",
+  "cmdShow",
+  "cmdSize",
+  "cmdStructure",
+  "cmdImpact",
+  "cmdGraph",
+  "cmdOwns",
+  "cmdPayload",
+  "cmdHealth",
+  "loadCrossings",
+  "warnIfNoCodeFiles",
+]
+requires = [
+  "io",
+  "crossings",
+  "view",
+  "graph",
+  "diff",
+  "importers",
+  "imports",
+  "payload",
+  "declaration",
+  "config",
+  "ownership",
+  "validate",
+  "structure",
+]
+layer = 6
