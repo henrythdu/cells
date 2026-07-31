@@ -159,7 +159,7 @@ export async function cmdList(ctx: CellsContext): Promise<void> {
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
   const orphanFiles = codeFiles.filter((f) => !owned.has(f));
-  process.stdout.write(formatCellList(declarations, ownership, sizes, metrics, orphanFiles));
+  process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles));
 }
 
 /** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.

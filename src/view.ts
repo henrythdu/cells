@@ -1,5 +1,4 @@
 import { STUB_PURPOSE, type Cell } from './declaration.js';
-import type { Ownership } from './ownership.js';
 import type { CellMetrics, Crossing } from './crossings.js';
 import type { CellSize } from './payload.js';
 
@@ -7,7 +6,7 @@ import type { CellSize } from './payload.js';
  * Format the partition overview: one row per cell (file count, ~tokens,
  * requires) + a header with totals and orphan count. Pure.
  */
-export function formatCellList(declarations: Record<string, Cell>, _ownership: Ownership, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[]): string {
+export function formatCellList(declarations: Record<string, Cell>, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[]): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const stubSuffix = ' (stub)';

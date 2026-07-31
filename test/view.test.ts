@@ -34,7 +34,7 @@ const listMetrics: Record<string, CellMetrics> = {
 
 describe('formatCellList', () => {
   it('lists each cell with file count, size, its requires, and fan-in/fan-out', () => {
-    const out = formatCellList(decls, ownership, sizes, listMetrics, []);
+    const out = formatCellList(decls, sizes, listMetrics, []);
     expect(out).toContain('declaration');
     expect(out).toContain('cli');
     expect(out).toMatch(/cli[\s\S]*2/); // cli owns 2 files
@@ -44,7 +44,7 @@ describe('formatCellList', () => {
   });
 
   it('reports the orphan count and lists unowned files', () => {
-    const out = formatCellList(decls, ownership, sizes, listMetrics, ['src/orphan.ts', 'examples/demo.ts']);
+    const out = formatCellList(decls, sizes, listMetrics, ['src/orphan.ts', 'examples/demo.ts']);
     expect(out).toContain('2 orphan');
     expect(out).toContain('src/orphan.ts');
     expect(out).toContain('examples/demo.ts');
@@ -52,7 +52,7 @@ describe('formatCellList', () => {
 
   it('caps the unowned dump at 20 files with a count hint (orphan flood)', () => {
     const many = Array.from({ length: 30 }, (_, i) => `src/loose_${i}.ts`);
-    const out = formatCellList(decls, ownership, sizes, listMetrics, many);
+    const out = formatCellList(decls, sizes, listMetrics, many);
     expect(out).toContain('30 orphan');
     expect(out).toContain('src/loose_0.ts');
     expect(out).not.toContain('src/loose_29.ts'); // lexicographic cut at 20
@@ -60,7 +60,7 @@ describe('formatCellList', () => {
   });
 
   it('reports zero orphans cleanly', () => {
-    expect(formatCellList(decls, ownership, sizes, listMetrics, [])).toContain('0 orphan');
+    expect(formatCellList(decls, sizes, listMetrics, [])).toContain('0 orphan');
   });
 });
 
