@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { Ownership } from './ownership.js';
 import { STUB_PURPOSE, type Cell } from './declaration.js';
 
@@ -38,6 +40,79 @@ export function unassignFiles(ownership: Ownership, files: string[]): Ownership 
  *  Pure. */
 export function validCellName(name: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(name);
+}
+
+/** Proposed cell keys for `cells plan`, from the code census. Groups by "unit root" — the
+ *  deepest ancestor dir holding a package manifest — so `crates/uv/src/…` and
+ *  `packages/foo/src/…` collapse to the crate/package (uv's 72 crates stop exploding into
+ *  ~180 dir-cells). Rules:
+ *  - Cargo.toml is a HARD boundary: any crate, however small, is its own unit (it's the
+ *    namespace the importer keys crossings on).
+ *  - package.json is SOFT: a package nested inside another package dir is scaffolding/template
+ *    (vite's create-vite/template-*) and folds into its parent package; the repo root's own
+ *    package.json is the workspace manifest, not a package, so it never swallows children.
+ *  Manifest grouping applies only when the scan finds ≥2 distinct unit roots: a lone root
+ *  package.json is the repo itself, and collapsing it into one cell would destroy today's
+ *  directory granularity. Files with no manifest ancestor group by directory, as before.
+ *  Name safety: dirs whose escaped cell name would be invalid (Next.js `[[…]]` route dirs)
+ *  fold to their nearest valid ancestor — plan never proposes un-creatable cells.
+ *  Pure-ish: manifest probes hit the FS (like the rust importer's crate-root walk). */
+export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, string[]> {
+  // all manifest dirs above a dir, deepest first (each with its manifest kind)
+  const manifestAncestors = (dir: string): { dir: string; kind: 'cargo' | 'pkg' }[] => {
+    const out: { dir: string; kind: 'cargo' | 'pkg' }[] = [];
+    let d = dir;
+    for (;;) {
+      const cargo = existsSync(join(baseDir, d, 'Cargo.toml'));
+      const pkg = existsSync(join(baseDir, d, 'package.json'));
+      if (cargo) out.push({ dir: d, kind: 'cargo' });
+      else if (pkg) out.push({ dir: d, kind: 'pkg' });
+      const parent = dirname(d);
+      if (parent === d) return out;
+      d = parent;
+    }
+  };
+  const unitRoot = (dir: string): string | null => {
+    const ancestors = manifestAncestors(dir);
+    if (ancestors.length === 0) return null;
+    const deepest = ancestors[0];
+    if (deepest.kind === 'cargo') return deepest.dir; // crate = hard boundary
+    // package: fold a nested package into its parent package (root manifest is the workspace)
+    const parent = ancestors[1];
+    if (parent && parent.dir !== '.' && parent.kind === 'pkg') return parent.dir;
+    return deepest.dir;
+  };
+  const roots = new Set<string>();
+  const unitCache = new Map<string, string | null>();
+  const unitOf = (dir: string): string | null => {
+    const cached = unitCache.get(dir);
+    if (cached !== undefined) return cached;
+    const r = unitRoot(dir);
+    unitCache.set(dir, r);
+    return r;
+  };
+  for (const f of codeFiles) {
+    const r = unitOf(dirname(f.replaceAll('\\', '/')));
+    if (r) roots.add(r);
+  }
+  const useUnits = roots.size >= 2 || (roots.size === 1 && !roots.has('.')); // lone root manifest = the repo itself; a lone non-root package is still a unit
+  const groups = new Map<string, string[]>();
+  for (const f of codeFiles) {
+    const dir = dirname(f.replaceAll('\\', '/'));
+    const unit = useUnits ? unitOf(dir) : null;
+    let key = unit ?? dir;
+    // fold invalid-name dirs up to the nearest valid ancestor. The class mirrors the escaped
+    // cell-name alphabet ([A-Za-z0-9_/-] → validCellName after escaping); '.' is excluded —
+    // `.storybook`/`foo.v2` would otherwise propose un-creatable names. 'root' is always valid.
+    while (key !== '.' && !/^[A-Za-z0-9_/-]+$/.test(key)) {
+      key = dirname(key);
+    }
+    if (key === '.') key = 'root';
+    const list = groups.get(key);
+    if (list) list.push(f);
+    else groups.set(key, [f]);
+  }
+  return groups;
 }
 
 /** Pure plan for `cells assign <cell> <file...>`: validate the name, decide whether

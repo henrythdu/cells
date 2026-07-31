@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { serializeOwnership } from './ownership.js';
 import { checkLeakage } from './crossings.js';
-import { unassignFiles, planAssignment, validCellName } from './assign.js';
+import { unassignFiles, planAssignment, planGroups, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, requireCells, detectProject, computePayloadSize, neighborsOf, type CellsContext } from './io.js';
 import { buildConfig } from './config.js';
 import { cmdCrossings, cmdList, cmdShow, cmdSize, cmdStructure, cmdImpact, cmdGraph, cmdOwns, cmdPayload, cmdHealth, loadCrossings, warnIfNoCodeFiles } from './commands.js';
@@ -283,32 +283,27 @@ async function cmdPruneStale(apply: boolean): Promise<void> {
   console.log(lines.join('\n'));
 }
 
-/** `cells plan` — scan code-dirs and propose a partition: group files by directory
- *  (relative path, not basename — same-named dirs in a monorepo must not merge),
- *  print suggested .cell.toml declarations + ownership.toml to stdout.
+/** `cells plan` — scan code-dirs and propose a partition: group files into cells
+ *  (crate/package-aware via planGroups — a monorepo's crates/packages collapse to one
+ *  cell each instead of every subdir exploding; invalid-name dirs fold to a valid
+ *  ancestor), print suggested .cell.toml declarations + ownership.toml to stdout.
  *  The LLM reviews and curates — no files are written. */
 function cmdPlan(): void {
   const config = loadConfig();
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
-  const groups: Record<string, string[]> = {};
-  for (const f of codeFiles) {
-    // key = full relative dir ('.' → 'root' for files at the scan root);
-    // name = dir path escaped to a valid cell name: '-' → '--', separator → '-'
-    // (injective: 'src/api' and 'src-api' can't collide; backslashes normalize for Windows)
-    const dir = dirname(f).replaceAll('\\', '/');
-    const key = dir === '.' ? 'root' : dir;
-    const name = key.replaceAll('-', '--').replaceAll('/', '-');
-    if (!Object.hasOwn(groups, name)) groups[name] = [];
-    groups[name].push(f);
-  }
+  const groups = planGroups(codeFiles);
+  const keys = [...groups.keys()].sort();
+  // name = key path escaped to a valid cell name: '-' → '--', separator → '-'
+  // (injective: 'src/api' and 'src-api' can't collide; planGroups pre-folds invalid chars)
+  const names = new Map(keys.map((k) => [k, k.replaceAll('-', '--').replaceAll('/', '-')]));
 
   console.log('# Proposed cell declarations (.cells/*.cell.toml files)');
   console.log('# Review and curate, then create them.');
   console.log('');
-  for (const [name] of Object.entries(groups).sort()) {
-    console.log(`## ${name}`);
-    console.log(`name = "${name}"`);
+  for (const key of keys) {
+    console.log(`## ${names.get(key)}`);
+    console.log(`name = "${names.get(key)}"`);
     console.log(`purpose = "${STUB_PURPOSE}"`);
     console.log('provides = []');
     console.log('requires = []');
@@ -318,9 +313,9 @@ function cmdPlan(): void {
   console.log('# Proposed ownership (.cells/ownership.toml)');
   console.log('# Review and curate, then write to .cells/ownership.toml.');
   console.log('');
-  for (const [name, files] of Object.entries(groups).sort()) {
-    console.log(`[${name}]`);
-    console.log(`files = [${files.map((f) => `"${f}"`).join(', ')}]`);
+  for (const key of keys) {
+    console.log(`[${names.get(key)}]`);
+    console.log(`files = [${groups.get(key)!.map((f) => `"${f}"`).join(', ')}]`);
     console.log('');
   }
 }
