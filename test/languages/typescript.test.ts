@@ -139,4 +139,45 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
       process.chdir(prev);
     }
   });
+
+  it('resolves directory + dist-artifact relative imports (stress #6/#8: require(..), dist→src)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-rel-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'lib', 'util', 'test'), { recursive: true });
+    mkdirSync(join(dir, 'lib', 'util'), { recursive: true });
+    mkdirSync(join(dir, 'pkg', 'dist', 'node'), { recursive: true });
+    mkdirSync(join(dir, 'pkg', 'src', 'node'), { recursive: true });
+    // directory import with an index file: require('..') → the dir's index.js
+    writeFileSync(join(dir, 'lib', 'util', 'index.js'), 'module.exports = {};\n');
+    writeFileSync(join(dir, 'lib', 'util', 'test', 'arrays.js'), 'const _ = require("..");\n');
+    // source importing its own dist artifact (dist/ not committed — like real repos): the
+    // probe's dist→src variants land on the source file
+    writeFileSync(join(dir, 'pkg', 'src', 'node', 'cli.ts'), 'export const cli = 1;\n');
+    writeFileSync(join(dir, 'pkg', 'index.js'), 'require("./dist/node/cli");\n');
+
+    const prev = process.cwd();
+    process.chdir(dir);
+    try {
+      const { edges, unresolved } = await depCruiserImporter.extract({
+        codeDirs: ['.'],
+        files: [
+          { path: 'lib/util/test/arrays.js', content: '' },
+          { path: 'lib/util/index.js', content: '' },
+          { path: 'pkg/index.js', content: '' },
+          { path: 'pkg/src/node/cli.ts', content: '' },
+        ],
+        ownership: {},
+      });
+      const dirImport = edges.find((e) => e.import === '..');
+      expect(dirImport).toBeDefined();
+      expect(dirImport!.toFile).toContain('lib/util/index.js'); // require('..') → dir index
+      const distImport = edges.find((e) => e.import === './dist/node/cli');
+      expect(distImport).toBeDefined();
+      expect(distImport!.toFile).toContain('pkg/src/node/cli.ts'); // dist artifact → source
+      expect(unresolved.some((u) => u.import === '..')).toBe(false);
+      expect(unresolved.some((u) => u.import === './dist/node/cli')).toBe(false);
+    } finally {
+      process.chdir(prev);
+    }
+  });
 });

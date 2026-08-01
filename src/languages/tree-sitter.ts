@@ -98,6 +98,11 @@ export interface ResolveCtx {
    *  namespaced and crate-name keys itself (crate semantics are the language's, not the
    *  factory's); complete by the time resolveEdges runs. */
   reexports: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  /** Re-export aliases pointing OUTSIDE the partition (external crates — `pub use owo_colors;`).
+   *  module → alias set. Registered by the language during analyze; resolution SILENCES imports
+   *  that route through one — the target is real but has no owned file, so flagging it as a
+   *  broken local import would be a false alarm (same principle as compiled .so silencing). */
+  externalReexports: ReadonlyMap<string, ReadonlySet<string>>;
   /** crate-root path → Cargo.toml package name (rust, multi-crate runs only) — used by the
    *  language's analyze to register re-exports under the crate-name form. */
   crateNameByRoot?: ReadonlyMap<string, string | null>;
@@ -111,11 +116,15 @@ export interface ModDecl {
   targetFile: string | null; // null = inline block (lives in the containing file)
 }
 
-/** A pub-use re-export the module exposes (module → alias → absolute target). */
+/** A pub-use re-export the module exposes (module → alias → absolute target). `external`
+ *  marks a re-export that points OUTSIDE the partition (an external crate — `pub use owo_colors;`):
+ *  target is empty, and the factory registers it in ctx.externalReexports (resolution silences
+ *  imports routing through it) instead of the chain map. */
 export interface Reexport {
   module: string;
   alias: string;
   target: string;
+  external?: boolean;
 }
 
 /** What one AST analysis pass extracts: declared submodules, pub-use re-exports, and every use
@@ -251,11 +260,13 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       // declared in file B), which is why extraction is two-phased — but each file is parsed
       // and walked exactly once across both phases.
       const reexportMap = new Map<string, Map<string, string>>();
+      const externalReexports = new Map<string, Set<string>>();
       const ctx: ResolveCtx = {
         moduleToFile,
         files: new Set(files.map((f) => f.path)),
         crateNames,
         reexports: reexportMap,
+        externalReexports,
         crateNameByRoot: nameByRoot,
         baseDir,
       };
@@ -275,6 +286,17 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
             aliasByName(key, root);
           }
           for (const r of a.reexports) {
+            if (r.external) {
+              // points outside the partition — resolution silences imports routing through it
+              // (the target is real code, but no owned file exists to draw an edge to).
+              let s = externalReexports.get(r.module);
+              if (!s) {
+                s = new Set();
+                externalReexports.set(r.module, s);
+              }
+              s.add(r.alias);
+              continue;
+            }
             let m = reexportMap.get(r.module);
             if (!m) {
               m = new Map();

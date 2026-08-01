@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, resolve, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { cruise, type ICruiseOptions, type ICruiseResult } from 'dependency-cruiser';
@@ -59,9 +59,14 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
     `${srcRel}/index.tsx`,
     srcRel.replace(/\.js$/, '.ts'),
     ...(flatBase ? [flatSrc!, flatBase, `${flatBase}.ts`, `${flatBase}/index.ts`, `${flatBase}/index.tsx`] : []),
+    // directory targets (`require('..')` → the dir's index): plain JS-family index files
+    `${toPosix}/index.js`,
+    `${toPosix}/index.jsx`,
+    `${toPosix}/index.mjs`,
+    `${toPosix}/index.cjs`,
   ];
   for (const c of candidates) {
-    if (existsSync(join(baseDir, c))) {
+    if (existsSync(join(baseDir, c)) && statSync(join(baseDir, c)).isFile()) {
       cache.set(key, norm(join(baseDir, c)));
       return norm(join(baseDir, c));
     }
@@ -227,6 +232,16 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: st
   return { matched: false, toFile: null };
 }
 
+/** Probe a relative specifier (./x, ../x, '.', '..') that dep-cruiser couldn't resolve.
+ *  Two common misses: directory imports (`require('..')` → the dir's index.*) and imports of
+ *  dist artifacts (source importing its own build output — the probe's dist→src variants land
+ *  on the source file). Resolves against the importing file's dir, then shares the standard
+ *  probe (ext/index/dist→src variants). Returns the probed source file or null. Pure. */
+function resolveRelativeImport(spec: string, source: string, baseDir: string, norm: (p: string) => string, cache: Map<string, string | null>): string | null {
+  const target = posix.normalize(posix.join(posix.dirname(source), spec)).replace(/\/$/, '');
+  return probeFile(baseDir, norm, target, cache);
+}
+
 /** dep-cruiser importer — TS/JS. Source-based; handles aliases and `.js`→`.ts`. */
 export const depCruiserImporter: Importer = {
   name: 'typescript',
@@ -308,10 +323,17 @@ export const depCruiserImporter: Importer = {
           if (pkg.matched) {
             if (pkg.toFile) edges.push({ fromFile: norm(mod.source), toFile: pkg.toFile, import: dep.module });
             else unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          } else if (dep.module.startsWith('.') || dep.module.startsWith('@/') || dep.module.startsWith('~/')) {
-            // Relative specifiers and alias prefixes that can't resolve look local — likely
-            // a broken import or a missing tsconfig `paths` mapping. Bare specifiers
-            // (e.g. 'react', '@scope/pkg') are external packages — skip silently.
+          } else if (dep.module.startsWith('.')) {
+            // Relative specifier dep-cruiser couldn't resolve — probe the target ourselves
+            // (dir-index + dist→src variants): `require('..')` and source→dist imports don't
+            // resolve through dep-cruiser's default module resolution.
+            const t = resolveRelativeImport(dep.module, norm(mod.source), baseDir ?? '.', norm, probeCache);
+            if (t) edges.push({ fromFile: norm(mod.source), toFile: t, import: dep.module });
+            else unresolved.push({ fromFile: norm(mod.source), import: dep.module });
+          } else if (dep.module.startsWith('@/') || dep.module.startsWith('~/')) {
+            // Alias prefixes that can't resolve look local — likely a broken import or a
+            // missing tsconfig `paths` mapping. Bare specifiers (e.g. 'react', '@scope/pkg')
+            // are external packages — skip silently.
             unresolved.push({ fromFile: norm(mod.source), import: dep.module });
           }
           continue;

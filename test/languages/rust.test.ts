@@ -83,6 +83,35 @@ describe('resolveImportPath', () => {
   it('returns null for unresolvable internal paths', () => {
     expect(resolveImportPath('crate::nonexistent::X', 'crate::cli', m2f)).toBe(null);
   });
+
+  it('anchors crate:: to the TEST crate root for integration-test files (stress: uv-client tests)', async () => {
+    // tests/it/ssl_certs.rs does `use crate::http_util::SelfSigned` — http_util is a module of
+    // the TEST crate (tests/it.rs), not the lib. crate:: must anchor to the test root.
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod app;\n' },
+      { path: 'src/app.rs', content: 'pub struct LibOnly;\n' },
+      { path: 'tests/it.rs', content: 'mod ssl_certs;\nmod http_util;\n' },
+      { path: 'tests/it/ssl_certs.rs', content: 'use crate::http_util::SelfSigned;\n' },
+      { path: 'tests/it/http_util.rs', content: 'pub struct SelfSigned;\n' },
+    ];
+    const ownership: Ownership = { lib: ['src/lib.rs', 'src/app.rs'], it: ['tests/it.rs', 'tests/it/ssl_certs.rs', 'tests/it/http_util.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['.'], files, ownership });
+    const viaTestRoot = edges.find((e) => e.import === 'crate::http_util::SelfSigned');
+    expect(viaTestRoot).toBeDefined();
+    expect(viaTestRoot!.toFile).toBe('tests/it/http_util.rs'); // the TEST crate's module, not the lib's
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it('resolves enum-variant / deep item chains to the deepest real module (stress #5)', () => {
+    // crate::token::TokenKind::Wildcard — TokenKind is an enum in module crate::token;
+    // the variant lives in the module's file. Two drops, not one.
+    expect(resolveImportPath('crate::reading::tokenization::Token::Kind', 'crate::app', m2f)).toBe('src/reading/tokenization.rs');
+    // a missing mid-chain module under a real module resolves to the deepest real module
+    // (same shape as an enum-variant path — indistinguishable without type info)
+    expect(resolveImportPath('crate::reading::missing::Thing', 'crate::app', m2f)).toBe('src/reading/mod.rs');
+    // never falls back to the crate root: no intermediate module at all → stays null
+    expect(resolveImportPath('crate::nope::Thing', 'crate::app', m2f)).toBe(null);
+  });
 });
 
 describe('rust importer', () => {
@@ -149,6 +178,24 @@ describe('rust importer', () => {
     expect(superSuper).toBeDefined();
     expect(superSuper!.toFile).toBe('src/compaction/ir.rs'); // mod-tests depth counts — NOT src/ir.rs
     expect(unresolved).toHaveLength(0);
+  });
+
+  it('silences re-exports of EXTERNAL crates — no false unresolved (stress #7: uv owo_colors)', async () => {
+    // uv-warnings does `pub use owo_colors;` — the re-export leaves the partition; imports
+    // routing through it (uv_warnings::owo_colors::OwoColorize) are real code but no owned
+    // file exists to draw an edge to — they must NOT flag as broken local.
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod warnings;\npub mod ui;\n' },
+      { path: 'src/warnings.rs', content: 'pub use owo_colors;\n' },
+      { path: 'src/ui.rs', content: 'use crate::warnings::owo_colors::OwoColorize;\nuse crate::nope::Thing;\n' },
+    ];
+    const ownership: Ownership = { a: ['src/lib.rs', 'src/warnings.rs', 'src/ui.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    // the external re-export routes through nothing owned — no edge, no unresolved
+    expect(edges.find((e) => e.import === 'crate::warnings::owo_colors::OwoColorize')).toBeUndefined();
+    // a genuinely broken local import (no intermediate module at all) in the same file still flags
+    expect(unresolved.map((u) => u.import)).toContain('crate::nope::Thing');
+    expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toHaveLength(0);
   });
 
   it('resolves pub use re-export chains (wave-3 #2: uv_audit::osv::Filter)', async () => {
@@ -297,7 +344,7 @@ describe('rust importer', () => {
         { path: 'crates/headroom-core/src/lib.rs', content: 'pub mod signals;\n' },
         { path: 'crates/headroom-core/src/signals/mod.rs', content: 'mod plan;\npub use plan::*;\n' },
         { path: 'crates/headroom-core/src/signals/plan.rs', content: 'pub struct Plan;\n' },
-        { path: 'crates/headroom-cli/src/main.rs', content: 'use headroom_core::signals::plan::Plan;\nuse headroom_core::signals::missing::Nope;\nuse serde_json::Value;\n' },
+        { path: 'crates/headroom-cli/src/main.rs', content: 'use headroom_core::signals::plan::Plan;\nuse headroom_core::signals::missing::Nope;\nuse crate::missing::Thing;\nuse serde_json::Value;\n' },
       ];
       const { edges, unresolved } = await rustImporter.extract({
         codeDirs: ['crates'],
@@ -309,9 +356,19 @@ describe('rust importer', () => {
       });
       // cross-crate import resolves to the sibling's file
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan' });
-      // broken workspace import flags as unresolved (vs silently-external serde)
-      expect(unresolved).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', import: 'headroom_core::signals::missing::Nope' });
+      // a broken mid-chain path (stress #5: `Mod::Enum::Variant` item chains) resolves to the
+      // deepest real module — `signals` exists, `missing` doesn't (same shape as an enum
+      // variant path; no source-based way to tell a missing module from an item without type
+      // info). The edge lands on the nearest real module so the agent can inspect, and the
+      // bare-root false edge is impossible (min 2 segments).
+      expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/mod.rs', import: 'headroom_core::signals::missing::Nope' });
+      // a broken OWN-crate 2-segment import (no intermediate module at all) stays unresolved —
+      // honest (never falls back to the importer's own crate root)
+      expect(unresolved).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', import: 'crate::missing::Thing' });
+      // serde stays silently-external (never unresolved)
       expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'serde_json::Value' }));
+      // …and the broken mid-chain import is NOT in the unresolved list anymore
+      expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'headroom_core::signals::missing::Nope' }));
     } finally {
       process.chdir(startCwd);
       rmSync(root, { recursive: true, force: true });

@@ -161,17 +161,49 @@ function collectUses(node: Node, out: UseDesc[], modChain: string[]): void {
 
 // --- resolution: import path + importer module → file (via the module→file map) ---
 
+/** The module key that anchors `crate::` for a file: the deepest ancestor module (or the file
+ *  itself) whose target file is a crate ROOT — lib.rs/main.rs, or a file directly under
+ *  tests/benches/examples. Integration tests are separate crates: `crate::http_util` in
+ *  tests/it/ssl_certs.rs anchors to the `tests/it` dir (whose root file is tests/it/main.rs),
+ *  NOT the lib's root (stress: uv-client's 8). Falls back to null (caller uses the
+ *  namespace's first segment). Pure over the module map. */
+function crateRootOfModule(importerModule: string, moduleToFile: Map<string, string>): string | null {
+  const parts = importerModule.split('::');
+  const inTestsDir = (dir: string) => /(^|\/)tests(\/|$)|(^|\/)benches(\/|$)|(^|\/)examples(\/|$)/.test(dir);
+  const directBoundary = (dir: string) => /(^|\/)tests$|(^|\/)benches$|(^|\/)examples$/.test(dir);
+  for (let i = parts.length; i >= 1; i--) {
+    const key = parts.slice(0, i).join('::');
+    const file = moduleToFile.get(key);
+    if (file) {
+      const base = file.split('/').pop() ?? '';
+      const dir = file.slice(0, file.lastIndexOf('/'));
+      if (base === 'lib.rs' || base === 'main.rs') {
+        // a lib/main under tests/ is the test crate's root FILE — but `crate::` anchors to
+        // the enclosing dir namespace (its modules are siblings of main, not children)
+        return inTestsDir(dir) ? parts.slice(0, i - 1).join('::') : key;
+      }
+      // a file directly in the tests/ boundary is its own crate root (each tests/*.rs is one)
+      if (directBoundary(dir)) return key;
+    }
+    // a sibling main.rs/lib.rs in a tests-ish dir marks THIS dir as a crate root
+    // (tests/it/main.rs is the root of every module under tests/it)
+    const sibling = moduleToFile.get(`${key}::main`) ?? moduleToFile.get(`${key}::lib`);
+    if (sibling && inTestsDir(sibling.slice(0, sibling.lastIndexOf('/')))) return key;
+  }
+  return null;
+}
+
 /** Classify a use path + resolve it to an absolute module path.
- *  `crate::` is already absolute (namespaced to the importer's crate root in workspaces);
- *  `self::`/`super::` are relative to the importer; a bare first segment that names a
- *  workspace member crate (`use sibling_crate::…`) is a cross-crate internal import
- *  (resolved via the factory's name→module aliases); anything else is an external crate
- *  (std, serde, …) → null. Pure. */
-function absoluteModulePath(imp: string, importerModule: string, crateNames: ReadonlySet<string>): string | null {
+ *  `crate::` is already absolute (anchored to the importer's crate root — the lib root, or the
+ *  test/bench/example crate's own root when the file lives there); `self::`/`super::` are
+ *  relative to the importer; a bare first segment that names a workspace member crate
+ *  (`use sibling_crate::…`) is a cross-crate internal import (resolved via the factory's
+ *  name→module aliases); anything else is an external crate (std, serde, …) → null. Pure. */
+function absoluteModulePath(imp: string, importerModule: string, crateNames: ReadonlySet<string>, moduleToFile?: Map<string, string>): string | null {
   if (imp === 'crate' || imp.startsWith('crate::')) {
-    // workspace namespace = first segment of the importer's module (e.g. `crates/a::app` → `crates/a`);
-    // plain `crate` = the legacy single-crate key, unchanged.
-    const ns = importerModule.split('::')[0];
+    // the crate root anchor — test crates anchor differently from lib files
+    const root = moduleToFile ? crateRootOfModule(importerModule, moduleToFile) : null;
+    const ns = root ?? importerModule.split('::')[0];
     if (ns !== 'crate') return imp === 'crate' ? ns : `${ns}::${imp.slice('crate::'.length)}`;
     return imp;
   }
@@ -198,16 +230,32 @@ function resolveSuper(imp: string, importerModule: string): string | null {
 }
 
 /** Resolve a Rust use path to a source file via the module→file map.
- *  Matches the module OR module-minus-last-item (a use names a module OR an item in one) —
- *  no further fall-back, since `crate::a::b::c` reaching the crate root would be a false edge.
+ *  Matches the module OR the deepest owned module prefix — a use names a module OR an item
+ *  chain in one (`crate::token::TokenKind::Wildcard` = an enum variant inside the module
+ *  `crate::token`; stress #5). Trailing segments are dropped until a module in the map is
+ *  found, but never below 2 — a path whose only map hit is the crate root has no real
+ *  intermediate module (broken import: stays unresolved; a root edge would be a false hit).
  *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
  *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
 export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set(), reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): string | null {
+  // The importer's own crate root (the namespace's first segment: 'crate' or the root path).
+  // A 2-segment `crate::Item` resolves to it legitimately (the item lives in root lib.rs); a
+  // 3+ segment path with a mid-chain break (`crate::bogus::X`) must NOT fall back to it — that
+  // would be a false edge. A DIFFERENT first segment is a workspace sibling's crate-name
+  // alias — a real 1-segment target (`turbopath::PathError` = an item in turbopath's lib.rs).
+  const ownRoot = importerModule.split('::')[0];
   const look = (a: string): string | null => {
+    const exact = moduleToFile.get(a);
+    if (exact) return exact;
     const segs = a.split('::');
-    return moduleToFile.get(segs.join('::')) ?? moduleToFile.get(segs.slice(0, -1).join('::')) ?? null;
+    for (let i = segs.length - 1; i >= 1; i--) {
+      if (i === 1 && segs.length > 2 && segs[0] === ownRoot) return null;
+      const hit = moduleToFile.get(segs.slice(0, i).join('::'));
+      if (hit) return hit;
+    }
+    return null;
   };
-  let abs = absoluteModulePath(imp, importerModule, crateNames) ?? `${importerModule.split('::')[0]}::${imp}`;
+  let abs = absoluteModulePath(imp, importerModule, crateNames, moduleToFile) ?? `${importerModule.split('::')[0]}::${imp}`;
   // Bare first segment: Rust resolves `use foo::bar` to a crate-LOCAL module when foo isn't
   // an extern crate (wave-3 #2 target — `pub use service::osv` refers to crate::service::osv).
   // The fallback probes the crate-namespaced path — an external crate never has one, so no
@@ -276,32 +324,76 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: ReadonlySet<st
 }
 
 /** Pub-use re-exports: `pub use <path> [as <alias>];` — the alias this module exposes to the
- *  rest of the crate (and beyond). Returns absolute target modules (crate-namespaced; external
- *  crates get a bogus-but-harmless crate:: path that never matches a file), registered under
- *  BOTH the namespaced module key and the crate-NAME form — a use addresses `uv_audit::osv::Filter`
+ *  rest of the crate (and beyond). Returns absolute target modules (crate-namespaced), registered
+ *  under BOTH the namespaced module key and the crate-NAME form — a use addresses `uv_audit::osv::Filter`
  *  by name while the module key is root-path-prefixed. So `use crate::osv::Filter` resolves
  *  through `pub use service::osv;`. Crate-name registration is Rust resolution semantics — it
- *  lives here, not in the generic factory. */
+ *  lives here, not in the generic factory.
+ *  A `pub use` of an EXTERNAL crate (`pub use owo_colors;`) is marked `external` (empty target)
+ *  instead — the alias points outside the partition, so a chain target would never match a file
+ *  and imports routing through it would false-flag as broken local (stress #7). The factory
+ *  registers external re-exports in ctx.externalReexports, not the chain map. */
 function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: string, ctx: ResolveCtx): Reexport[] {
   const out: Reexport[] = [];
   // The crate root + name are invariant across this file's uses — hoisted out of the loop
   // (crateRootOf walks the FS probing for Cargo.toml; per-use repetition would re-walk).
   const root = crateRootOf(sourcePath, ctx.baseDir ?? '.');
   const name = root && root !== '.' ? ctx.crateNameByRoot?.get(root) : undefined;
+  const push = (module: string, target: string, external: boolean, alias: string): void => {
+    out.push({ module, alias, target, external });
+  };
   for (const { imp, modChain, isPub, alias } of uses) {
     if (!isPub || !alias) continue;
     const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
     const ns = effective.split('::')[0];
-    const target = absoluteModulePath(imp, effective, ctx.crateNames) ?? `${ns}::${imp}`; // local module or (harmlessly wrong) external
-    out.push({ module: effective, alias, target });
+    const target = absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile);
+    let local: boolean;
+    let real: string;
+    if (target === null) {
+      // Bare first segment — either a crate-LOCAL module (`pub use service::osv;`,
+      // `pub use wheel::metadata;`) or an external crate (`pub use owo_colors;`). The module
+      // map (complete for file keys) tells them apart: the FIRST segment of a local path is
+      // always a module with a file key under the ns-prefixed form; an external crate never
+      // has one. Items after the first segment are irrelevant (a fn named metadata still
+      // lives in a local module).
+      const firstSeg = imp.split('::')[0];
+      const localProbe = `${ns}::${firstSeg}`;
+      local = [...ctx.moduleToFile.keys()].some((k) => k === localProbe || k.startsWith(localProbe + '::'));
+      real = `${ns}::${imp}`;
+    } else {
+      local = true;
+      real = target;
+    }
+    if (!local) {
+      // external crate — the re-export leaves the partition; registered as external (silenced
+      // at resolution — stress #7), under both the module key and the crate-name form.
+      push(effective, '', true, alias);
+      if (name) push(name, '', true, alias);
+      continue;
+    }
+    push(effective, real, false, alias);
     // ALSO under the crate-NAME form: a use addresses `uv_audit::osv::Filter` by name while
     // the module key is root-path-prefixed.
     if (name) {
-      const namedTarget = target.startsWith(`${effective}::`) || target === effective ? name + target.slice(effective.length) : target;
-      out.push({ module: name, alias, target: namedTarget });
+      const namedTarget = real.startsWith(`${effective}::`) || real === effective ? name + real.slice(effective.length) : real;
+      push(name, namedTarget, false, alias);
     }
   }
   return out;
+}
+
+/** Does this import route through a re-export of an EXTERNAL crate (an alias registered in
+ *  ctx.externalReexports)? The target is real code but outside the partition — no edge to draw
+ *  and no broken-local to flag (stress #7: `uv_warnings::owo_colors::OwoColorize` via
+ *  `pub use owo_colors;`). Walks the path's module prefixes longest-first. Pure. */
+function isExternalReexport(imp: string, importerModule: string, crateNames: ReadonlySet<string>, external: ReadonlyMap<string, ReadonlySet<string>>, moduleToFile?: Map<string, string>): boolean {
+  const abs = absoluteModulePath(imp, importerModule, crateNames, moduleToFile);
+  if (!abs) return false; // a bare external crate (std/serde) — already silent, not our concern
+  const segs = abs.split('::');
+  for (let i = segs.length - 1; i >= 1; i--) {
+    if (external.get(segs.slice(0, i).join('::'))?.has(segs[i])) return true;
+  }
+  return false;
 }
 
 /** Rust importer — tree-sitter analysis + module→file resolution via ownership. */
@@ -327,10 +419,15 @@ export const rustImporter = createTreeSitterImporter<UseDesc[]>({
       // Inline mod blocks deepen the importer's module — super/self arithmetic must count
       // them (wave-3 #1: `mod tests { use super::super::ir::X }` is 2 levels above the file).
       const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
+      // Routes through a re-export of an EXTERNAL crate? The target is real code but outside
+      // the partition — no edge to draw, no broken-local to flag. Checked BEFORE resolution:
+      // the deepest-module fallback would otherwise draw a false edge to the re-exporting
+      // module (stress #7: `uv_warnings::owo_colors::OwoColorize` → warnings.rs).
+      if (isExternalReexport(imp, effective, ctx.crateNames, ctx.externalReexports, ctx.moduleToFile)) continue;
       const toFile = resolveImportPath(imp, effective, ctx.moduleToFile, ctx.crateNames, ctx.reexports);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
-      } else if (!toFile && absoluteModulePath(imp, effective, ctx.crateNames) !== null) {
+      } else if (!toFile && absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile) !== null) {
         // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
         // my_mod — not unresolved, just self-referential.)
