@@ -9,6 +9,9 @@ import { readFiles } from './payload.js';
 import { depCruiserImporter } from './languages/typescript.js';
 import { pythonImporter } from './languages/python.js';
 import { rustImporter } from './languages/rust.js';
+// The grammar-bundle integrity check re-exported here: commands/health reaches the language
+// machinery ONLY through this hub (the declared single seam for "everything language").
+export { checkGrammars } from './languages/tree-sitter.js';
 export { depCruiserImporter, pythonImporter, rustImporter };
 
 /** Default importer registry (add a language = add an importer here). */

@@ -8,7 +8,7 @@ import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, t
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
 import { coChangePairs, crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
-import { checkGrammars } from './languages/tree-sitter.js';
+import { checkGrammars } from './importers.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
 
 import { owningCell, type Ownership } from './ownership.js';

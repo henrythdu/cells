@@ -21,7 +21,6 @@ requires = [
   "graph",
   "diff",
   "importers",
-  "tree-sitter",
   "imports",
   "payload",
   "declaration",

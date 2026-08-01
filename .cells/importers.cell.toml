@@ -1,10 +1,11 @@
 name = "importers"
 purpose = "The language-coupled seam: collect file→file import edges by dispatching to a per-language importer selected by file extension. TS/JS via dep-cruiser (source-based, handles aliases/.js→.ts); Python + Rust via tree-sitter (bundled WASM grammars). This is the ONLY place that knows about specific languages — everything downstream consumes generic ImportEdge[]. Resolution of an import to a file uses ownership (e.g. a module→file map derived from owned files), not filesystem heuristics."
 provides = [
+  "checkGrammars() — the grammar-bundle integrity check (re-exported for health)",
   "collectImportEdges() — the single entry point cli/crossings/structure/graph call",
   "DEFAULT_IMPORTERS registry (typescript + python + rust)",
   "selectImporters(exts, importers) — pure dispatch by extension",
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
 ]
-requires = ["imports", "io", "payload", "typescript", "python", "rust"]
+requires = ["imports", "io", "payload", "tree-sitter", "typescript", "python", "rust"]
 layer = 5
