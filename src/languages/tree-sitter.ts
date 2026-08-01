@@ -102,11 +102,15 @@ export interface TreeSitterImporterSpec {
    *  enriches the module→file map with these so deep `crate::a::b::c` paths resolve to the
    *  file containing the deepest module instead of reporting false "unresolved". */
   declareModules?(root: Node, sourcePath: string, fileSet: Set<string>): { path: string[]; targetFile: string | null }[];
+  /** Pub-use re-exports: the alias a module exposes (`pub use service::osv` → osv at this
+   *  module, absolute target `crate::service::osv`). The factory merges these into a global
+   *  map passed to extractEdges, so imports through re-export chains resolve. */
+  collectReexports?(root: Node, importerModule: string, crateNames: ReadonlySet<string>): { module: string; alias: string; target: string }[];
   /** Parse a tree's root into import edges + unresolved local imports (extraction + resolution).
    *  Self-loops and duplicate targets are de-duped by the factory. `crateNames` = the package
    *  names of workspace member crates — a bare first segment matching one is a cross-crate
    *  internal import (vs a silently-dropped external like `serde`). */
-  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, crateNames?: ReadonlySet<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
+  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, crateNames?: ReadonlySet<string>, reexports?: ReadonlyMap<string, ReadonlyMap<string, string>>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
 }
 
 /**
@@ -128,6 +132,7 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
       // Package names of workspace member crates — the factory aliases their namespaced
       // module keys by name so `use sibling_crate::…` resolves (rust.ts crates only).
       const crateNames = new Set<string>();
+      let nameByRoot: Map<string, string | null> | undefined;
       let aliasByName: (key: string, root: string | null) => void = () => {};
       if (spec.crateRootOf) {
         const roots = new Set(
@@ -146,8 +151,8 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
           if (spec.crateNameOf) {
             // Read each manifest ONCE — aliasByName runs per file/submodule, and re-reading
             // the same few Cargo.tomls hundreds of times synchronously would dominate a big
-            // workspace scan.
-            const nameByRoot = new Map<string, string | null>();
+            // workspace scan. Hoisted to function scope — reexports registration needs it too.
+            nameByRoot = new Map<string, string | null>();
             for (const r of roots) {
               const name = spec.crateNameOf(r, baseDir);
               nameByRoot.set(r, name);
@@ -163,7 +168,7 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
             // its Cargo.toml NAME. Alias every key so `headroom_core::…` → `crates/headroom-core::…`.
             aliasByName = (key, root) => {
               if (!root || root === '.') return;
-              const name = nameByRoot.get(root);
+              const name = nameByRoot!.get(root);
               if (!name) return;
               const prefix = `${root}::`;
               let rest: string | null = null;
@@ -194,7 +199,8 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
       // Enrich the module→file map with every declared submodule (inline + `mod x;`). The
       // declared key always equals the target's own path-derived module (rust `mod x;` targets
       // are path-aligned: sibling or name/ dir), so one pass over all files is order-free.
-      if (spec.declareModules) {
+      const reexportMap = new Map<string, Map<string, string>>();
+      if (spec.declareModules || spec.collectReexports) {
         const fileSet = new Set(files.map((f) => f.path));
         for (const f of files) {
           if (!matches(f.path)) continue;
@@ -203,10 +209,32 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
           try {
             const base = moduleKey(f);
             const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
-            for (const m of spec.declareModules(tree.rootNode, f.path, fileSet)) {
-              const key = `${base}::${m.path.join('::')}`;
-              moduleToFile.set(key, m.targetFile ?? f.path);
-              aliasByName(key, root);
+            if (spec.declareModules) {
+              for (const m of spec.declareModules(tree.rootNode, f.path, fileSet)) {
+                const key = `${base}::${m.path.join('::')}`;
+                moduleToFile.set(key, m.targetFile ?? f.path);
+                aliasByName(key, root);
+              }
+            }
+            if (spec.collectReexports) {
+              for (const r of spec.collectReexports(tree.rootNode, base, crateNames)) {
+                const register = (module: string, target: string): void => {
+                  let m = reexportMap.get(module);
+                  if (!m) {
+                    m = new Map();
+                    reexportMap.set(module, m);
+                  }
+                  if (!m.has(r.alias)) m.set(r.alias, target);
+                };
+                register(r.module, r.target);
+                // ALSO under the crate-NAME form: a use addresses `uv_audit::osv::Filter` by
+                // name (crateNames alias), while r.module is the namespaced key.
+                const name = root && root !== '.' ? nameByRoot?.get(root) : undefined;
+                if (name) {
+                  const target = r.target.startsWith(`${r.module}::`) || r.target === r.module ? name + r.target.slice(r.module.length) : r.target;
+                  register(name, target);
+                }
+              }
             }
           } finally {
             tree.delete();
@@ -223,7 +251,7 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
         try {
           const importerModule = moduleKey(f);
           const seen = new Set<string>();
-          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile, crateNames);
+          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile, crateNames, reexportMap);
           for (const e of fileEdges) {
             if (e.toFile !== f.path && !seen.has(e.toFile)) {
               seen.add(e.toFile);

@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
@@ -98,7 +99,10 @@ function resolveEdges(desc: ImportDesc, sourcePath: string, importerModule: stri
   // it, not missing submodules — don't false-positive on them.
   const unresolved: UnresolvedImport[] = [];
   if (edges.length === 0 && base && looksLocal(base, desc.dots, localPackages)) {
-    unresolved.push({ fromFile: sourcePath, import: base });
+    // A compiled extension module (pyo3/cython: `headroom._core` → _core.cpython-*.so) is
+    // legitimately unresolvable — the file exists but isn't code. Silencing it keeps the
+    // unresolved list honest (wave-3 #5: headroom's 73/81 entries were this one specifier).
+    if (!isCompiledModule(base, moduleToFile)) unresolved.push({ fromFile: sourcePath, import: base });
   }
   return { edges, unresolved };
 }
@@ -108,6 +112,37 @@ function resolveEdges(desc: ImportDesc, sourcePath: string, importerModule: stri
 function looksLocal(candidate: string, dots: number, localPackages: Set<string>): boolean {
   if (dots > 0) return true;
   return localPackages.has(candidate.split('.')[0]);
+}
+
+const COMPILED_EXTS = ['.so', '.pyd', '.dll', '.dylib'];
+
+/** Directory listings for compiled-module checks — memoized per process (many unresolved imports
+ *  may probe the same package dir; the census doesn't change mid-run). */
+const compiledDirCache = new Map<string, string[]>();
+
+/** Does `module` (dotted, e.g. `headroom._core`) resolve to a compiled extension file on disk
+ *  (`headroom/_core.cpython-312-….so`)? The parent package's dir is derived from the module→file
+ *  map (moduleRoot/src-layout aware — `src/headroom/__init__.py` → dir `src/headroom`), so the
+ *  compiled artifact is found wherever the package actually lives. Only called for local-looking
+ *  unresolved imports; a missing dir (or no parent in the map) → false. */
+function isCompiledModule(module: string, moduleToFile: Map<string, string>): boolean {
+  const lastDot = module.lastIndexOf('.');
+  if (lastDot === -1) return false;
+  const parentMod = module.slice(0, lastDot);
+  const name = module.slice(lastDot + 1);
+  const parentFile = moduleToFile.get(parentMod);
+  if (!parentFile) return false;
+  const dir = parentFile.replace(/\/[^/]+$/, '');
+  try {
+    let entries = compiledDirCache.get(dir);
+    if (!entries) {
+      entries = readdirSync(dir);
+      compiledDirCache.set(dir, entries);
+    }
+    return entries.some((entry) => entry.startsWith(`${name}.`) && COMPILED_EXTS.some((ext) => entry.endsWith(ext) || entry.endsWith(`${ext}.`)));
+  } catch {
+    return false; // dir missing → not compiled
+  }
 }
 
 /** Python importer — tree-sitter extraction + module→file resolution via ownership. */

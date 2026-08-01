@@ -321,6 +321,9 @@ function cmdPlan(apply = false, dryRun = false): void {
   }
 
   console.log('# Proposed cell declarations (.cells/*.cell.toml files)');
+  console.log('# SUGGESTION ONLY — nothing is enforced; cells may be deleted, renamed, or');
+  console.log('# repartitioned freely. Loose files (no crate/package/__init__ unit) are left');
+  console.log('# unowned — unowned files are not violations, they show as orphans.');
   console.log('# Review and curate, then create them.');
   console.log('');
   for (const key of keys) {

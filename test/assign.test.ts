@@ -118,7 +118,7 @@ describe('planGroups', () => {
     touch('test/x.ts');
     touch('root.ts');
     const g = planGroups(['src/a.ts', 'src/nested/b.ts', 'test/x.ts', 'root.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['root', 'src', 'src/nested', 'test']);
+    expect([...g.keys()].sort()).toEqual(['src', 'src/nested', 'test']); // root.ts stays UNOWNED (no root catch-all)
   });
 
   it('collapses Rust workspace crates to one cell each (uv wave-1 #5)', () => {
@@ -207,7 +207,7 @@ describe('planGroups', () => {
     touch('a.py');
     touch('sub/b.py');
     const g = planGroups(['a.py', 'sub/b.py'], repo);
-    expect([...g.keys()].sort()).toEqual(['root', 'sub']);
+    expect([...g.keys()].sort()).toEqual(['sub']); // a.py at the package root stays unowned
   });
 
   it('python bundled inside a crate stays in the crate (cargo owns its subtree)', () => {
@@ -252,14 +252,14 @@ describe('planGroups', () => {
   it('folds invalid-name dirs to the nearest valid ancestor (Next.js routes)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     const g = planGroups(['app/[[...slug]]/page.tsx', 'app/page.tsx', '[[x]]/y.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['app', 'root']);
+    expect([...g.keys()].sort()).toEqual(['app']); // [[x]]/y.ts folds to '.' → unowned, not a root cell
     expect(g.get('app')).toEqual(['app/[[...slug]]/page.tsx', 'app/page.tsx']);
   });
 
   it('folds dotted dirs too — every key must produce a creatable cell name', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     const g = planGroups(['packages/foo.v2/src/x.ts', '.storybook/preview.ts', 'src/a.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['packages', 'root', 'src']);
+    expect([...g.keys()].sort()).toEqual(['packages', 'src']); // .storybook folds to '.' → unowned
     // the guarantee: every emitted name passes validCellName after escaping
     for (const key of g.keys()) {
       expect(validCellName(cellNameOf(key))).toBe(true);

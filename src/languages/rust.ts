@@ -101,20 +101,49 @@ function expandClause(node: Node): string[] {
   }
 }
 
-/** All import paths declared anywhere in a Rust file (internal + external). `collectUses` walks the whole AST recursively, so `use` inside fn bodies counts. */
-function extractImports(root: Node): string[] {
-  const out: string[] = [];
-  collectUses(root, out);
+/** A use declaration: the import path + the enclosing inline-mod chain (for super/self
+ *  arithmetic — `mod tests { use super::super::ir::X }` sits two levels above the file) +
+ *  pub-use alias info (for re-export chains). */
+interface UseDesc {
+  imp: string;
+  modChain: string[];
+  isPub: boolean;
+  alias?: string; // explicit `as` alias (pub use x as y)
+}
+
+/** All import paths declared anywhere in a Rust file (internal + external). `collectUses` walks
+ *  the whole AST recursively, so `use` inside fn bodies AND inline `mod {}` blocks counts. */
+function extractUses(root: Node): UseDesc[] {
+  const out: UseDesc[] = [];
+  collectUses(root, out, []);
   return out;
 }
 
-/** Recursively walk the AST — local `use` inside function bodies must be found. */
-function collectUses(node: Node, out: string[]): void {
+/** Recursively walk the AST — local `use` inside function bodies must be found, and inline
+ *  mod blocks deepen the module (super/self arithmetic + re-export locations). */
+function collectUses(node: Node, out: UseDesc[], modChain: string[]): void {
   if (node.type === 'use_declaration') {
-    for (const child of node.namedChildren) out.push(...expandClause(child));
+    const isPub = node.namedChildren.some((c) => c.type === 'visibility_modifier' && c.text === 'pub');
+    for (const child of node.namedChildren) {
+      if (child.type === 'visibility_modifier') continue;
+      for (const imp of expandClause(child)) {
+        let alias: string | undefined;
+        if (child.type === 'use_as_clause') alias = child.childForFieldName('name')?.text;
+        else if (isPub) alias = imp.split('::').pop(); // bare pub use re-exports the last segment
+        out.push({ imp, modChain, isPub, alias });
+      }
+    }
     return; // use_declaration children are just path segments — no deeper uses
   }
-  for (const child of node.namedChildren) collectUses(child, out);
+  if (node.type === 'mod_item') {
+    const body = node.childForFieldName('body');
+    if (body) {
+      const name = node.childForFieldName('name')?.text;
+      collectUses(body, out, name ? [...modChain, name] : modChain);
+      return; // don't double-walk the body
+    }
+  }
+  for (const child of node.namedChildren) collectUses(child, out, modChain);
 }
 
 // --- resolution: import path + importer module → file (via the module→file map) ---
@@ -157,12 +186,48 @@ function resolveSuper(imp: string, importerModule: string): string | null {
 
 /** Resolve a Rust use path to a source file via the module→file map.
  *  Matches the module OR module-minus-last-item (a use names a module OR an item in one) —
- *  no further fall-back, since `crate::a::b::c` reaching the crate root would be a false edge. Pure. */
-export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set()): string | null {
-  const abs = absoluteModulePath(imp, importerModule, crateNames);
-  if (abs === null) return null;
-  const segs = abs.split('::');
-  return moduleToFile.get(segs.join('::')) ?? moduleToFile.get(segs.slice(0, -1).join('::')) ?? null;
+ *  no further fall-back, since `crate::a::b::c` reaching the crate root would be a false edge.
+ *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
+ *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
+export function resolveImportPath(
+  imp: string,
+  importerModule: string,
+  moduleToFile: Map<string, string>,
+  crateNames: ReadonlySet<string> = new Set(),
+  reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
+): string | null {
+  const look = (a: string): string | null => {
+    const segs = a.split('::');
+    return moduleToFile.get(segs.join('::')) ?? moduleToFile.get(segs.slice(0, -1).join('::')) ?? null;
+  };
+  let abs = absoluteModulePath(imp, importerModule, crateNames) ?? `${importerModule.split('::')[0]}::${imp}`;
+  // Bare first segment: Rust resolves `use foo::bar` to a crate-LOCAL module when foo isn't
+  // an extern crate (wave-3 #2 target — `pub use service::osv` refers to crate::service::osv).
+  // The fallback probes the crate-namespaced path — an external crate never has one, so no
+  // false edge.
+  // Direct hit wins — re-export rewriting only on miss, else item aliases (e.g. a function
+  // named `metadata`) would hijack genuine module references like `crate::metadata::X`.
+  const direct = look(abs);
+  if (direct) return direct;
+  // Follow pub-use re-export chains (bounded): crate::osv → service::osv via `pub use service::osv`.
+  if (reexports.size > 0) {
+    for (let i = 0; i < 10; i++) {
+      const segs = abs.split('::');
+      let next: string = abs;
+      for (let j = segs.length - 1; j >= 1; j--) {
+        const target = reexports.get(segs.slice(0, j).join('::'))?.get(segs[j]);
+        if (target) {
+          next = `${target}::${segs.slice(j + 1).join('::')}`.replace(/::$/, '');
+          break;
+        }
+      }
+      if (next === abs) return null;
+      abs = next;
+      const hit = look(abs);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }
 
 /** All `mod` declarations (inline blocks + `mod x;` file declarations), recursively, with
@@ -203,6 +268,22 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: Set<string>): 
   return out;
 }
 
+/** Pub-use re-exports: `pub use <path> [as <alias>];` — the alias this module exposes to the
+ *  rest of the crate (and beyond). Returns absolute target modules (crate-namespaced; external
+ *  crates get a bogus-but-harmless crate:: path that never matches a file). Feeds the factory's
+ *  global re-export map so `use crate::osv::Filter` resolves through `pub use service::osv`. */
+function collectReexports(root: Node, importerModule: string, crateNames: ReadonlySet<string>): { module: string; alias: string; target: string }[] {
+  const out: { module: string; alias: string; target: string }[] = [];
+  for (const { imp, modChain, isPub, alias } of extractUses(root)) {
+    if (!isPub || !alias) continue;
+    const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
+    const ns = effective.split('::')[0];
+    const target = absoluteModulePath(imp, effective, crateNames) ?? `${ns}::${imp}`; // local module or (harmlessly wrong) external
+    out.push({ module: effective, alias, target });
+  }
+  return out;
+}
+
 /** Rust importer — tree-sitter extraction + module→file resolution via ownership. */
 export const rustImporter = createTreeSitterImporter({
   name: 'rust',
@@ -212,14 +293,18 @@ export const rustImporter = createTreeSitterImporter({
   crateRootOf,
   crateNameOf,
   declareModules: (root, sourcePath, fileSet) => collectModDecls(root, sourcePath, fileSet),
-  extractEdges: (root, sourcePath, importerModule, moduleToFile, crateNames = new Set<string>()) => {
+  collectReexports,
+  extractEdges: (root, sourcePath, importerModule, moduleToFile, crateNames = new Set<string>(), reexports = new Map()) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
-    for (const imp of extractImports(root)) {
-      const toFile = resolveImportPath(imp, importerModule, moduleToFile, crateNames);
+    for (const { imp, modChain } of extractUses(root)) {
+      // Inline mod blocks deepen the importer's module — super/self arithmetic must count
+      // them (wave-3 #1: `mod tests { use super::super::ir::X }` is 2 levels above the file).
+      const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
+      const toFile = resolveImportPath(imp, effective, moduleToFile, crateNames, reexports);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
-      } else if (!toFile && absoluteModulePath(imp, importerModule, crateNames) !== null) {
+      } else if (!toFile && absoluteModulePath(imp, effective, crateNames) !== null) {
         // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
         // my_mod — not unresolved, just self-referential.)

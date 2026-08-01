@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pythonImporter, fileToModule } from '../../src/languages/python.js';
 import type { SourceFile } from '../../src/imports.js';
 import type { Ownership } from '../../src/ownership.js';
@@ -58,6 +61,34 @@ describe('python importer', () => {
     });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
     expect(set).toEqual(new Set(['app/cli.py -> src/stages/predict.py', 'app/cli.py -> src/stages/enrich.py']));
+  });
+
+  it('silences imports backed by compiled extension modules on disk (wave-3 #5: pyo3 _core.so)', async () => {
+    const prev = process.cwd();
+    const repo = mkdtempSync(join(tmpdir(), 'cells-pycore-'));
+    mkdirSync(join(repo, 'headroom'), { recursive: true });
+    mkdirSync(join(repo, 'headroom', 'transforms'), { recursive: true });
+    writeFileSync(join(repo, 'headroom', '__init__.py'), '\n');
+    writeFileSync(join(repo, 'headroom', 'transforms', '__init__.py'), '\n');
+    writeFileSync(join(repo, 'headroom', '_core.cpython-312-x86_64-linux-gnu.so'), 'binary\n');
+    writeFileSync(join(repo, 'headroom', 'transforms', 'smart_crusher.py'), 'from headroom._core import X\nfrom headroom.transforms import Y\n');
+    process.chdir(repo);
+    try {
+      const { edges: _edges, unresolved } = await pythonImporter.extract({
+        codeDirs: ['.'],
+        files: [
+          { path: 'headroom/__init__.py', content: '\n' },
+          { path: 'headroom/transforms/__init__.py', content: '\n' },
+          { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
+        ],
+        ownership: { headroom: ['headroom/__init__.py', 'headroom/transforms/__init__.py', 'headroom/transforms/smart_crusher.py'] },
+      });
+      expect(unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
+      expect(unresolved.some((u) => u.import === 'headroom.transforms')).toBe(false); // resolves normally
+    } finally {
+      process.chdir(prev);
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

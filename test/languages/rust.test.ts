@@ -137,6 +137,49 @@ describe('rust importer', () => {
     expect(unresolved).toEqual([]);
   });
 
+  it('resolves super:: chains inside inline mod blocks (wave-3 #1: headroom mod tests)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/compaction/compactor.rs', content: 'mod tests {\n  use super::super::ir::OpaqueKind;\n}\nuse super::ir::SimpleKind;\n' },
+      { path: 'src/compaction/ir.rs', content: 'pub struct OpaqueKind;\npub struct SimpleKind;\n' },
+      { path: 'src/ir.rs', content: 'pub struct OpaqueKind;\n' },
+    ];
+    const ownership: Ownership = { a: ['src/compaction/compactor.rs'], b: ['src/compaction/ir.rs'], c: ['src/ir.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    const superSuper = edges.find((e) => e.import === 'super::super::ir::OpaqueKind');
+    expect(superSuper).toBeDefined();
+    expect(superSuper!.toFile).toBe('src/compaction/ir.rs'); // mod-tests depth counts — NOT src/ir.rs
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it('resolves pub use re-export chains (wave-3 #2: uv_audit::osv::Filter)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod service;\npub use service::osv;\n' },
+      { path: 'src/service.rs', content: 'pub mod osv;\n' },
+      { path: 'src/service/osv.rs', content: 'pub struct Filter;\n' },
+      { path: 'src/other.rs', content: 'use crate::osv::Filter;\nuse crate::service::osv::Filter as Direct;\n' },
+    ];
+    const ownership: Ownership = { a: ['src/lib.rs', 'src/service.rs', 'src/service/osv.rs'], b: ['src/other.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    const viaAlias = edges.find((e) => e.import === 'crate::osv::Filter');
+    expect(viaAlias).toBeDefined();
+    expect(viaAlias!.toFile).toBe('src/service/osv.rs');
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it('does not hijack module references via item aliases (uv: pub use wheel::metadata fn)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'mod metadata;\nmod wheel;\npub use wheel::metadata;\nuse crate::metadata::ValidationError;\n' },
+      { path: 'src/metadata.rs', content: 'pub struct ValidationError;\n' },
+      { path: 'src/wheel.rs', content: 'pub fn metadata() {}\n' },
+    ];
+    const ownership: Ownership = { a: files.map((f) => f.path) };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    const direct = edges.find((e) => e.import === 'crate::metadata::ValidationError');
+    expect(direct).toBeDefined();
+    expect(direct!.toFile).toBe('src/metadata.rs'); // NOT hijacked to wheel.rs by the item alias
+    expect(unresolved).toHaveLength(0);
+  });
+
   it('resolves deep paths into nested inline mods (headroom pattern — was false unresolved)', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'mod observability;\nuse crate::observability::metric_names::response_status::COMPLETED;\n' },

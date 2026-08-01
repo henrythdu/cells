@@ -114,7 +114,10 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
     while (key !== '.' && !validCellName(cellNameOf(key))) {
       key = dirname(key);
     }
-    if (key === '.') key = 'root';
+    // Files with no unit (and no valid-name dir) are NOT proposed — they stay unowned,
+    // which is neutral (wave-3 #8: the old catch-all `root` cell swept junk into a 5.9M-tok
+    // cell; unowned files are listed as orphans instead, and plan --apply leaves them be).
+    if (key === '.') continue;
     const list = groups.get(key);
     if (list) list.push(f);
     else groups.set(key, [f]);

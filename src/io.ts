@@ -40,10 +40,29 @@ export function loadDeclarations(): Record<string, Cell> {
 
 /** Load the ownership map from `.cells/ownership.toml`. Missing file → empty map
  *  (a repo can have declarations but no assignments yet; every command should still run). */
+/** `.cells/ignore` patterns (empty when the file is absent). Shared by the census (listCodeFiles)
+ *  and ownership loading — one read/parse path for the ignore file. */
+function loadIgnorePatterns(): string[] {
+  const ignorePath = join(CELLS_DIR, 'ignore');
+  if (!existsSync(ignorePath)) return [];
+  return parseIgnore(readFileSync(ignorePath, 'utf8'));
+}
+
 export function loadOwnership(): Ownership {
   const path = join(CELLS_DIR, 'ownership.toml');
   if (!existsSync(path)) return {};
-  return readParsed(path, parseOwnership, '.cells/ownership.toml');
+  const ownership = readParsed(path, parseOwnership, '.cells/ownership.toml');
+  // wave-3 #7: `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
+  // (stale ownership.toml entries drop on the next write of the store; size/payload stop
+  // counting them without a manual unassign).
+  const patterns = loadIgnorePatterns();
+  if (patterns.length === 0) return ownership;
+  const filtered: Ownership = {};
+  for (const [cell, files] of Object.entries(ownership)) {
+    const kept = files.filter((f) => !isIgnored(f, patterns));
+    if (kept.length > 0) filtered[cell] = kept;
+  }
+  return filtered;
 }
 
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
@@ -105,9 +124,8 @@ export function listCodeFiles(baseDir = '.'): string[] {
   const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f))))];
   // Set: overlapping code-dirs (e.g. "." + "crates") must not double-list files — ownership,
   // plan and size all count per file. Detection filters at init; this covers hand-edited configs.
-  const ignorePath = join(CELLS_DIR, 'ignore');
-  if (!existsSync(ignorePath)) return all;
-  const patterns = parseIgnore(readFileSync(ignorePath, 'utf8'));
+  const patterns = loadIgnorePatterns();
+  if (patterns.length === 0) return all;
   return all.filter((f) => !isIgnored(f, patterns));
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { detectProject } from '../src/io.js';
+import { detectProject, loadOwnership } from '../src/io.js';
 import { execSync } from 'node:child_process';
 
 let dir: string;
@@ -12,6 +12,37 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe('loadOwnership (ignored files are unowned — wave-3 #7)', () => {
+  it('excludes owned files matching .cells/ignore patterns', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cells-ig-own-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts", "dist/b.js"]\n');
+    writeFileSync(join(repo, '.cells', 'ignore'), 'dist/\n');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(loadOwnership()).toEqual({ a: ['src/a.ts'] });
+    } finally {
+      process.chdir(prev);
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('returns ownership unchanged when no ignore file exists', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cells-ig-own-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(loadOwnership()).toEqual({ a: ['src/a.ts'] });
+    } finally {
+      process.chdir(prev);
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('detectProject', () => {

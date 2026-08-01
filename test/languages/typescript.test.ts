@@ -109,4 +109,34 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
       process.chdir(prev);
     }
   });
+
+  it('merges nested per-app tsconfig paths so @/ aliases resolve (wave-3 #3: turborepo)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-merge-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'apps', 'docs', 'lib'), { recursive: true });
+    mkdirSync(join(dir, 'apps', 'docs', 'app'), { recursive: true });
+    writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler' } }));
+    writeFileSync(join(dir, 'apps', 'docs', 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: { '@/*': ['./*'] } } }));
+    writeFileSync(join(dir, 'apps', 'docs', 'lib', 'create-metadata.ts'), 'export const m = 1;\n');
+    writeFileSync(join(dir, 'apps', 'docs', 'app', 'page.tsx'), "import { m } from '@/lib/create-metadata';\nexport const p = m;\n");
+
+    const prev = process.cwd();
+    process.chdir(dir);
+    try {
+      const { edges, unresolved } = await depCruiserImporter.extract({
+        codeDirs: ['.'],
+        files: [
+          { path: 'apps/docs/app/page.tsx', content: '' },
+          { path: 'apps/docs/lib/create-metadata.ts', content: '' },
+        ],
+        ownership: {},
+      });
+      const viaAlias = edges.find((e) => e.import === '@/lib/create-metadata');
+      expect(viaAlias).toBeDefined();
+      expect(viaAlias!.toFile).toContain('apps/docs/lib/create-metadata.ts');
+      expect(unresolved.some((u) => u.import === '@/lib/create-metadata')).toBe(false);
+    } finally {
+      process.chdir(prev);
+    }
+  });
 });

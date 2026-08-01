@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve, relative } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix, resolve, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 import { cruise, type ICruiseOptions, type ICruiseResult } from 'dependency-cruiser';
 import type { ImportEdge, ImportResult, UnresolvedImport, Importer, SourceFile } from '../imports.js';
 
@@ -33,6 +34,17 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
   const toPosix = rel.replace(/\\/g, '/'); // win32: join/relative emit backslashes; string ops below need /
   // `dist/` at any depth → `src/` (a package's dist entry maps to its source tree)
   const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
+  // Divergent layouts: vite's exports map `./module-runner` → `dist/node/module-runner.js` but
+  // the source is `src/module-runner/` (rollup flattens `node/` away). Try src/<last-segment>
+  // (dropping the intermediate dirs the bundler rolled up) as well.
+  let flatSrc: string | null = null;
+  const flatIdx = toPosix.lastIndexOf('dist/');
+  if (flatIdx >= 0) {
+    const afterDist = toPosix.slice(flatIdx + 'dist/'.length);
+    const lastSeg = afterDist.includes('/') ? afterDist.slice(afterDist.lastIndexOf('/') + 1) : afterDist;
+    flatSrc = `${toPosix.slice(0, flatIdx)}src/${lastSeg}`;
+  }
+  const flatBase = flatSrc ? flatSrc.replace(/\.js$/, '') : null; // strip the ext — the source may be a dir (index.ts)
   const candidates = [
     toPosix,
     `${toPosix}.ts`,
@@ -46,6 +58,7 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
     `${srcRel}/index.ts`,
     `${srcRel}/index.tsx`,
     srcRel.replace(/\.js$/, '.ts'),
+    ...(flatBase ? [flatSrc!, flatBase, `${flatBase}.ts`, `${flatBase}/index.ts`, `${flatBase}/index.tsx`] : []),
   ];
   for (const c of candidates) {
     if (existsSync(join(baseDir, c))) {
@@ -119,6 +132,64 @@ function wildcardTarget(exports: Record<string, unknown> | null, rest: string): 
   return null;
 }
 
+/**
+ * Collect `paths` aliases from every tsconfig.json found along the code-file ancestor walk
+ * (root + nested per-app configs), rewritten to repo-root-relative targets (a nested
+ * tsconfig's paths are relative to its own dir). Alias → root-relative targets. Reads the
+ * files once per unique dir; malformed configs skipped. Pure wrt inputs (FS reads).
+ */
+function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string, string[]> {
+  const merged = new Map<string, string[]>();
+  const seen = new Set<string>();
+  for (const f of files) {
+    let dir = dirname(f.path);
+    while (dir !== '.' && !seen.has(dir)) {
+      seen.add(dir);
+      const tsPath = join(baseDir, dir, 'tsconfig.json');
+      if (existsSync(tsPath)) {
+        try {
+          const cfg = JSON.parse(readFileSync(tsPath, 'utf8')) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } };
+          const paths = cfg.compilerOptions?.paths;
+          if (paths) {
+            const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
+            for (const [alias, targets] of Object.entries(paths)) {
+              const rootRel = targets.map((t) => posix.normalize(`${base}/${t}`).replace(/^\.\//, ''));
+              const mergedTargets = merged.get(alias);
+              if (mergedTargets) {
+                for (const t of rootRel) if (!mergedTargets.includes(t)) mergedTargets.push(t);
+              } else {
+                merged.set(alias, rootRel);
+              }
+            }
+          }
+        } catch {
+          /* malformed nested tsconfig — skip; its aliases stay unresolved */
+        }
+      }
+      dir = dirname(dir);
+    }
+  }
+  // the root tsconfig itself: read its paths too (files at the repo root never enter the loop)
+  const rootPath = join(baseDir, 'tsconfig.json');
+  if (existsSync(rootPath) && !seen.has('.')) {
+    try {
+      const cfg = JSON.parse(readFileSync(rootPath, 'utf8')) as { compilerOptions?: { paths?: Record<string, string[]> } };
+      for (const [alias, targets] of Object.entries(cfg.compilerOptions?.paths ?? {})) {
+        const rootRel = targets.map((t) => posix.normalize(t).replace(/^\.\//, ''));
+        const mergedTargets = merged.get(alias);
+        if (mergedTargets) {
+          for (const t of rootRel) if (!mergedTargets.includes(t)) mergedTargets.push(t);
+        } else {
+          merged.set(alias, rootRel);
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+  return merged;
+}
+
 /** Resolve a bare specifier against the workspace map: exact name → entry; `name/rest` via
  *  exports subpath keys, wildcard keys, then entry-dir + rest probes. `matched` distinguishes
  *  a broken local subpath (flag) from a genuinely external package (silent). Pure. */
@@ -167,11 +238,35 @@ export const depCruiserImporter: Importer = {
     // cruising a subdir (src/), which silently drops `paths` alias imports (`@/x`) as unresolved.
     const root = baseDir && baseDir !== '.' ? baseDir : process.cwd();
     const tsConfigPath = join(root, 'tsconfig.json');
-    if (existsSync(tsConfigPath)) cruiseOpts.tsConfig = { fileName: tsConfigPath };
+    // wave-3 #3: nested per-app tsconfigs (turborepo's apps/*/tsconfig.json, Next.js `@/*`
+    // aliases) are invisible to dep-cruiser's single-config view. Merge every tsconfig found
+    // along the code-file ancestor walk into one synthesized config with root-relative paths.
+    const mergedPaths = collectTsconfigPaths(files ?? [], baseDir ?? '.');
+    let tempDir: string | null = null;
+    if (mergedPaths.size > 0) {
+      const cfg: Record<string, unknown> = { compilerOptions: {} };
+      try {
+        if (existsSync(tsConfigPath)) Object.assign(cfg, JSON.parse(readFileSync(tsConfigPath, 'utf8')) as Record<string, unknown>);
+      } catch {
+        /* unreadable root tsconfig — synthesize from the merged paths alone */
+      }
+      const co = (cfg.compilerOptions ?? {}) as Record<string, unknown>;
+      co.paths = { ...((co.paths as Record<string, unknown>) ?? {}), ...Object.fromEntries(mergedPaths) };
+      cfg.compilerOptions = co;
+      tempDir = mkdtempSync(join(tmpdir(), 'cells-tsc-'));
+      const mergedPath = join(tempDir, 'tsconfig.json');
+      // The temp config lives in tmpdir, but paths targets are repo-root-relative — point
+      // baseUrl back at the repo root or TS resolves them against the temp dir (missing).
+      // Platform-aware relative: posix.relative on Windows treats \ as a literal char.
+      co.baseUrl = relative(tempDir, root);
+      writeFileSync(mergedPath, JSON.stringify(cfg));
+      cruiseOpts.tsConfig = { fileName: mergedPath };
+    } else if (existsSync(tsConfigPath)) {
+      cruiseOpts.tsConfig = { fileName: tsConfigPath };
+    }
     let result: ICruiseResult;
     try {
-      const { output } = await cruise(dirs, cruiseOpts);
-      // guard the shape — a future cruise() default that stops returning the result object
+      const { output } = await cruise(dirs, cruiseOpts);      // guard the shape — a future cruise() default that stops returning the result object
       // would silently fake an empty graph (false green) if unchecked
       if (typeof output !== 'object' || output === null || !Array.isArray((output as ICruiseResult).modules)) {
         throw new Error('dependency-cruiser returned a non-JSON result');
@@ -182,6 +277,9 @@ export const depCruiserImporter: Importer = {
       // would fake a green gate on a blind graph. (collectImportEdges turns this into
       // a gate failure.)
       throw new Error(`dependency-cruiser failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      // the synthesized tsconfig lives in a throwaway temp dir — never leak one per run
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     }
     // dep-cruiser emits paths relative to cwd; when cruising a HEAD tree (baseDir) remap them
     // to repo-relative so they match ownership. (Tree-sitter importers already emit repo-relative.)
