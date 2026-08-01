@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport } from '../src/view.js';
+import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type CellShowContext } from '../src/view.js';
 import type { CellSize } from '../src/payload.js';
 import type { Cell } from '../src/declaration.js';
 import type { CellMetrics, Crossing } from '../src/crossings.js';
@@ -96,12 +96,13 @@ describe('formatCellShow', () => {
   const size: CellSize = { files: 2, chars: 640, tokens: 160 };
   // out: validate → {ownership, declaration} (fanOut 2); in: cli → validate (fanIn 1) → I = 2/3 ≈ 0.67
   const metrics: CellMetrics = { fanIn: 1, fanOut: 2, instability: 2 / 3 };
-  const out2 = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics);
+  const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [] };
+  const out2 = formatCellShow(ctx);
 
   it('lists dead-at-boundary files and co-change partners when present', () => {
     const dead = ['src/validate.ts'];
     const coChange = [{ file: 'src/ownership.ts', cell: 'ownership', count: 12 }];
-    const rendered = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics, false, dead, coChange);
+    const rendered = formatCellShow({ ...ctx, dead, coChange });
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/validate.ts');
     expect(rendered).toContain('co-changes in git history (same-commit pairs — logical coupling imports can\'t see):');
@@ -109,7 +110,7 @@ describe('formatCellShow', () => {
   });
 
   it('omits the dead/co-change sections when empty', () => {
-    const rendered = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics);
+    const rendered = formatCellShow(ctx);
     expect(rendered).not.toContain('no other cell imports');
     expect(rendered).not.toContain('co-changes');
   });
@@ -143,7 +144,7 @@ describe('formatCellShow', () => {
   });
 
   it('shows the layer when set; omits the line when layerless', () => {
-    const layered = formatCellShow({ ...cell, layer: 1 }, ownedWithTokens, out, inc, size, metrics);
+    const layered = formatCellShow({ ...ctx, cell: { ...cell, layer: 1 } });
     expect(layered).toContain('layer: 1');
     expect(out2).not.toMatch(/^layer:/m); // the `cell` fixture (validate) has no layer
   });
@@ -153,7 +154,7 @@ describe('formatCellShow', () => {
       ...cell,
       signatures: ['parseCell(raw: string): Cell', 'serializeCell(cell: Cell): string'],
     };
-    const out3 = formatCellShow(signed, ownedWithTokens, out, inc, size, metrics);
+    const out3 = formatCellShow({ ...ctx, cell: signed });
     expect(out3).toContain('\u2022 parseCell(raw: string): Cell');
     expect(out3).toContain('\u2022 serializeCell(cell: Cell): string');
     // signatures line appears after provides, before requires
@@ -162,7 +163,7 @@ describe('formatCellShow', () => {
 
   it('shows test files when the cell declares them', () => {
     const withTests: Cell = { ...cell, tests: ['test/validate.test.ts'] };
-    const out4 = formatCellShow(withTests, ownedWithTokens, out, inc, size, metrics);
+    const out4 = formatCellShow({ ...ctx, cell: withTests });
     expect(out4).toContain('tests (1 file):');
     expect(out4).toContain('test/validate.test.ts');
   });
@@ -172,7 +173,7 @@ describe('formatCellShow', () => {
     const manyIn: Crossing[] = [];
     for (let i = 0; i < 6; i++) manyIn.push({ fromCell: 'placement', toCell: 'validate', fromFile: `src/p${i}.ts`, toFile: 'src/validate.ts', import: './v' });
     for (let i = 0; i < 4; i++) manyIn.push({ fromCell: 'infra', toCell: 'validate', fromFile: `src/i${i}.ts`, toFile: 'src/validate.ts', import: './v' });
-    const out5 = formatCellShow(cell, ownedWithTokens, out, manyIn, size, { ...metrics, fanIn: 10 });
+    const out5 = formatCellShow({ ...ctx, inc: manyIn, metrics: { ...metrics, fanIn: 10 } });
     expect(out5).toContain('imported by (10):');
     expect(out5).toContain('placement×6, infra×4');
     expect(out5).toContain('--verbose for per-file detail');
@@ -182,7 +183,7 @@ describe('formatCellShow', () => {
   it('--verbose shows raw per-file edges even past the threshold', () => {
     const manyIn: Crossing[] = [];
     for (let i = 0; i < 9; i++) manyIn.push({ fromCell: 'placement', toCell: 'validate', fromFile: `src/p${i}.ts`, toFile: 'src/validate.ts', import: './v' });
-    const out5 = formatCellShow(cell, ownedWithTokens, out, manyIn, size, { ...metrics, fanIn: 9 }, true);
+    const out5 = formatCellShow({ ...ctx, inc: manyIn, metrics: { ...metrics, fanIn: 9 } }, true);
     expect(out5).toContain('← placement   (src/p0.ts → src/validate.ts)');
     expect(out5).not.toContain('placement×9');
   });

@@ -162,7 +162,10 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
           if (paths) {
             const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
             for (const [alias, targets] of Object.entries(paths)) {
-              mergeAlias(alias, targets.map((t) => posix.normalize(`${base}/${t}`)));
+              mergeAlias(
+                alias,
+                targets.map((t) => posix.normalize(`${base}/${t}`)),
+              );
             }
           }
         } catch {
@@ -178,7 +181,10 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
     try {
       const cfg = JSON.parse(readFileSync(rootPath, 'utf8')) as { compilerOptions?: { paths?: Record<string, string[]> } };
       for (const [alias, targets] of Object.entries(cfg.compilerOptions?.paths ?? {})) {
-        mergeAlias(alias, targets.map((t) => posix.normalize(t)));
+        mergeAlias(
+          alias,
+          targets.map((t) => posix.normalize(t)),
+        );
       }
     } catch {
       /* skip */

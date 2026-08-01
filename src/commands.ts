@@ -192,7 +192,21 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const deadFiles = ownedFiles.filter((f) => !externallyImported.has(f));
   // Logical coupling: files that co-change with this cell's files in git history.
   const coChange = coChangePairs(ownedFiles).map((c) => ({ ...c, cell: owningCell(ownership, c.file) }));
-  process.stdout.write(formatCellShow(cell, perFile, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose, deadFiles, coChange));
+  process.stdout.write(
+    formatCellShow(
+      {
+        cell,
+        owned: perFile,
+        out,
+        inc,
+        size: computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)),
+        metrics: metrics[name],
+        dead: deadFiles,
+        coChange,
+      },
+      verbose,
+    ),
+  );
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */

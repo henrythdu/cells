@@ -58,7 +58,23 @@ function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
     .join(', ');
 }
 
-export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: number }[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false, deadFiles: string[] = [], coChange: { file: string; cell: string | undefined; count: number }[] = []): string {
+/** Pre-computed facts `cells show` renders — the cell, its owned files with sizes, crossings
+ *  in/out, payload size, metrics, and the practice signals (dead-at-boundary, co-change
+ *  coupling). Built by cmdShow; formatCellShow renders it. Bundle keeps the view's interface
+ *  one argument regardless of how many signals the report grows. */
+export interface CellShowContext {
+  cell: Cell;
+  owned: { file: string; tokens: number }[];
+  out: Crossing[];
+  inc: Crossing[];
+  size: CellSize;
+  metrics: CellMetrics;
+  dead: string[];
+  coChange: { file: string; cell: string | undefined; count: number }[];
+}
+
+export function formatCellShow(ctx: CellShowContext, verbose = false): string {
+  const { cell, owned: ownedFiles, out: outCrossings, inc: inCrossings, size, metrics, dead: deadFiles, coChange } = ctx;
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
