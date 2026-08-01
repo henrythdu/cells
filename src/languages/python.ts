@@ -146,23 +146,26 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
 }
 
 /** Python importer — tree-sitter analysis + module→file resolution via ownership. */
-export const pythonImporter = createTreeSitterImporter<{ descs: ImportDesc[]; localPackages: Set<string> }>({
+export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
   name: 'python',
   extensions: ['.py'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,
-  analyze: (root, _sourcePath, _importerModule, ctx) => {
-    // Local top-level packages = first segment of each module in the map — computed ONCE here
-    // (the old extractEdges recomputed it per file). Distinguishes local-but-unresolved imports
-    // (warn) from external packages (skip silently).
+  analyze: (root, _sourcePath, _importerModule, _ctx) => ({
+    mods: [],
+    reexports: [],
+    uses: extractImports(root), // per-file: this file's import descriptors
+  }),
+  resolveEdges: (descs, sourcePath, importerModule, ctx) => {
+    // Local top-level packages = first segment of each module in the map — derived HERE in
+    // phase 2, when the module→file map is complete (phase-1 analyze would see a map still
+    // being enriched). Distinguishes local-but-unresolved imports (warn) from external
+    // packages (skip silently).
     const localPackages = new Set<string>();
     for (const mod of ctx.moduleToFile.keys()) {
       const firstSeg = mod.split('.')[0];
       if (firstSeg) localPackages.add(firstSeg);
     }
-    return { mods: [], reexports: [], uses: { descs: extractImports(root), localPackages } };
-  },
-  resolveEdges: ({ descs, localPackages }, sourcePath, importerModule, ctx) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {

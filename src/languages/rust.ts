@@ -271,15 +271,18 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: ReadonlySet<st
  *  lives here, not in the generic factory. */
 function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: string, ctx: ResolveCtx): Reexport[] {
   const out: Reexport[] = [];
+  // The crate root + name are invariant across this file's uses — hoisted out of the loop
+  // (crateRootOf walks the FS probing for Cargo.toml; per-use repetition would re-walk).
+  const root = crateRootOf(sourcePath, ctx.baseDir ?? '.');
+  const name = root && root !== '.' ? ctx.crateNameByRoot?.get(root) : undefined;
   for (const { imp, modChain, isPub, alias } of uses) {
     if (!isPub || !alias) continue;
     const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
     const ns = effective.split('::')[0];
     const target = absoluteModulePath(imp, effective, ctx.crateNames) ?? `${ns}::${imp}`; // local module or (harmlessly wrong) external
     out.push({ module: effective, alias, target });
-    // ALSO under the crate-NAME form: the crate root of THIS file + its package name.
-    const root = crateRootOf(sourcePath, ctx.baseDir ?? '.');
-    const name = root && root !== '.' ? ctx.crateNameByRoot?.get(root) : undefined;
+    // ALSO under the crate-NAME form: a use addresses `uv_audit::osv::Filter` by name while
+    // the module key is root-path-prefixed.
     if (name) {
       const namedTarget = target.startsWith(`${effective}::`) || target === effective ? name + target.slice(effective.length) : target;
       out.push({ module: name, alias, target: namedTarget });
@@ -296,11 +299,14 @@ export const rustImporter = createTreeSitterImporter<UseDesc[]>({
   fileToModule,
   crateRootOf,
   crateNameOf,
-  analyze: (root, sourcePath, importerModule, ctx) => ({
-    mods: collectModDecls(root, sourcePath, ctx.files),
-    reexports: collectReexports(extractUses(root), sourcePath, importerModule, ctx),
-    uses: extractUses(root),
-  }),
+  analyze: (root, sourcePath, importerModule, ctx) => {
+    const uses = extractUses(root); // one walk — reused for re-exports AND resolution
+    return {
+      mods: collectModDecls(root, sourcePath, ctx.files),
+      reexports: collectReexports(uses, sourcePath, importerModule, ctx),
+      uses,
+    };
+  },
   resolveEdges: (uses, sourcePath, importerModule, ctx) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];

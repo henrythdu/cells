@@ -48,13 +48,9 @@ function loadIgnorePatterns(): string[] {
   return parseIgnore(readFileSync(ignorePath, 'utf8'));
 }
 
-export function loadOwnership(): Ownership {
-  const path = join(CELLS_DIR, 'ownership.toml');
-  if (!existsSync(path)) return {};
-  const ownership = readParsed(path, parseOwnership, '.cells/ownership.toml');
-  // wave-3 #7: `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
-  // (stale ownership.toml entries drop on the next write of the store; size/payload stop
-  // counting them without a manual unassign).
+/** Filter an ownership map down to non-ignored files (the store's invariant: owned ⟺ not
+ *  ignored). Shared by read and write so the two ends can't drift. */
+function filterIgnored(ownership: Ownership): Ownership {
   const patterns = loadIgnorePatterns();
   if (patterns.length === 0) return ownership;
   const filtered: Ownership = {};
@@ -65,18 +61,22 @@ export function loadOwnership(): Ownership {
   return filtered;
 }
 
+export function loadOwnership(): Ownership {
+  const path = join(CELLS_DIR, 'ownership.toml');
+  if (!existsSync(path)) return {};
+  const ownership = readParsed(path, parseOwnership, '.cells/ownership.toml');
+  // wave-3 #7: `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
+  // (stale ownership.toml entries drop on the next write of the store; size/payload stop
+  // counting them without a manual unassign).
+  return filterIgnored(ownership);
+}
+
 /** Persist the ownership map. Write side of the store's invariant: read filters ignored files,
  *  write drops them — the file on disk and what cells reads never disagree, and a stale entry
  *  (written before the ignore rule was added, or an ignored file handed to assign) drops here
  *  instead of lingering invisibly. All writers go through this one seam. */
 export function writeOwnership(ownership: Ownership): void {
-  const patterns = loadIgnorePatterns();
-  const filtered: Ownership = {};
-  for (const [cell, files] of Object.entries(ownership)) {
-    const kept = patterns.length === 0 ? files : files.filter((f) => !isIgnored(f, patterns));
-    if (kept.length > 0) filtered[cell] = kept;
-  }
-  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filtered));
+  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filterIgnored(ownership)));
 }
 
 /** Load `.cells/config.toml` (optional — missing file → defaults). */
