@@ -189,13 +189,7 @@ function resolveSuper(imp: string, importerModule: string): string | null {
  *  no further fall-back, since `crate::a::b::c` reaching the crate root would be a false edge.
  *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
  *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
-export function resolveImportPath(
-  imp: string,
-  importerModule: string,
-  moduleToFile: Map<string, string>,
-  crateNames: ReadonlySet<string> = new Set(),
-  reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
-): string | null {
+export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set(), reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): string | null {
   const look = (a: string): string | null => {
     const segs = a.split('::');
     return moduleToFile.get(segs.join('::')) ?? moduleToFile.get(segs.slice(0, -1).join('::')) ?? null;

@@ -140,6 +140,15 @@ function wildcardTarget(exports: Record<string, unknown> | null, rest: string): 
  */
 function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string, string[]> {
   const merged = new Map<string, string[]>();
+  /** Merge one alias' root-relative targets, deduping across configs. */
+  const mergeAlias = (alias: string, targets: string[]): void => {
+    const existing = merged.get(alias);
+    if (existing) {
+      for (const t of targets) if (!existing.includes(t)) existing.push(t);
+    } else {
+      merged.set(alias, targets);
+    }
+  };
   const seen = new Set<string>();
   for (const f of files) {
     let dir = dirname(f.path);
@@ -153,13 +162,7 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
           if (paths) {
             const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
             for (const [alias, targets] of Object.entries(paths)) {
-              const rootRel = targets.map((t) => posix.normalize(`${base}/${t}`).replace(/^\.\//, ''));
-              const mergedTargets = merged.get(alias);
-              if (mergedTargets) {
-                for (const t of rootRel) if (!mergedTargets.includes(t)) mergedTargets.push(t);
-              } else {
-                merged.set(alias, rootRel);
-              }
+              mergeAlias(alias, targets.map((t) => posix.normalize(`${base}/${t}`)));
             }
           }
         } catch {
@@ -171,17 +174,11 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
   }
   // the root tsconfig itself: read its paths too (files at the repo root never enter the loop)
   const rootPath = join(baseDir, 'tsconfig.json');
-  if (existsSync(rootPath) && !seen.has('.')) {
+  if (existsSync(rootPath)) {
     try {
       const cfg = JSON.parse(readFileSync(rootPath, 'utf8')) as { compilerOptions?: { paths?: Record<string, string[]> } };
       for (const [alias, targets] of Object.entries(cfg.compilerOptions?.paths ?? {})) {
-        const rootRel = targets.map((t) => posix.normalize(t).replace(/^\.\//, ''));
-        const mergedTargets = merged.get(alias);
-        if (mergedTargets) {
-          for (const t of rootRel) if (!mergedTargets.includes(t)) mergedTargets.push(t);
-        } else {
-          merged.set(alias, rootRel);
-        }
+        mergeAlias(alias, targets.map((t) => posix.normalize(t)));
       }
     } catch {
       /* skip */
@@ -266,7 +263,7 @@ export const depCruiserImporter: Importer = {
     }
     let result: ICruiseResult;
     try {
-      const { output } = await cruise(dirs, cruiseOpts);      // guard the shape — a future cruise() default that stops returning the result object
+      const { output } = await cruise(dirs, cruiseOpts); // guard the shape — a future cruise() default that stops returning the result object
       // would silently fake an empty graph (false green) if unchecked
       if (typeof output !== 'object' || output === null || !Array.isArray((output as ICruiseResult).modules)) {
         throw new Error('dependency-cruiser returned a non-JSON result');

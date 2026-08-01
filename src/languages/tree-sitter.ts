@@ -110,7 +110,14 @@ export interface TreeSitterImporterSpec {
    *  Self-loops and duplicate targets are de-duped by the factory. `crateNames` = the package
    *  names of workspace member crates — a bare first segment matching one is a cross-crate
    *  internal import (vs a silently-dropped external like `serde`). */
-  extractEdges(root: Node, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, crateNames?: ReadonlySet<string>, reexports?: ReadonlyMap<string, ReadonlyMap<string, string>>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
+  extractEdges(
+    root: Node,
+    sourcePath: string,
+    importerModule: string,
+    moduleToFile: Map<string, string>,
+    crateNames?: ReadonlySet<string>,
+    reexports?: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  ): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
 }
 
 /**

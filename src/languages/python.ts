@@ -139,7 +139,7 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
       entries = readdirSync(dir);
       compiledDirCache.set(dir, entries);
     }
-    return entries.some((entry) => entry.startsWith(`${name}.`) && COMPILED_EXTS.some((ext) => entry.endsWith(ext) || entry.endsWith(`${ext}.`)));
+    return entries.some((entry) => entry.startsWith(`${name}.`) && COMPILED_EXTS.some((ext) => entry.endsWith(ext)));
   } catch {
     return false; // dir missing → not compiled
   }
