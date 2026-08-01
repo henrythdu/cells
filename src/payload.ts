@@ -1,26 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Cell } from './declaration.js';
+import { readFiles } from './io.js';
 
 /** Size of a cell's payload: file count, raw chars, ~tokens. */
 export interface CellSize {
   files: number;
   chars: number;
   tokens: number;
-}
-
-/** Read files into a {path→content} map (missing files skipped — validate flags them).
- *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
-export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const p of paths) {
-    try {
-      out[p] = readFileSync(join(baseDir, p), 'utf8');
-    } catch {
-      // missing — validate flags as dangling
-    }
-  }
-  return out;
 }
 
 /** chars → token estimate (the payload heuristic: ~3 chars/token). Single home — all

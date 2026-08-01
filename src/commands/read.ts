@@ -2,8 +2,8 @@
  *  show, owns, payload, graph + the shared read pipeline (loadCrossings, warnIfNoCodeFiles).
  *  cli.ts keeps the dispatcher + mutation commands; the size/structure/impact/health report
  *  commands live in report.ts. Pure-ish: gathers I/O, delegates rendering to view. */
-import { listCodeFiles, type CellsContext } from '../io.js';
-import { computePayloadSize, neighborsOf, readFiles, estimateTokens, assemblePayload, type CellSize } from '../payload.js';
+import { listCodeFiles, readFiles, type CellsContext } from '../io.js';
+import { computePayloadSize, neighborsOf, estimateTokens, assemblePayload, type CellSize } from '../payload.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from '../crossings.js';
 import { formatCellList, formatCellShow } from '../view.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';

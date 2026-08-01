@@ -1,5 +1,5 @@
 name = "io"
-purpose = "Read Cells state from disk (declarations, ownership, config, code files, payload sizes). (Import-edge collection lives in the importers cell; the `crossings --diff` feature + its git machinery live in the diff cell.)"
+purpose = "Read Cells state from disk (declarations, ownership, config, code files) — the store/IO cell: everything that touches the filesystem for the partition lives here. (Import-edge collection lives in the importers cell; the `crossings --diff` feature + its git machinery live in the diff cell.)"
 provides = [
   "loadDeclarations",
   "loadOwnership",
@@ -8,11 +8,9 @@ provides = [
   "CellsContext",
   "readFiles",
   "listCodeFiles",
-  "neighborsOf",
-  "computePayloadSize",
   "detectProject",
   "CELLS_DIR",
 ]
 requires = ["declaration", "ownership", "config", "ignore"]
 
-layer = 3
+layer = 2

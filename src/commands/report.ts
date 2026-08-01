@@ -1,8 +1,8 @@
 /** Report command handlers: size, structure, impact, health. The renderers live in view /
  *  structure; these shells gather I/O and delegate. The read/query commands (crossings,
  *  list, show, graph, owns, payload) live in read.ts; the shared pipeline is loadCrossings. */
-import { listCodeFiles, type CellsContext } from '../io.js';
-import { computePayloadSize, neighborsOf, readFiles, estimateTokens } from '../payload.js';
+import { listCodeFiles, readFiles, type CellsContext } from '../io.js';
+import { computePayloadSize, neighborsOf, estimateTokens } from '../payload.js';
 import { checkLeakage, computeMetrics } from '../crossings.js';
 import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../view.js';
 import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';

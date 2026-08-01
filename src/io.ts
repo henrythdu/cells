@@ -126,6 +126,21 @@ export function listCodeFiles(baseDir = '.'): string[] {
   return all.filter((f) => !isIgnored(f, patterns));
 }
 
+/** Read files into a {path→content} map (missing files skipped — validate flags them).
+ *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`).
+ *  The one place file bytes enter cells — importers analyze contents, payload/size pack them. */
+export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of paths) {
+    try {
+      out[p] = readFileSync(join(baseDir, p), 'utf8');
+    } catch {
+      // missing — validate flags as dangling
+    }
+  }
+  return out;
+}
+
 /** Directories never scanned for code (deps, build output, tooling caches). */
 const SKIP_DIRS = new Set([
   '.git',
