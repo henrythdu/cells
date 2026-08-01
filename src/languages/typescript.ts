@@ -66,9 +66,14 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
     `${toPosix}/index.cjs`,
   ];
   for (const c of candidates) {
-    if (existsSync(join(baseDir, c)) && statSync(join(baseDir, c)).isFile()) {
-      cache.set(key, norm(join(baseDir, c)));
-      return norm(join(baseDir, c));
+    const full = join(baseDir, c);
+    try {
+      if (statSync(full).isFile()) {
+        cache.set(key, norm(full));
+        return norm(full);
+      }
+    } catch {
+      /* not found or not a file — try the next candidate */
     }
   }
   cache.set(key, null);

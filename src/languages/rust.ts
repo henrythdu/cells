@@ -169,8 +169,8 @@ function collectUses(node: Node, out: UseDesc[], modChain: string[]): void {
  *  namespace's first segment). Pure over the module map. */
 function crateRootOfModule(importerModule: string, moduleToFile: Map<string, string>): string | null {
   const parts = importerModule.split('::');
-  const inTestsDir = (dir: string) => /(^|\/)tests(\/|$)|(^|\/)benches(\/|$)|(^|\/)examples(\/|$)/.test(dir);
-  const directBoundary = (dir: string) => /(^|\/)tests$|(^|\/)benches$|(^|\/)examples$/.test(dir);
+  const inTestsDir = (dir: string) => /(^|\/)(tests|benches|examples)(\/|$)/.test(dir);
+  const directBoundary = (dir: string) => /(^|\/)(tests|benches|examples)$/.test(dir);
   for (let i = parts.length; i >= 1; i--) {
     const key = parts.slice(0, i).join('::');
     const file = moduleToFile.get(key);
@@ -179,8 +179,9 @@ function crateRootOfModule(importerModule: string, moduleToFile: Map<string, str
       const dir = file.slice(0, file.lastIndexOf('/'));
       if (base === 'lib.rs' || base === 'main.rs') {
         // a lib/main under tests/ is the test crate's root FILE — but `crate::` anchors to
-        // the enclosing dir namespace (its modules are siblings of main, not children)
-        return inTestsDir(dir) ? parts.slice(0, i - 1).join('::') : key;
+        // the enclosing dir namespace (its modules are siblings of main, not children); at
+        // i === 1 there is no enclosing dir — this module IS the crate root
+        return inTestsDir(dir) ? (i > 1 ? parts.slice(0, i - 1).join('::') : key) : key;
       }
       // a file directly in the tests/ boundary is its own crate root (each tests/*.rs is one)
       if (directBoundary(dir)) return key;
@@ -358,7 +359,9 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
       // lives in a local module).
       const firstSeg = imp.split('::')[0];
       const localProbe = `${ns}::${firstSeg}`;
-      local = [...ctx.moduleToFile.keys()].some((k) => k === localProbe || k.startsWith(localProbe + '::'));
+      local =
+        ctx.moduleToFile.has(localProbe) ||
+        [...ctx.moduleToFile.keys()].some((k) => k.startsWith(localProbe + '::'));
       real = `${ns}::${imp}`;
     } else {
       local = true;
@@ -385,10 +388,9 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
 /** Does this import route through a re-export of an EXTERNAL crate (an alias registered in
  *  ctx.externalReexports)? The target is real code but outside the partition — no edge to draw
  *  and no broken-local to flag (stress #7: `uv_warnings::owo_colors::OwoColorize` via
- *  `pub use owo_colors;`). Walks the path's module prefixes longest-first. Pure. */
-function isExternalReexport(imp: string, importerModule: string, crateNames: ReadonlySet<string>, external: ReadonlyMap<string, ReadonlySet<string>>, moduleToFile?: Map<string, string>): boolean {
-  const abs = absoluteModulePath(imp, importerModule, crateNames, moduleToFile);
-  if (!abs) return false; // a bare external crate (std/serde) — already silent, not our concern
+ *  `pub use owo_colors;`). Walks the path's module prefixes longest-first. Pure — takes the
+ *  already-computed absolute path (callers compute it once per import). */
+function isExternalReexport(abs: string, external: ReadonlyMap<string, ReadonlySet<string>>): boolean {
   const segs = abs.split('::');
   for (let i = segs.length - 1; i >= 1; i--) {
     if (external.get(segs.slice(0, i).join('::'))?.has(segs[i])) return true;
@@ -419,15 +421,16 @@ export const rustImporter = createTreeSitterImporter<UseDesc[]>({
       // Inline mod blocks deepen the importer's module — super/self arithmetic must count
       // them (wave-3 #1: `mod tests { use super::super::ir::X }` is 2 levels above the file).
       const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
+      const abs = absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile);
       // Routes through a re-export of an EXTERNAL crate? The target is real code but outside
       // the partition — no edge to draw, no broken-local to flag. Checked BEFORE resolution:
       // the deepest-module fallback would otherwise draw a false edge to the re-exporting
       // module (stress #7: `uv_warnings::owo_colors::OwoColorize` → warnings.rs).
-      if (isExternalReexport(imp, effective, ctx.crateNames, ctx.externalReexports, ctx.moduleToFile)) continue;
+      if (abs && isExternalReexport(abs, ctx.externalReexports)) continue;
       const toFile = resolveImportPath(imp, effective, ctx.moduleToFile, ctx.crateNames, ctx.reexports);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
-      } else if (!toFile && absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile) !== null) {
+      } else if (!toFile && abs !== null) {
         // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
         // my_mod — not unresolved, just self-referential.)
