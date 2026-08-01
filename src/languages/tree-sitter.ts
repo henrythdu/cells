@@ -173,7 +173,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       // Deterministic module-key winners: two files mapping to ONE module key (python's
       // .pxd+.pyx pair) — the last-set file wins, so sorted order picks the same one every
       // run (readdir order is OS-dependent). .pxd sorts before .pyx → the implementation wins.
-      files = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      files = [...files].sort((a, b) => a.path.localeCompare(b.path));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
       let moduleKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);

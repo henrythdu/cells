@@ -235,5 +235,19 @@ describe('unresolved local imports', () => {
       expect(fileToModule('pkg/__init__.pyx')).toBe('pkg');
       expect(fileToModule('src/algos.pyx', 'src')).toBe('algos');
     });
+
+    it('relative imports inside __init__.pyx resolve from the package itself (ocr fix)', async () => {
+      const files: SourceFile[] = [
+        { path: 'pkg/__init__.pyx', content: 'from . import bar\n' },
+        { path: 'pkg/bar.pyx', content: 'x = 1\n' },
+      ];
+      const { edges, unresolved } = await pythonImporter.extract({
+        codeDirs: ['.'],
+        files,
+        ownership: { a: files.map((f) => f.path) },
+      });
+      expect(edges.map((e) => `${e.import} -> ${e.toFile}`)).toEqual(['pkg.bar -> pkg/bar.pyx']);
+      expect(unresolved).toHaveLength(0);
+    });
   });
 });

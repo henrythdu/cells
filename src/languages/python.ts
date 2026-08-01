@@ -77,9 +77,9 @@ function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule:
   if (desc.dots === 0) {
     base = desc.module; // absolute
   } else {
-    // The package containing this file. For __init__.py, the module IS the package;
+    // The package containing this file. For __init__.py/.pyx/.pxd, the module IS the package;
     // for a regular file, the package is module minus the last segment.
-    const isInit = sourcePath.endsWith('/__init__.py');
+    const isInit = /\/__init__\.(py|pyx|pxd)$/.test(sourcePath);
     const pkg = (isInit ? importerModule : importerModule.split('.').slice(0, -1).join('.')).split('.').filter(Boolean);
     // `.` = current package; each extra dot goes up one level.
     const keep = pkg.length - (desc.dots - 1);
@@ -157,8 +157,15 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
   extensions: ['.py', '.pyx', '.pxd'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,
+  // Also blank the continuation of a parenthesized cimport (`from foo cimport (\n a,\n b,\n)`) —
+  // the orphan `a,`/`)` lines parse as bare errors; harmless alone, but keeping the block whole
+  // leaves nothing for error recovery to attach to a neighboring real import.
   preprocess: (content) =>
-    content.replace(/^\s*from\s+\S+\s+cimport\b.*$/gm, '').replace(/^\s*cimport\b.*$/gm, ''),
+    content
+      .replace(/^\s*from\s+\S+\s+cimport\s*\([\s\S]*?\)\s*$/gm, '')
+      .replace(/^\s*cimport\s*\([\s\S]*?\)\s*$/gm, '')
+      .replace(/^\s*from\s+\S+\s+cimport\b.*$/gm, '')
+      .replace(/^\s*cimport\b.*$/gm, ''),
   analyze: (root, _sourcePath, _importerModule, _ctx) => ({
     mods: [],
     reexports: [],
