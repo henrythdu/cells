@@ -37,7 +37,9 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
     let peel: PeelCandidate[] | undefined;
     if (size.tokens > config.maxPayloadTokens) {
       const contents = readFiles(owned);
-      peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
+      peel = owned
+        .map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 }))
+        .sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
     }
     return { name, size, peel };
   });
