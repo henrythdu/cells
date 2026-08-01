@@ -69,7 +69,7 @@ function collectImports(node: Node, out: ImportDesc[]): void {
 
 // --- resolution: descriptor + source file → candidate module paths → files ---
 
-function resolveEdges(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   let base: string;
   if (desc.dots === 0) {
     base = desc.module; // absolute
@@ -145,24 +145,28 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
   }
 }
 
-/** Python importer — tree-sitter extraction + module→file resolution via ownership. */
-export const pythonImporter = createTreeSitterImporter({
+/** Python importer — tree-sitter analysis + module→file resolution via ownership. */
+export const pythonImporter = createTreeSitterImporter<{ descs: ImportDesc[]; localPackages: Set<string> }>({
   name: 'python',
   extensions: ['.py'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,
-  extractEdges: (root, sourcePath, importerModule, moduleToFile) => {
-    // Local top-level packages = first segment of each module in the map. Used to distinguish
-    // local-but-unresolved imports (warn) from external packages (skip silently).
+  analyze: (root, _sourcePath, _importerModule, ctx) => {
+    // Local top-level packages = first segment of each module in the map — computed ONCE here
+    // (the old extractEdges recomputed it per file). Distinguishes local-but-unresolved imports
+    // (warn) from external packages (skip silently).
     const localPackages = new Set<string>();
-    for (const mod of moduleToFile.keys()) {
+    for (const mod of ctx.moduleToFile.keys()) {
       const firstSeg = mod.split('.')[0];
       if (firstSeg) localPackages.add(firstSeg);
     }
+    return { mods: [], reexports: [], uses: { descs: extractImports(root), localPackages } };
+  },
+  resolveEdges: ({ descs, localPackages }, sourcePath, importerModule, ctx) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
-    for (const desc of extractImports(root)) {
-      const r = resolveEdges(desc, sourcePath, importerModule, moduleToFile, localPackages);
+    for (const desc of descs) {
+      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleToFile, localPackages);
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
     }

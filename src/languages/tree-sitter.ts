@@ -6,7 +6,7 @@ import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer }
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
  * a factory that owns the parse loop. Each language importer supplies only its
- * language-specific logic (module derivation, AST extraction, resolution).
+ * language-specific logic (module derivation, AST analysis, resolution).
  */
 
 // --- grammar singleton cache (one Parser per grammar WASM; lazy + memoized) ---
@@ -82,8 +82,55 @@ export async function checkGrammars(): Promise<{ lang: string; ok: boolean; erro
   return results;
 }
 
-/** Spec for a tree-sitter language importer: the language-specific pieces. */
-export interface TreeSitterImporterSpec {
+/** Run-wide resolution facts every language importer resolves against — ONE object instead of
+ *  a positional param list (the external ImportContext already set that precedent; the internal
+ *  seam kept growing a param per wave — crateNames in wave-1, reexports in wave-3). */
+export interface ResolveCtx {
+  /** module path → source file. Enriched by the factory (fileToModule keys + declared
+   *  submodules + name aliases) BEFORE any resolution runs. */
+  moduleToFile: Map<string, string>;
+  /** every code file's path (for `mod x;` sibling-target lookups). */
+  files: ReadonlySet<string>;
+  /** package names of workspace member crates (rust): a bare first segment matching one is a
+   *  cross-crate internal import (vs a silently-dropped external like serde). */
+  crateNames: ReadonlySet<string>;
+  /** pub-use re-export chains: module → alias → absolute target. The language registers BOTH
+   *  namespaced and crate-name keys itself (crate semantics are the language's, not the
+   *  factory's); complete by the time resolveEdges runs. */
+  reexports: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  /** crate-root path → Cargo.toml package name (rust, multi-crate runs only) — used by the
+   *  language's analyze to register re-exports under the crate-name form. */
+  crateNameByRoot?: ReadonlyMap<string, string | null>;
+  /** Where code lives ('.' = the working repo; a HEAD-tree dir for --diff). */
+  baseDir?: string;
+}
+
+/** A declared submodule (from `mod x;` or inline `mod x {}`). */
+export interface ModDecl {
+  path: string[];
+  targetFile: string | null; // null = inline block (lives in the containing file)
+}
+
+/** A pub-use re-export the module exposes (module → alias → absolute target). */
+export interface Reexport {
+  module: string;
+  alias: string;
+  target: string;
+}
+
+/** What one AST analysis pass extracts: declared submodules, pub-use re-exports, and every use
+ *  path (language-specific shape in `uses`). */
+export interface Analysis<U> {
+  mods: ModDecl[];
+  reexports: Reexport[];
+  uses: U;
+}
+
+/** Spec for a tree-sitter language importer: the language-specific pieces. Two hooks — analyze
+ *  (one AST walk: what imports exist) and resolveEdges (semantics: where they land). A new
+ *  language implements both; the factory runs one uniform flow (parse once, analyze once,
+ *  resolve from facts) for every language. */
+export interface TreeSitterImporterSpec<U = unknown> {
   /** Human name for error messages (e.g. "rust"). */
   name: string;
   extensions: readonly string[];
@@ -96,37 +143,24 @@ export interface TreeSitterImporterSpec {
   /** The crate's package name from its manifest (hyphens→underscores — the Rust-visible name).
    *  The factory aliases namespaced module keys by it so `use sibling_crate::…` resolves. */
   crateNameOf?(crateRoot: string, baseDir?: string): string | null;
-  /** Declared submodules with their module-path chain relative to the containing file,
-   *  e.g. `mod x;` → [['x'], 'x.rs'], inline `mod x {}` → [['x'], null] (lives in this file),
-   *  nested inline blocks → [['x','y'], null]. null targetFile = inline block. The factory
-   *  enriches the module→file map with these so deep `crate::a::b::c` paths resolve to the
-   *  file containing the deepest module instead of reporting false "unresolved". */
-  declareModules?(root: Node, sourcePath: string, fileSet: Set<string>): { path: string[]; targetFile: string | null }[];
-  /** Pub-use re-exports: the alias a module exposes (`pub use service::osv` → osv at this
-   *  module, absolute target `crate::service::osv`). The factory merges these into a global
-   *  map passed to extractEdges, so imports through re-export chains resolve. */
-  collectReexports?(root: Node, importerModule: string, crateNames: ReadonlySet<string>): { module: string; alias: string; target: string }[];
-  /** Parse a tree's root into import edges + unresolved local imports (extraction + resolution).
-   *  Self-loops and duplicate targets are de-duped by the factory. `crateNames` = the package
-   *  names of workspace member crates — a bare first segment matching one is a cross-crate
-   *  internal import (vs a silently-dropped external like `serde`). */
-  extractEdges(
-    root: Node,
-    sourcePath: string,
-    importerModule: string,
-    moduleToFile: Map<string, string>,
-    crateNames?: ReadonlySet<string>,
-    reexports?: ReadonlyMap<string, ReadonlyMap<string, string>>,
-  ): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
+  /** One AST pass per file: declared submodules (enrich the module→file map so deep
+   *  `crate::a::b::c` paths resolve), pub-use re-exports (register in the global chain map),
+   *  and every use path (handed to resolveEdges). The factory parses each file once and runs
+   *  this once — no second parse, no second walk. */
+  analyze(root: Node, sourcePath: string, importerModule: string, ctx: ResolveCtx): Analysis<U>;
+  /** Resolve a file's extracted uses to file→file edges + unresolved local imports. Pure over
+   *  the facts from analyze; ctx.reexports is complete by the time this runs. */
+  resolveEdges(uses: U, sourcePath: string, importerModule: string, ctx: ResolveCtx): { edges: ImportEdge[]; unresolved: UnresolvedImport[] };
 }
 
 /**
  * Build an Importer from a tree-sitter spec. Owns the shared loop scaffolding:
- * build the module→file map, parse each matching file, hand the tree to
- * `extractEdges`, de-dupe, and free each WASM-backed Tree. The per-language
- * logic lives in the spec; this is the language-agnostic engine.
+ * build the module→file map, parse each matching file ONCE, run the spec's
+ * `analyze` (one AST walk), enrich the map from mods + re-exports, then hand
+ * the facts to `resolveEdges`. Self-loops and duplicate targets are de-duped
+ * by the factory; each WASM-backed Tree is freed.
  */
-export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer {
+export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSpec<U>): Importer {
   const matches = (path: string) => spec.extensions.some((e) => path.endsWith(e));
   return {
     name: spec.name,
@@ -158,7 +192,8 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
           if (spec.crateNameOf) {
             // Read each manifest ONCE — aliasByName runs per file/submodule, and re-reading
             // the same few Cargo.tomls hundreds of times synchronously would dominate a big
-            // workspace scan. Hoisted to function scope — reexports registration needs it too.
+            // workspace scan. Also handed to the spec's analyze (ctx.crateNameByRoot) for
+            // re-export registration under the crate-name form.
             nameByRoot = new Map<string, string | null>();
             for (const r of roots) {
               const name = spec.crateNameOf(r, baseDir);
@@ -203,72 +238,64 @@ export function createTreeSitterImporter(spec: TreeSitterImporterSpec): Importer
         return tree ?? null;
       };
 
-      // Enrich the module→file map with every declared submodule (inline + `mod x;`). The
-      // declared key always equals the target's own path-derived module (rust `mod x;` targets
-      // are path-aligned: sibling or name/ dir), so one pass over all files is order-free.
+      // Phase 1 — one parse + one analyze walk per file: declared submodules enrich the
+      // module→file map, re-exports register into the chain map, uses are stashed for phase 2.
+      // The enrichment MUST precede any resolution (a use in file A may target a module
+      // declared in file B), which is why extraction is two-phased — but each file is parsed
+      // and walked exactly once across both phases.
       const reexportMap = new Map<string, Map<string, string>>();
-      if (spec.declareModules || spec.collectReexports) {
-        const fileSet = new Set(files.map((f) => f.path));
-        for (const f of files) {
-          if (!matches(f.path)) continue;
-          const tree = parse(f.content);
-          if (!tree) continue;
-          try {
-            const base = moduleKey(f);
-            const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
-            if (spec.declareModules) {
-              for (const m of spec.declareModules(tree.rootNode, f.path, fileSet)) {
-                const key = `${base}::${m.path.join('::')}`;
-                moduleToFile.set(key, m.targetFile ?? f.path);
-                aliasByName(key, root);
-              }
-            }
-            if (spec.collectReexports) {
-              for (const r of spec.collectReexports(tree.rootNode, base, crateNames)) {
-                const register = (module: string, target: string): void => {
-                  let m = reexportMap.get(module);
-                  if (!m) {
-                    m = new Map();
-                    reexportMap.set(module, m);
-                  }
-                  if (!m.has(r.alias)) m.set(r.alias, target);
-                };
-                register(r.module, r.target);
-                // ALSO under the crate-NAME form: a use addresses `uv_audit::osv::Filter` by
-                // name (crateNames alias), while r.module is the namespaced key.
-                const name = root && root !== '.' ? nameByRoot?.get(root) : undefined;
-                if (name) {
-                  const target = r.target.startsWith(`${r.module}::`) || r.target === r.module ? name + r.target.slice(r.module.length) : r.target;
-                  register(name, target);
-                }
-              }
-            }
-          } finally {
-            tree.delete();
-          }
-        }
-      }
-
-      const edges: ImportEdge[] = [];
-      const unresolved: UnresolvedImport[] = [];
+      const ctx: ResolveCtx = {
+        moduleToFile,
+        files: new Set(files.map((f) => f.path)),
+        crateNames,
+        reexports: reexportMap,
+        crateNameByRoot: nameByRoot,
+        baseDir,
+      };
+      const analyses = new Map<string, Analysis<U>>();
       for (const f of files) {
         if (!matches(f.path)) continue;
         const tree = parse(f.content);
         if (!tree) continue;
         try {
           const importerModule = moduleKey(f);
-          const seen = new Set<string>();
-          const { edges: fileEdges, unresolved: fileUnresolved } = spec.extractEdges(tree.rootNode, f.path, importerModule, moduleToFile, crateNames, reexportMap);
-          for (const e of fileEdges) {
-            if (e.toFile !== f.path && !seen.has(e.toFile)) {
-              seen.add(e.toFile);
-              edges.push(e);
-            }
+          const a = spec.analyze(tree.rootNode, f.path, importerModule, ctx);
+          analyses.set(f.path, a);
+          const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
+          for (const m of a.mods) {
+            const key = `${importerModule}::${m.path.join('::')}`;
+            moduleToFile.set(key, m.targetFile ?? f.path);
+            aliasByName(key, root);
           }
-          unresolved.push(...fileUnresolved);
+          for (const r of a.reexports) {
+            let m = reexportMap.get(r.module);
+            if (!m) {
+              m = new Map();
+              reexportMap.set(r.module, m);
+            }
+            if (!m.has(r.alias)) m.set(r.alias, r.target);
+          }
         } finally {
           tree.delete(); // web-tree-sitter Trees are WASM-backed — free each one to avoid leaking.
         }
+      }
+
+      // Phase 2 — resolve from the stashed facts (no re-parse, no re-walk).
+      const edges: ImportEdge[] = [];
+      const unresolved: UnresolvedImport[] = [];
+      for (const f of files) {
+        if (!matches(f.path)) continue;
+        const a = analyses.get(f.path);
+        if (!a) continue;
+        const { edges: fileEdges, unresolved: fileUnresolved } = spec.resolveEdges(a.uses, f.path, moduleKey(f), ctx);
+        const seen = new Set<string>();
+        for (const e of fileEdges) {
+          if (e.toFile !== f.path && !seen.has(e.toFile)) {
+            seen.add(e.toFile);
+            edges.push(e);
+          }
+        }
+        unresolved.push(...fileUnresolved);
       }
       return { edges, unresolved };
     },

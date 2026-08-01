@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter } from './tree-sitter.js';
+import { createTreeSitterImporter, type ResolveCtx, type Reexport } from './tree-sitter.js';
 
 // --- module-path derivation: file → Rust module path ---
 
@@ -231,7 +231,7 @@ export function resolveImportPath(imp: string, importerModule: string, moduleToF
  *  `src/frontend/parser.rs`). Missing → null (nothing to map). Feeds the module→file map so
  *  deep `crate::a::b::c` paths (items inside nested mods) resolve to the file containing the
  *  deepest module instead of false "unresolved". */
-function collectModDecls(root: Node, sourcePath: string, fileSet: Set<string>): { path: string[]; targetFile: string | null }[] {
+function collectModDecls(root: Node, sourcePath: string, fileSet: ReadonlySet<string>): { path: string[]; targetFile: string | null }[] {
   const out: { path: string[]; targetFile: string | null }[] = [];
   // a file-module (name.rs) nests submodules under name/; mod.rs AND the crate roots
   // (lib.rs/main.rs) use their own dir
@@ -264,41 +264,54 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: Set<string>): 
 
 /** Pub-use re-exports: `pub use <path> [as <alias>];` — the alias this module exposes to the
  *  rest of the crate (and beyond). Returns absolute target modules (crate-namespaced; external
- *  crates get a bogus-but-harmless crate:: path that never matches a file). Feeds the factory's
- *  global re-export map so `use crate::osv::Filter` resolves through `pub use service::osv`. */
-function collectReexports(root: Node, importerModule: string, crateNames: ReadonlySet<string>): { module: string; alias: string; target: string }[] {
-  const out: { module: string; alias: string; target: string }[] = [];
-  for (const { imp, modChain, isPub, alias } of extractUses(root)) {
+ *  crates get a bogus-but-harmless crate:: path that never matches a file), registered under
+ *  BOTH the namespaced module key and the crate-NAME form — a use addresses `uv_audit::osv::Filter`
+ *  by name while the module key is root-path-prefixed. So `use crate::osv::Filter` resolves
+ *  through `pub use service::osv;`. Crate-name registration is Rust resolution semantics — it
+ *  lives here, not in the generic factory. */
+function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: string, ctx: ResolveCtx): Reexport[] {
+  const out: Reexport[] = [];
+  for (const { imp, modChain, isPub, alias } of uses) {
     if (!isPub || !alias) continue;
     const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
     const ns = effective.split('::')[0];
-    const target = absoluteModulePath(imp, effective, crateNames) ?? `${ns}::${imp}`; // local module or (harmlessly wrong) external
+    const target = absoluteModulePath(imp, effective, ctx.crateNames) ?? `${ns}::${imp}`; // local module or (harmlessly wrong) external
     out.push({ module: effective, alias, target });
+    // ALSO under the crate-NAME form: the crate root of THIS file + its package name.
+    const root = crateRootOf(sourcePath, ctx.baseDir ?? '.');
+    const name = root && root !== '.' ? ctx.crateNameByRoot?.get(root) : undefined;
+    if (name) {
+      const namedTarget = target.startsWith(`${effective}::`) || target === effective ? name + target.slice(effective.length) : target;
+      out.push({ module: name, alias, target: namedTarget });
+    }
   }
   return out;
 }
 
-/** Rust importer — tree-sitter extraction + module→file resolution via ownership. */
-export const rustImporter = createTreeSitterImporter({
+/** Rust importer — tree-sitter analysis + module→file resolution via ownership. */
+export const rustImporter = createTreeSitterImporter<UseDesc[]>({
   name: 'rust',
   extensions: ['.rs'],
   wasmBasename: 'tree-sitter-rust.wasm',
   fileToModule,
   crateRootOf,
   crateNameOf,
-  declareModules: (root, sourcePath, fileSet) => collectModDecls(root, sourcePath, fileSet),
-  collectReexports,
-  extractEdges: (root, sourcePath, importerModule, moduleToFile, crateNames = new Set<string>(), reexports = new Map()) => {
+  analyze: (root, sourcePath, importerModule, ctx) => ({
+    mods: collectModDecls(root, sourcePath, ctx.files),
+    reexports: collectReexports(extractUses(root), sourcePath, importerModule, ctx),
+    uses: extractUses(root),
+  }),
+  resolveEdges: (uses, sourcePath, importerModule, ctx) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
-    for (const { imp, modChain } of extractUses(root)) {
+    for (const { imp, modChain } of uses) {
       // Inline mod blocks deepen the importer's module — super/self arithmetic must count
       // them (wave-3 #1: `mod tests { use super::super::ir::X }` is 2 levels above the file).
       const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
-      const toFile = resolveImportPath(imp, effective, moduleToFile, crateNames, reexports);
+      const toFile = resolveImportPath(imp, effective, ctx.moduleToFile, ctx.crateNames, ctx.reexports);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
-      } else if (!toFile && absoluteModulePath(imp, effective, crateNames) !== null) {
+      } else if (!toFile && absoluteModulePath(imp, effective, ctx.crateNames) !== null) {
         // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within
         // my_mod — not unresolved, just self-referential.)
