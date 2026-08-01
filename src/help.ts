@@ -29,6 +29,8 @@ WORKING IN A CELLS PROJECT (for agents)
   2. zoom in      cells show <name>     a cell's membrane + in/out crossings + size
   3. retrieve     cells payload <name>  the full context (membrane + code + neighbors)
   4. assess       cells impact <name>   blast radius: who transitively depends on this? weigh before editing
+                                    (leaf = no import dependents — static view; hidden callers like
+                                    reflection, registries, entry points are invisible — change ≠ delete)
   5. work         edit the cell's files; stay within its membrane
   6. place code   new file? read list, pick a cell (your judgment), then
                   cells assign <cell> <file>. Unowned files aren't violations.

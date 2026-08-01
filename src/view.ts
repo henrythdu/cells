@@ -58,7 +58,7 @@ function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
     .join(', ');
 }
 
-export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: number }[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false): string {
+export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: number }[], outCrossings: Crossing[], inCrossings: Crossing[], size: CellSize, metrics: CellMetrics, verbose = false, deadFiles: string[] = [], coChange: { file: string; cell: string | undefined; count: number }[] = []): string {
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -72,6 +72,11 @@ export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: n
   lines.push('');
   lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
   for (const f of ownedFiles) lines.push(`  ${f.file}  (~${f.tokens} tok)`);
+  if (deadFiles.length > 0) {
+    lines.push('');
+    lines.push(`no other cell imports (static view — check for entry points before deleting):`);
+    for (const f of deadFiles) lines.push(`  ${f}`);
+  }
   if (cell.tests && cell.tests.length > 0) {
     lines.push('');
     lines.push(`tests (${cell.tests.length} file${cell.tests.length === 1 ? '' : 's'}):`);
@@ -92,6 +97,11 @@ export function formatCellShow(cell: Cell, ownedFiles: { file: string; tokens: n
     lines.push('  (--verbose for per-file detail)');
   } else {
     for (const c of inCrossings) lines.push(`  ← ${c.fromCell}   (${c.fromFile} → ${c.toFile})`);
+  }
+  if (coChange.length > 0) {
+    lines.push('');
+    lines.push(`co-changes in git history (same-commit pairs — logical coupling imports can't see):`);
+    for (const c of coChange) lines.push(`  ${c.file}  (${c.cell ? `cell ${c.cell} · ` : ''}${c.count}×)`);
   }
   return `${lines.join('\n')}\n`;
 }

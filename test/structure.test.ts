@@ -249,7 +249,7 @@ describe('computeImpact', () => {
 
 describe('formatImpactReport', () => {
   it('prints a leaf message when nothing depends on the cell', () => {
-    expect(formatImpactReport({ cell: 'a', affected: [] })).toBe('a is a leaf — nothing depends on it (safe to change).\n');
+    expect(formatImpactReport({ cell: 'a', affected: [] })).toBe('a is a leaf — no import dependents (static view; hidden callers like reflection, registries, and entry points are invisible). Safe to change — verify before deleting.\n');
   });
 
   it('groups affected cells by hop distance', () => {

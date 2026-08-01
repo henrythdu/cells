@@ -290,7 +290,7 @@ export function computeImpact(crossings: Crossing[], cell: string): Impact {
  */
 export function formatImpactReport(impact: Impact): string {
   if (impact.affected.length === 0) {
-    return `${impact.cell} is a leaf — nothing depends on it (safe to change).\n`;
+    return `${impact.cell} is a leaf — no import dependents (static view; hidden callers like reflection, registries, and entry points are invisible). Safe to change — verify before deleting.\n`;
   }
   const byDistance = new Map<number, string[]>();
   for (const a of impact.affected) {

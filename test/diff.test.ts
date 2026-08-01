@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { crossingsDelta } from '../src/diff.js';
+import { coChangePairs, crossingsDelta } from '../src/diff.js';
 import { collectImportEdges } from '../src/importers.js';
 import { deriveCrossings } from '../src/crossings.js';
 import type { Ownership } from '../src/ownership.js';
@@ -141,5 +141,64 @@ describe('cells crossings --diff (CLI)', () => {
       expect(err.stdout).toContain('+ [UNDECLARED] b → a');
       expect(err.stderr).toContain('add "a" to b.cell.toml requires');
     }
+  });
+
+  it('marks a removed edge still declared in requires as [REQUIRES NOW STALE]', () => {
+    cliRepo = mkdtempSync(join(tmpdir(), 'cells-diff-cli-'));
+    mkdirSync(join(cliRepo, 'src'), { recursive: true });
+    mkdirSync(join(cliRepo, '.cells'), { recursive: true });
+    writeFileSync(join(cliRepo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
+    writeFileSync(join(cliRepo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
+    // b REQUIRES a → removing the b→a edge stales the declared requirement
+    writeFileSync(join(cliRepo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
+    writeFileSync(join(cliRepo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = []\nrequires = ["a"]\nlayer = 0\n');
+    writeFileSync(join(cliRepo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n');
+    writeFileSync(join(cliRepo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(cliRepo, 'src', 'a.ts'), 'export const x = 1;\n');
+    writeFileSync(join(cliRepo, 'src', 'b.ts'), "import { x } from './a.js';\nexport const y = x;\n"); // HEAD: has import
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m head');
+    // working: b.ts drops the import → removed b→a crossing, but requires still lists a
+    writeFileSync(join(cliRepo, 'src', 'b.ts'), 'export const y = 2;\n');
+
+    const out = execSync(`node ${cellsBin} crossings --diff`, { cwd: cliRepo, encoding: 'utf8' });
+    expect(out).toContain('− [REQUIRES NOW STALE] b → a');
+  });
+});
+
+describe('coChangePairs', () => {
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-couchange-'));
+    process.chdir(repo);
+  });
+  afterEach(() => {
+    process.chdir(startCwd);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('finds files that co-change in the same commit (logical coupling)', () => {
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a\n');
+    writeFileSync(join(repo, 'src', 'b.ts'), 'b\n');
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m one'); // a + b co-change (both new)
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a2\n');
+    writeFileSync(join(repo, 'src', 'c.ts'), 'c\n');
+    git('add -A');
+    git('commit -m two'); // a + c co-change
+    const pairs = coChangePairs(['src/a.ts']);
+    expect(pairs).toContainEqual({ file: 'src/b.ts', count: 1 });
+    expect(pairs).toContainEqual({ file: 'src/c.ts', count: 1 });
+    expect(coChangePairs([])).toEqual([]);
+  });
+
+  it('returns [] outside a git repo', () => {
+    expect(coChangePairs(['src/a.ts'])).toEqual([]);
   });
 });

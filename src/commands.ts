@@ -5,7 +5,7 @@ import { listCodeFiles, computePayloadSize, neighborsOf, readFiles, estimateToke
 import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { crossingsDelta } from './diff.js';
+import { coChangePairs, crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { checkGrammars } from './languages/tree-sitter.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
@@ -71,7 +71,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       // (declared-but-unused) is a full-tree property an added-subset can't answer.
       const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
       const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
-      showCrossingsDelta(delta, undeclaredKeys);
+      showCrossingsDelta(delta, undeclaredKeys, declarations);
       if (leakage.length > 0) {
         console.error(`\nUndeclared crossings (${leakage.length}) — the [UNDECLARED] edges above need a requires entry (or remove the import):`);
         for (const l of leakage) console.error(`  ${l.detail}`);
@@ -131,7 +131,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
 }
 
 /** Render a crossings delta: +/− edges, then a summary. */
-function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new Set()): void {
+function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new Set(), declarations: Record<string, Cell> = {}): void {
   if (delta.added.length === 0 && delta.removed.length === 0) {
     console.log('No crossing changes since HEAD.');
     return;
@@ -141,7 +141,12 @@ function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new
     const flag = undeclared.has(`${c.fromCell}|${c.toCell}`) ? ' [UNDECLARED]' : '';
     console.log(`  +${flag} ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
   }
-  for (const c of delta.removed) console.log(`  − ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  for (const c of delta.removed) {
+    // Removed edge to a cell still declared in requires = the change invalidated a
+    // declared contract (mirror of [UNDECLARED] on the added side).
+    const flag = declarations[c.fromCell]?.requires.includes(c.toCell) ? ' [REQUIRES NOW STALE]' : '';
+    console.log(`  −${flag} ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
+  }
   console.log(`${delta.added.length} added, ${delta.removed.length} removed.`);
 }
 
@@ -175,11 +180,19 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const ownedFiles = ownership[name] ?? [];
   const contents = readFiles(ownedFiles);
   const perFile = ownedFiles.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length) }));
-  const { crossings } = await loadCrossings(ownership);
+  const { edges, crossings } = await loadCrossings(ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
-  process.stdout.write(formatCellShow(cell, perFile, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose));
+  // Dead at the cell boundary: owned files no file OUTSIDE the cell imports (static view —
+  // internal edges don't count; entry points may still load them, see impact's caveat).
+  const ownedSet = new Set(ownedFiles);
+  const externallyImported = new Set<string>();
+  for (const e of edges) if (!ownedSet.has(e.fromFile)) externallyImported.add(e.toFile);
+  const deadFiles = ownedFiles.filter((f) => !externallyImported.has(f));
+  // Logical coupling: files that co-change with this cell's files in git history.
+  const coChange = coChangePairs(ownedFiles).map((c) => ({ ...c, cell: owningCell(ownership, c.file) }));
+  process.stdout.write(formatCellShow(cell, perFile, out, inc, computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)), metrics[name], verbose, deadFiles, coChange));
 }
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */

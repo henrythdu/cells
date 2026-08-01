@@ -98,6 +98,22 @@ describe('formatCellShow', () => {
   const metrics: CellMetrics = { fanIn: 1, fanOut: 2, instability: 2 / 3 };
   const out2 = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics);
 
+  it('lists dead-at-boundary files and co-change partners when present', () => {
+    const dead = ['src/validate.ts'];
+    const coChange = [{ file: 'src/ownership.ts', cell: 'ownership', count: 12 }];
+    const rendered = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics, false, dead, coChange);
+    expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
+    expect(rendered).toContain('  src/validate.ts');
+    expect(rendered).toContain('co-changes in git history (same-commit pairs — logical coupling imports can\'t see):');
+    expect(rendered).toContain('  src/ownership.ts  (cell ownership · 12×)');
+  });
+
+  it('omits the dead/co-change sections when empty', () => {
+    const rendered = formatCellShow(cell, ownedWithTokens, out, inc, size, metrics);
+    expect(rendered).not.toContain('no other cell imports');
+    expect(rendered).not.toContain('co-changes');
+  });
+
   it('shows the declaration (purpose, provides, requires)', () => {
     expect(out2).toContain('cell: validate');
     expect(out2).toContain('check partition integrity');
