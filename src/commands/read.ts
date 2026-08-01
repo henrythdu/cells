@@ -1,21 +1,18 @@
-/** Read/analysis command handlers for the CLI (the payload-shaped half). cli.ts keeps
- *  the dispatcher + mutation commands; this module implements the commands that read
- *  the store and render reports. Pure-ish: gathers I/O, delegates rendering to view. */
-import { listCodeFiles, type CellsContext } from './io.js';
-import { computePayloadSize, neighborsOf, readFiles, estimateTokens, assemblePayload, type CellSize } from './payload.js';
-import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from './crossings.js';
-import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
-import { formatCellGraph, formatCellGraphAscii } from './graph.js';
-import { coChangePairs, crossingsDelta } from './diff.js';
-import { collectImportEdges } from './importers.js';
-import { checkGrammars } from './importers.js';
-import type { ImportEdge, UnresolvedImport } from './imports.js';
-
-import { owningCell, type Ownership } from './ownership.js';
-import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
-import { validatePartition } from './validate.js';
-import type { CellsConfig } from './config.js';
-import type { Cell } from './declaration.js';
+/** Read/analysis command handlers for the CLI (the payload-shaped half): crossings, list,
+ *  show, owns, payload, graph + the shared read pipeline (loadCrossings, warnIfNoCodeFiles).
+ *  cli.ts keeps the dispatcher + mutation commands; the size/structure/impact/health report
+ *  commands live in report.ts. Pure-ish: gathers I/O, delegates rendering to view. */
+import { listCodeFiles, type CellsContext } from '../io.js';
+import { computePayloadSize, neighborsOf, readFiles, estimateTokens, assemblePayload, type CellSize } from '../payload.js';
+import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from '../crossings.js';
+import { formatCellList, formatCellShow } from '../view.js';
+import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
+import { coChangePairs, crossingsDelta } from '../diff.js';
+import { collectImportEdges } from '../importers.js';
+import type { ImportEdge, UnresolvedImport } from '../imports.js';
+import { owningCell, type Ownership } from '../ownership.js';
+import type { CellsConfig } from '../config.js';
+import type { Cell } from '../declaration.js';
 
 /** Warn (stderr) when census files exist that no importer handles — the
  * crossings-derived output may be BLIND. Goes to stderr so machine output (stdout) stays clean. */
@@ -210,60 +207,6 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   );
 }
 
-/** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
-export async function cmdSize(ctx: CellsContext): Promise<void> {
-  const { config, declarations, ownership } = ctx;
-  // warn=false: the blind-ext warning's own text says "Partition/size/validate are unaffected" —
-  // noise on `cells size`. (list/health keep their coverage: list's coupling columns ARE crossings-derived.)
-  const { edges } = await loadCrossings(ownership, false);
-  const fileFanIn = new Map<string, number>();
-  for (const e of edges) fileFanIn.set(e.toFile, (fileFanIn.get(e.toFile) ?? 0) + 1);
-  const entries = Object.keys(declarations).map((name) => {
-    const cell = declarations[name];
-    const owned = ownership[name] ?? [];
-    const size = computePayloadSize(cell, owned, neighborsOf(cell, declarations));
-    // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
-    // (a big file few others import is the cheapest chunk to carve out).
-    let peel: PeelCandidate[] | undefined;
-    if (size.tokens > config.maxPayloadTokens) {
-      const contents = readFiles(owned);
-      peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
-    }
-    return { name, size, peel };
-  });
-  process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
-}
-
-/** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0). */
-export async function cmdStructure(ctx: CellsContext): Promise<void> {
-  const { declarations, ownership, config } = ctx;
-  const { crossings } = await loadCrossings(ownership);
-  const cycles = detectCycles(crossings);
-  const violations = checkDirection(crossings, declarations);
-  const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
-  const report = formatStructureReport(cycles, violations, anyLayered, config.layers, crossings);
-  const overview = formatLayerOverview(declarations, config.layers);
-  process.stdout.write(overview ? `${overview}\n${report}` : report);
-
-  const suggestions = formatLayerSuggestions(declarations);
-  if (suggestions !== null) process.stdout.write(`\n${suggestions}`);
-
-  const metrics = computeMetrics(crossings, Object.keys(declarations));
-  const sdp = formatSdpReport(checkSDP(crossings, metrics));
-  if (sdp !== null) process.stdout.write(`\n${sdp}`);
-}
-
-/** `cells impact <name>` — blast radius: who transitively depends on this cell? */
-export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> {
-  const { declarations, ownership } = ctx;
-  if (!declarations[name]) {
-    console.error(`error: no cell named "${name}"`);
-    process.exit(1);
-  }
-  const { crossings } = await loadCrossings(ownership);
-  process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
-}
-
 /** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
 export async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<void> {
   const { ownership } = ctx;
@@ -312,58 +255,4 @@ export function cmdPayload(ctx: CellsContext, name: string): void {
 
   const chars = payload.length;
   console.error(`\n[size: ${chars} chars, ~${estimateTokens(chars)} tokens]`);
-}
-
-/** `cells health` — all four checks at once (validate + crossings + structure + size).
- *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
- *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
-export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<void> {
-  const { config, declarations, ownership } = ctx;
-  const codeFiles = listCodeFiles();
-  warnIfNoCodeFiles(config, codeFiles);
-
-  const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
-  const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
-
-  const violations = validatePartition(ownership, declarations, codeFiles);
-  const grammarResults = await checkGrammars();
-  const leakage = checkLeakage(crossings, declarations);
-  const stale = leakage.filter((l) => l.kind === 'stale');
-  const cycles = detectCycles(crossings);
-  const dirViolations = checkDirection(crossings, declarations);
-
-  const cellNames = Object.keys(declarations);
-  let maxPercent = 0;
-  for (const name of cellNames) {
-    const cell = declarations[name];
-    const pct = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)).tokens / config.maxPayloadTokens;
-    if (pct > maxPercent) maxPercent = pct;
-  }
-
-  // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
-  const undeclared = leakage.filter((l) => l.kind === 'undeclared');
-  const { report, gateOk } = formatHealthReport(
-    {
-      cellCount: cellNames.length,
-      fileCount: codeFiles.length,
-      crossingCount: crossings.length,
-      violationCount: violations.length,
-      violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
-      undeclaredCount: undeclared.length,
-      undeclaredEdges: undeclared.map((u) => u.detail),
-      staleCount: stale.length,
-      staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
-      cycleCount: cycles.length,
-      dirViolationCount: dirViolations.length,
-      maxPercent,
-      uncoveredExts: visibleUncoveredExts,
-      unresolvedCount: unresolved.length,
-      unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
-      grammarResults,
-    },
-    verbose,
-  );
-
-  process.stdout.write(report);
-  if (!gateOk) process.exitCode = 1; // exitCode, not exit(): the report (esp. on failure) must flush before the process ends
 }

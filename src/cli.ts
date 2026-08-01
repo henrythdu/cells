@@ -11,7 +11,8 @@ import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, valid
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, requireCells, detectProject, type CellsContext } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { buildConfig } from './config.js';
-import { cmdCrossings, cmdList, cmdShow, cmdSize, cmdStructure, cmdImpact, cmdGraph, cmdOwns, cmdPayload, cmdHealth, loadCrossings, warnIfNoCodeFiles } from './commands.js';
+import { cmdCrossings, cmdList, cmdShow, cmdGraph, cmdOwns, cmdPayload, loadCrossings, warnIfNoCodeFiles } from './commands/read.js';
+import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './commands/report.js';
 import { HELP } from './help.js';
 
 /** Installed version, read lazily from package.json (works in dev + when npm-installed). */

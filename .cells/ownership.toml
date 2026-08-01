@@ -59,7 +59,7 @@ files = ["src/languages/rust.ts", "test/languages/rust.test.ts"]
 files = ["src/diff.ts", "test/diff.test.ts"]
 
 [commands]
-files = ["src/commands.ts"]
+files = ["src/commands/read.ts", "src/commands/report.ts", "test/commands.test.ts"]
 
 [tree-sitter]
 files = ["src/languages/tree-sitter.ts"]
