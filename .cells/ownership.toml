@@ -23,7 +23,7 @@ files = ["src/assign.ts", "test/assign.test.ts"]
 files = ["src/config.ts", "test/config.test.ts"]
 
 [cli]
-files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts", "test/workflow.test.ts"]
+files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts", "test/workflow.test.ts", "src/mutate.ts"]
 
 [io]
 files = ["src/io.ts", "test/io.test.ts"]
