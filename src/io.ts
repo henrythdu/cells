@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, readdirSync, statSync, realpathSync, type Stats } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import { parseCell, type Cell } from './declaration.js';
-import { parseOwnership, type Ownership } from './ownership.js';
+import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
 import { assemblePayload, type CellSize } from './payload.js';
 import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
@@ -63,6 +63,20 @@ export function loadOwnership(): Ownership {
     if (kept.length > 0) filtered[cell] = kept;
   }
   return filtered;
+}
+
+/** Persist the ownership map. Write side of the store's invariant: read filters ignored files,
+ *  write drops them — the file on disk and what cells reads never disagree, and a stale entry
+ *  (written before the ignore rule was added, or an ignored file handed to assign) drops here
+ *  instead of lingering invisibly. All writers go through this one seam. */
+export function writeOwnership(ownership: Ownership): void {
+  const patterns = loadIgnorePatterns();
+  const filtered: Ownership = {};
+  for (const [cell, files] of Object.entries(ownership)) {
+    const kept = patterns.length === 0 ? files : files.filter((f) => !isIgnored(f, patterns));
+    if (kept.length > 0) filtered[cell] = kept;
+  }
+  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filtered));
 }
 
 /** Load `.cells/config.toml` (optional — missing file → defaults). */

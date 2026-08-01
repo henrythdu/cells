@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
-import { serializeOwnership } from './ownership.js';
+import { writeOwnership } from './io.js';
 import { checkLeakage } from './crossings.js';
 import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, loadContext, requireCells, detectProject, computePayloadSize, neighborsOf, type CellsContext } from './io.js';
@@ -44,7 +44,7 @@ function cmdInit(dryRun = false): void {
   const cfgPath = join(CELLS_DIR, 'config.toml');
   const created: string[] = [];
   if (!existsSync(ownPath)) {
-    writeFileSync(ownPath, serializeOwnership({}));
+    writeOwnership({});
     created.push('ownership.toml');
   }
   if (!existsSync(cfgPath)) {
@@ -93,7 +93,7 @@ function cmdRename(oldName: string, newName: string): void {
   if (ownership[oldName]) {
     ownership[newName] = ownership[oldName];
     delete ownership[oldName];
-    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+    writeOwnership(ownership);
   }
 
   let requiresUpdated = 0;
@@ -138,7 +138,7 @@ function cmdRemove(name: string, force: boolean): void {
 
   if (ownedFiles.length > 0 || ownership[name] !== undefined) {
     delete ownership[name];
-    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+    writeOwnership(ownership);
   }
 
   for (const dep of dependents) {
@@ -169,7 +169,7 @@ function cmdAssign(cell: string, files: string[], dryRun = false): void {
     return;
   }
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
-  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+  writeOwnership(ownership);
   console.log(stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${files.length} file(s) to "${cell}".`);
 }
 
@@ -186,7 +186,7 @@ function cmdUnassign(files: string[], dryRun = false): void {
     }
     return;
   }
-  writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(unassignFiles(ownership, files)));
+  writeOwnership(unassignFiles(ownership, files));
   if (removed.length === 0) {
     console.log('No changes — none of those files were owned.');
     return;
@@ -315,7 +315,7 @@ function cmdPlan(apply = false, dryRun = false): void {
       return;
     }
     for (const s of stubs) writeFileSync(join(CELLS_DIR, `${s.name}.cell.toml`), serializeCell(s)); // stubs before ownership — a write failure leaves no dirty state
-    writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(ownership));
+    writeOwnership(ownership);
     console.log(summary);
     return;
   }

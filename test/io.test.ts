@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { detectProject, loadOwnership } from '../src/io.js';
+import { detectProject, loadOwnership, writeOwnership } from '../src/io.js';
 import { execSync } from 'node:child_process';
 
 let dir: string;
@@ -38,6 +38,23 @@ describe('loadOwnership (ignored files are unowned — wave-3 #7)', () => {
     process.chdir(repo);
     try {
       expect(loadOwnership()).toEqual({ a: ['src/a.ts'] });
+    } finally {
+      process.chdir(prev);
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('writeOwnership drops ignored files — the invariant holds at both ends of the store', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cells-ig-own-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'ignore'), 'dist/\n');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      writeOwnership({ a: ['src/a.ts', 'dist/b.js'], b: ['dist/c.js'] }); // whole cell ignored → dropped
+      expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).toContain('src/a.ts');
+      expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).not.toContain('dist/');
+      expect(loadOwnership()).toEqual({ a: ['src/a.ts'] }); // disk and read model agree
     } finally {
       process.chdir(prev);
       rmSync(repo, { recursive: true, force: true });
