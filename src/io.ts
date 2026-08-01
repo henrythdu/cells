@@ -2,7 +2,6 @@ import { existsSync, readFileSync, readdirSync, statSync, realpathSync, writeFil
 import { join, relative, extname } from 'node:path';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
-import { assemblePayload, type CellSize } from './payload.js';
 import { parseIgnore, isIgnored } from './ignore.js';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
 
@@ -79,8 +78,7 @@ export function writeOwnership(ownership: Ownership): void {
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filterIgnored(ownership)));
 }
 
-/** Load `.cells/config.toml` (optional — missing file → defaults). */
-export function loadConfig(): CellsConfig {
+/** Load `.cells/config.toml` (optional — missing file → defaults). */export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
   if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
   return readParsed(path, parseConfig, '.cells/config.toml');
@@ -97,20 +95,6 @@ export interface CellsContext {
 
 export function loadContext(): CellsContext {
   return { declarations: loadDeclarations(), ownership: loadOwnership(), config: loadConfig() };
-}
-
-/** Read files into a {path→content} map (missing files skipped — validate flags them).
- *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
-export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const p of paths) {
-    try {
-      out[p] = readFileSync(join(baseDir, p), 'utf8');
-    } catch {
-      // missing — validate flags as dangling
-    }
-  }
-  return out;
 }
 
 /** Recursively list files under a directory whose extension is in `exts` (relative paths).
@@ -242,25 +226,4 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   codeDirs = codeDirs.includes('.') ? ['.'] : codeDirs.filter((d) => !codeDirs.some((o) => o !== d && (d + '/').startsWith(o + '/')));
   if (codeDirs.length === 0) codeDirs = ['src', 'test'];
   return { codeExts, codeDirs };
-}
-
-/** Resolve a cell's neighbor declarations (for payload assembly). */
-export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {
-  return cell.requires.map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
-}
-
-/** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes).
- * Includes test files so the size gate (health/size) matches what `payload` actually emits. */
-export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
-  const fileContents = readFiles(ownedFiles);
-  const testFiles = cell.tests ?? [];
-  const testContents = testFiles.length > 0 ? readFiles(testFiles) : undefined;
-  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors, undefined, testFiles, testContents).length;
-  return { files: ownedFiles.length + testFiles.length, chars, tokens: estimateTokens(chars) };
-}
-
-/** chars → token estimate (the payload heuristic: ~3 chars/token). Single home — all
- *  size displays must route through here so they never disagree. */
-export function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 3);
 }

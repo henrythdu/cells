@@ -13,6 +13,6 @@ provides = [
   "detectProject",
   "CELLS_DIR",
 ]
-requires = ["declaration", "ownership", "payload", "config", "ignore"]
+requires = ["declaration", "ownership", "config", "ignore"]
 
 layer = 3

@@ -1,7 +1,8 @@
 /** Read/analysis command handlers for the CLI (the payload-shaped half). cli.ts keeps
  *  the dispatcher + mutation commands; this module implements the commands that read
  *  the store and render reports. Pure-ish: gathers I/O, delegates rendering to view. */
-import { listCodeFiles, computePayloadSize, neighborsOf, readFiles, estimateTokens, type CellsContext } from './io.js';
+import { listCodeFiles, type CellsContext } from './io.js';
+import { computePayloadSize, neighborsOf, readFiles, estimateTokens, assemblePayload, type CellSize } from './payload.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from './crossings.js';
 import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
 import { formatCellGraph, formatCellGraphAscii } from './graph.js';
@@ -9,7 +10,7 @@ import { coChangePairs, crossingsDelta } from './diff.js';
 import { collectImportEdges } from './importers.js';
 import { checkGrammars } from './languages/tree-sitter.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
-import { assemblePayload, type CellSize } from './payload.js';
+
 import { owningCell, type Ownership } from './ownership.js';
 import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
 import { validatePartition } from './validate.js';

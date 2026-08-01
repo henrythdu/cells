@@ -8,6 +8,7 @@ requires = [
   "declaration",
   "ownership",
   "crossings",
+  "payload",
   "assign",
   "help",
 ]

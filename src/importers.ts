@@ -1,6 +1,7 @@
 import { extname, join } from 'node:path';
 import type { ImportEdge, SourceFile, UnresolvedImport, Importer } from './imports.js';
-import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
+import { loadConfig, loadOwnership, listCodeFiles } from './io.js';
+import { readFiles } from './payload.js';
 
 // Language importer specs live in ./languages/ — add a language = add a spec file there
 // (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
