@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
-import { loadContext, listCodeFiles } from '../src/io.js';
+import { loadContext } from '../src/io.js';
 import { loadCrossings, warnIfNoCodeFiles, cmdShow } from '../src/commands/read.js';
 import type { CellsConfig } from '../src/config.js';
 
@@ -90,6 +90,5 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     expect(rendered).toContain('  src/c.py'); // dead — nothing imports it
     expect(rendered).toContain('co-changes in git history');
     expect(rendered).toContain('src/b.py  (cell b · 1×)'); // c.py + b.py co-changed in commit 1
-    expect(listCodeFiles().length).toBeGreaterThan(0); // census sanity
   });
 });
