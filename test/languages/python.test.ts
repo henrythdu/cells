@@ -165,4 +165,75 @@ describe('unresolved local imports', () => {
     });
     expect(unresolved.length).toBeGreaterThan(0);
   });
+
+  describe('Cython (.pyx/.pxd)', () => {
+    it('extracts regular Python imports from .pyx files (incl. relative + local)', async () => {
+      const cy: SourceFile[] = [
+        { path: 'algos.pyx', content: 'import sibling\nfrom .util import helper\ndef f():\n    import inner\n' },
+        { path: 'sibling.pyx', content: 'x = 1\n' },
+        { path: 'util.pxd', content: 'cdef int helper()\n' },
+        { path: 'inner.pyx', content: 'y = 2\n' },
+      ];
+      const { edges } = await pythonImporter.extract({
+        codeDirs: ['.'],
+        files: cy,
+        ownership: { a: cy.map((f) => f.path) },
+      });
+      expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
+        new Set([
+          'sibling -> sibling.pyx', // absolute
+          'util -> util.pxd', // relative from .util — resolves to the .pxd
+          'inner -> inner.pyx', // inside def body
+        ]),
+      );
+    });
+
+    it('keeps cimport blind AND does not swallow neighboring real imports', async () => {
+      // regression for the error-recovery swallow: tree-sitter-python merges `from X cimport Y`
+      // into one erroring import_from_statement that EATS the next real from-import.
+      const cy: SourceFile[] = [
+        { path: 'impl.pyx', content: 'from libc.stdlib cimport malloc\ncimport numpy as cnp\nfrom mypkg.utils import helper\nimport sibling\n' },
+        { path: 'sibling.pyx', content: 'x = 1\n' },
+        { path: 'mypkg/__init__.py', content: '' },
+        { path: 'mypkg/utils.py', content: 'def helper(): pass\n' },
+      ];
+      const { edges, unresolved } = await pythonImporter.extract({
+        codeDirs: ['.'],
+        files: cy,
+        ownership: { a: cy.map((f) => f.path) },
+      });
+      expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
+        new Set([
+          'mypkg.utils -> mypkg/utils.py', // survived the cimport swallow
+          'sibling -> sibling.pyx',
+        ]),
+      );
+      expect(unresolved).toHaveLength(0); // cimport lines: no edges, no unresolved noise
+    });
+
+    it('resolves Python imports of Cython modules — .pyx impl wins over .pxd (pandas case)', async () => {
+      const files: SourceFile[] = [
+        { path: 'pandas/_libs/__init__.py', content: '' },
+        { path: 'pandas/_libs/algos.pyx', content: 'cdef int x\n' },
+        { path: 'pandas/_libs/algos.pxd', content: 'cdef extern from "algos.h":\n    int foo()\n' },
+        { path: 'pandas/core.py', content: 'from pandas._libs import algos\n' },
+      ];
+      const { edges, unresolved } = await pythonImporter.extract({
+        codeDirs: ['pandas'],
+        files,
+        ownership: { a: files.map((f) => f.path) },
+      });
+      const viaAlgos = edges.find((e) => e.import === 'pandas._libs.algos');
+      expect(viaAlgos).toBeDefined();
+      expect(viaAlgos!.toFile).toBe('pandas/_libs/algos.pyx');
+      expect(unresolved).toHaveLength(0);
+    });
+
+    it('fileToModule strips .pyx/.pxd and treats __init__.pyx as a package', () => {
+      expect(fileToModule('src/algos.pyx')).toBe('src.algos');
+      expect(fileToModule('src/algos.pxd')).toBe('src.algos');
+      expect(fileToModule('pkg/__init__.pyx')).toBe('pkg');
+      expect(fileToModule('src/algos.pyx', 'src')).toBe('algos');
+    });
+  });
 });

@@ -7,9 +7,11 @@ import { createTreeSitterImporter } from './tree-sitter.js';
 // --- module-path derivation: file → python module path ---
 
 /** `src/domain/symbol.py` → `src.domain.symbol`; `src/domain/__init__.py` → `src.domain`.
- *  With `moduleRoot` (e.g. "src"): `src/domain/symbol.py` → `domain.symbol` (for Python src-layout). */
+ *  With `moduleRoot` (e.g. "src"): `src/domain/symbol.py` → `domain.symbol` (for Python src-layout).
+ *  Cython: `algos.pyx`/`algos.pxd` → `algos` (a .pyx+.pxd pair is ONE module — the pair mapping
+ *  to the same key is intentional; the factory's sorted order makes the .pyx implementation win). */
 export function fileToModule(path: string, moduleRoot?: string): string {
-  let p = path.replace(/\.py$/, '');
+  let p = path.replace(/\.(py|pyx|pxd)$/, '');
   if (moduleRoot && p.startsWith(moduleRoot + '/')) p = p.slice(moduleRoot.length + 1);
   const parts = p.split('/').filter(Boolean);
   if (parts[parts.length - 1] === '__init__') parts.pop();
@@ -146,12 +148,17 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
   }
 }
 
-/** Python importer — tree-sitter analysis + module→file resolution via ownership. */
+/** Python importer — tree-sitter analysis + module→file resolution via ownership.
+ *  Also handles Cython .pyx/.pxd: their regular Python imports produce edges; `cimport` is
+ *  compiled-time and deliberately blind (blanked in preprocess — which ALSO prevents
+ *  tree-sitter-python's error recovery from swallowing real imports next to cimport lines). */
 export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
   name: 'python',
-  extensions: ['.py'],
+  extensions: ['.py', '.pyx', '.pxd'],
   wasmBasename: 'tree-sitter-python.wasm',
   fileToModule,
+  preprocess: (content) =>
+    content.replace(/^\s*from\s+\S+\s+cimport\b.*$/gm, '').replace(/^\s*cimport\b.*$/gm, ''),
   analyze: (root, _sourcePath, _importerModule, _ctx) => ({
     mods: [],
     reexports: [],

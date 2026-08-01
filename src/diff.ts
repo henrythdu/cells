@@ -92,7 +92,10 @@ export function coChangePairs(files: string[]): { file: string; count: number }[
   } catch {
     return []; // no HEAD yet / history unavailable
   }
-  const hashList = hashes.split('\n').map((h) => h.trim()).filter(Boolean);
+  const hashList = hashes
+    .split('\n')
+    .map((h) => h.trim())
+    .filter(Boolean);
   if (hashList.length === 0) return [];
   // Step 2: each commit's FULL changed-file list (git show does not traverse ancestry).
   // --diff-merges=first-parent: git show defaults to a COMBINED diff for merge commits, which

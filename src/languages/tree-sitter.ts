@@ -136,6 +136,9 @@ export interface TreeSitterImporterSpec<U = unknown> {
   extensions: readonly string[];
   wasmBasename: string;
   fileToModule(path: string, moduleRoot?: string, baseDir?: string): string;
+  /** Optional: content transform BEFORE parsing (e.g. Cython — blank cimport lines so
+   *  tree-sitter-python's error recovery can't swallow neighboring real from-imports). */
+  preprocess?(content: string): string;
   /** Optional: the crate root a file belongs to (null = none). When a run spans MULTIPLE
    *  crates, the factory namespaces every module key by crate root so two crates' `crate::…`
    *  paths can't collide in the shared module→file map (single-crate runs keep plain keys). */
@@ -167,6 +170,10 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
     extensions: spec.extensions,
     needsContent: true,
     async extract({ files, moduleRoot, baseDir }): Promise<ImportResult> {
+      // Deterministic module-key winners: two files mapping to ONE module key (python's
+      // .pxd+.pyx pair) — the last-set file wins, so sorted order picks the same one every
+      // run (readdir order is OS-dependent). .pxd sorts before .pyx → the implementation wins.
+      files = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
       let moduleKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);
@@ -255,7 +262,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       const analyses = new Map<string, Analysis<U>>();
       for (const f of files) {
         if (!matches(f.path)) continue;
-        const tree = parse(f.content);
+        const tree = parse(spec.preprocess ? spec.preprocess(f.content) : f.content);
         if (!tree) continue;
         try {
           const importerModule = moduleKey(f);
