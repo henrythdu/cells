@@ -209,8 +209,8 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
             // Namespaced keys are addressed by crate ROOT PATH; a use addresses the crate by
             // its Cargo.toml NAME. Alias every key so `headroom_core::…` → `crates/headroom-core::…`.
             aliasByName = (key, root) => {
-              if (!root || root === '.') return;
-              const name = nameByRoot!.get(root);
+              if (!root || root === '.' || !nameByRoot) return;
+              const name = nameByRoot.get(root);
               if (!name) return;
               const prefix = `${root}::`;
               let rest: string | null = null;

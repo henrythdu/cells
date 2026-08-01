@@ -166,6 +166,26 @@ describe('rust importer', () => {
     expect(unresolved).toHaveLength(0);
   });
 
+  it('honors explicit `as` aliases inside use groups + pub(crate) (ocr on wave-3 re-exports)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod svc;\npub(crate) use svc::{osv as oz, filter};\n' },
+      { path: 'src/svc.rs', content: 'pub mod osv;\npub mod filter;\n' },
+      { path: 'src/svc/osv.rs', content: 'pub struct Filter;\n' },
+      { path: 'src/svc/filter.rs', content: 'pub struct F;\n' },
+      { path: 'src/other.rs', content: 'use crate::oz::Filter;\nuse crate::svc::osv::Filter as Direct;\n' },
+    ];
+    const ownership: Ownership = { a: ['src/lib.rs', 'src/svc.rs', 'src/svc/osv.rs', 'src/svc/filter.rs'], b: ['src/other.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    // use crate::oz::Filter resolves through the ALIASED re-export (explicit `as oz` beats last-segment 'osv')
+    const viaAlias = edges.find((e) => e.import === 'crate::oz::Filter');
+    expect(viaAlias).toBeDefined();
+    expect(viaAlias!.toFile).toBe('src/svc/osv.rs');
+    // no false edge under the ORIGINAL name: crate::osv was renamed to oz
+    expect(edges.some((e) => e.import === 'crate::osv::Filter')).toBe(false);
+    // pub(crate) counts as public for crate-internal resolution
+    expect(unresolved).toHaveLength(0);
+  });
+
   it('does not hijack module references via item aliases (uv: pub use wheel::metadata fn)', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'mod metadata;\nmod wheel;\npub use wheel::metadata;\nuse crate::metadata::ValidationError;\n' },

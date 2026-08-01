@@ -1,4 +1,5 @@
 import { readdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
@@ -114,7 +115,7 @@ function looksLocal(candidate: string, dots: number, localPackages: Set<string>)
   return localPackages.has(candidate.split('.')[0]);
 }
 
-const COMPILED_EXTS = ['.so', '.pyd', '.dll', '.dylib'];
+const COMPILED_EXTS = ['.so', '.pyd']; // Python extension modules — .so everywhere incl. macOS, .pyd on Windows
 
 /** Directory listings for compiled-module checks — memoized per process (many unresolved imports
  *  may probe the same package dir; the census doesn't change mid-run). */
@@ -132,7 +133,7 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
   const name = module.slice(lastDot + 1);
   const parentFile = moduleToFile.get(parentMod);
   if (!parentFile) return false;
-  const dir = parentFile.replace(/\/[^/]+$/, '');
+  const dir = dirname(parentFile);
   try {
     let entries = compiledDirCache.get(dir);
     if (!entries) {

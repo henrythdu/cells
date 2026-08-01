@@ -51,15 +51,7 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
  * Pure: takes resolved data (no FS access). The CLI layer reads files
  * from disk and resolves neighbors from the declarations map.
  */
-export function assemblePayload(
-  cell: Cell,
-  ownedFiles: string[],
-  fileContents: Record<string, string>,
-  neighbors: Cell[],
-  dependedByCount?: number,
-  testFiles?: string[],
-  testContents?: Record<string, string>,
-): string {
+export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], dependedByCount?: number, testFiles?: string[], testContents?: Record<string, string>): string {
   const lines: string[] = [];
 
   lines.push(`# Cell: ${cell.name}`);
@@ -71,11 +63,7 @@ export function assemblePayload(
   if (dependedByCount !== undefined) {
     lines.push('');
     lines.push('## Context');
-    lines.push(
-      dependedByCount > 0
-        ? `impact: ${dependedByCount} cell(s) directly depend on this cell. Run \`cells impact ${cell.name}\` for full transitive blast radius.`
-        : `impact: no cells depend on this cell (leaf).`,
-    );
+    lines.push(dependedByCount > 0 ? `impact: ${dependedByCount} cell(s) directly depend on this cell. Run \`cells impact ${cell.name}\` for full transitive blast radius.` : `impact: no cells depend on this cell (leaf).`);
   }
   lines.push('');
   lines.push('## Your code');

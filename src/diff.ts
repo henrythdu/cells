@@ -95,9 +95,13 @@ export function coChangePairs(files: string[]): { file: string; count: number }[
   const hashList = hashes.split('\n').map((h) => h.trim()).filter(Boolean);
   if (hashList.length === 0) return [];
   // Step 2: each commit's FULL changed-file list (git show does not traverse ancestry).
+  // --diff-merges=first-parent: git show defaults to a COMBINED diff for merge commits, which
+  // omits cleanly-merged files — the first-parent view lists everything the merge brought in.
+  // ponytail: hashList length is bounded by commits touching the cell's files; ~41 chars/hash,
+  // ARG_MAX ~2MB → tens of thousands of hashes would overflow, caught below as [] (no co-changes).
   let out: string;
   try {
-    out = execFileSync('git', ['show', '--name-only', '--format=%H', ...hashList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    out = execFileSync('git', ['show', '--name-only', '--diff-merges=first-parent', '--format=%H', ...hashList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   } catch {
     return [];
   }

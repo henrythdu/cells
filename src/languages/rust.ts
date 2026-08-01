@@ -69,32 +69,43 @@ function toModule(rel: string): string {
 
 // --- AST → import paths (recursively expand `use` declarations) ---
 
+/** One expanded use path: the `::`-joined import + the exposed re-export name (explicit `as`
+ *  alias when present) + a glob marker (`pub use foo::*` re-exports every public item — not
+ *  representable as a single alias, so re-export registration must skip it). */
+interface UseClause {
+  imp: string;
+  alias?: string;
+  glob?: boolean;
+}
+
 /** Expand a use-clause node into full `::`-separated paths. scoped_identifier/identifier → [text];
- *  scoped_use_list → path × each item; use_as_clause → the inner path; use_wildcard → its module. */
-function expandClause(node: Node): string[] {
+ *  scoped_use_list → path × each item (aliases propagate: `a::{b as x}` → {imp: 'a::b', alias: 'x'});
+ *  use_as_clause → the inner path + the explicit alias; use_wildcard → its module, marked glob. */
+function expandClause(node: Node): UseClause[] {
   switch (node.type) {
     case 'scoped_identifier':
     case 'identifier':
-      return [node.text];
+      return [{ imp: node.text }];
     case 'scoped_use_list': {
       // children: a path (scoped_identifier|identifier) + a use_list
       const pathNode = node.namedChildren.find((c) => c.type === 'scoped_identifier' || c.type === 'identifier');
       const listNode = node.namedChildren.find((c) => c.type === 'use_list');
       const prefix = pathNode ? pathNode.text : '';
       const items = listNode ? listNode.namedChildren.flatMap(expandClause) : [];
-      return items.map((it) => (prefix ? `${prefix}::${it}` : it));
+      return items.map((it) => ({ ...it, imp: prefix ? `${prefix}::${it.imp}` : it.imp }));
     }
     case 'use_list':
       return node.namedChildren.flatMap(expandClause);
     case 'use_as_clause': {
-      // `<path> as <alias>` — the path is the first named child
+      // `<path> as <alias>` — the path is the first named child, the alias the `alias` field
       const inner = node.namedChildren[0];
-      return inner ? expandClause(inner) : [];
+      const alias = node.childForFieldName('alias')?.text;
+      return inner ? expandClause(inner).map((p) => ({ ...p, alias: alias ?? p.alias })) : [];
     }
     case 'use_wildcard': {
-      // `crate::app::*` → the module `crate::app`; bare `*` → nothing precise
+      // `crate::app::*` → the module `crate::app` (glob marker set); bare `*` → nothing precise
       const t = node.text.replace(/::\*$/, '');
-      return t === '*' ? [] : [t];
+      return t === '*' ? [] : [{ imp: t, glob: true }];
     }
     default:
       return [];
@@ -123,13 +134,15 @@ function extractUses(root: Node): UseDesc[] {
  *  mod blocks deepen the module (super/self arithmetic + re-export locations). */
 function collectUses(node: Node, out: UseDesc[], modChain: string[]): void {
   if (node.type === 'use_declaration') {
-    const isPub = node.namedChildren.some((c) => c.type === 'visibility_modifier' && c.text === 'pub');
+    // pub, pub(crate), pub(super), pub(in …) all expose the re-export to the crate; private use
+    // declarations have no visibility_modifier node at all, so any present one is pub-something.
+    const isPub = node.namedChildren.some((c) => c.type === 'visibility_modifier' && c.text.startsWith('pub'));
     for (const child of node.namedChildren) {
       if (child.type === 'visibility_modifier') continue;
-      for (const imp of expandClause(child)) {
-        let alias: string | undefined;
-        if (child.type === 'use_as_clause') alias = child.childForFieldName('name')?.text;
-        else if (isPub) alias = imp.split('::').pop(); // bare pub use re-exports the last segment
+      for (const { imp, alias: explicit, glob } of expandClause(child)) {
+        // Re-export name: the explicit `as` alias, else the last path segment for a bare pub use;
+        // a glob re-exports every public item — not representable as one alias, so none is set.
+        const alias = explicit ?? (isPub && !glob ? imp.split('::').pop() : undefined);
         out.push({ imp, modChain, isPub, alias });
       }
     }

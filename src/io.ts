@@ -37,8 +37,6 @@ export function loadDeclarations(): Record<string, Cell> {
   return decls;
 }
 
-/** Load the ownership map from `.cells/ownership.toml`. Missing file → empty map
- *  (a repo can have declarations but no assignments yet; every command should still run). */
 /** `.cells/ignore` patterns (empty when the file is absent). Shared by the census (listCodeFiles)
  *  and ownership loading — one read/parse path for the ignore file. */
 function loadIgnorePatterns(): string[] {
@@ -78,7 +76,8 @@ export function writeOwnership(ownership: Ownership): void {
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filterIgnored(ownership)));
 }
 
-/** Load `.cells/config.toml` (optional — missing file → defaults). */export function loadConfig(): CellsConfig {
+/** Load `.cells/config.toml` (optional — missing file → defaults). */
+export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
   if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
   return readParsed(path, parseConfig, '.cells/config.toml');

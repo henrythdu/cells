@@ -5,17 +5,7 @@ import { listCodeFiles, type CellsContext } from '../io.js';
 import { computePayloadSize, neighborsOf, readFiles, estimateTokens } from '../payload.js';
 import { checkLeakage, computeMetrics } from '../crossings.js';
 import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../view.js';
-import {
-  detectCycles,
-  checkDirection,
-  checkSDP,
-  formatSdpReport,
-  formatStructureReport,
-  formatLayerOverview,
-  formatLayerSuggestions,
-  computeImpact,
-  formatImpactReport,
-} from '../structure.js';
+import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
 import { checkGrammars } from '../importers.js';
 import { validatePartition } from '../validate.js';
 import { loadCrossings, warnIfNoCodeFiles } from './read.js';
@@ -37,9 +27,7 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
     let peel: PeelCandidate[] | undefined;
     if (size.tokens > config.maxPayloadTokens) {
       const contents = readFiles(owned);
-      peel = owned
-        .map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 }))
-        .sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
+      peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
     }
     return { name, size, peel };
   });
