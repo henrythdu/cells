@@ -23,7 +23,7 @@ files = ["src/assign.ts", "test/assign.test.ts"]
 files = ["src/config.ts", "test/config.test.ts"]
 
 [cli]
-files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts"]
+files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts", "test/workflow.test.ts"]
 
 [io]
 files = ["src/io.ts", "test/io.test.ts"]
@@ -38,7 +38,7 @@ files = ["src/ignore.ts", "test/ignore.test.ts"]
 files = ["src/help.ts"]
 
 [importers]
-files = ["src/importers.ts", "test/importers.test.ts"]
+files = ["src/importers.ts", "test/importers.test.ts", "test/multilang.test.ts"]
 
 [imports]
 files = ["src/imports.ts"]
@@ -65,4 +65,4 @@ files = ["src/commands.ts"]
 files = ["src/languages/tree-sitter.ts"]
 
 [typescript]
-files = ["src/languages/typescript.ts"]
+files = ["src/languages/typescript.ts", "test/languages/typescript.test.ts"]

@@ -105,7 +105,7 @@ describe('formatCellShow', () => {
     const rendered = formatCellShow({ ...ctx, dead, coChange });
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/validate.ts');
-    expect(rendered).toContain('co-changes in git history (same-commit pairs — logical coupling imports can\'t see):');
+    expect(rendered).toContain("co-changes in git history (same-commit pairs — logical coupling imports can't see):");
     expect(rendered).toContain('  src/ownership.ts  (cell ownership · 12×)');
   });
 
