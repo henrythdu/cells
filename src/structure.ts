@@ -223,8 +223,9 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     lines.push(`ADP: ${cycles.length} cycle(s):`);
     const cap = 20; // a 500-cell cycle (transformers) must not print 500 lines — the cut candidates carry the signal
     for (const cyc of cycles) {
-      const cells = cyc.cells.length > cap ? cyc.cells.slice(0, cap) : cyc.cells;
-      lines.push(`  ⚠ ${cells.join(' ↔ ')}${cyc.cells.length > cap ? ` ↔ … ${cyc.cells.length - cap} more cells` : ''}`);
+      const overCap = cyc.cells.length > cap;
+      const cells = overCap ? cyc.cells.slice(0, cap) : cyc.cells;
+      lines.push(`  ⚠ ${cells.join(' ↔ ')}${overCap ? ` ↔ … ${cyc.cells.length - cap} more cell${cyc.cells.length - cap === 1 ? '' : 's'}` : ''}`);
       const cuts = cycleCutCandidates(cyc, crossings);
       if (cuts.length > 0)
         lines.push(

@@ -152,7 +152,8 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
   }
   if (ranked.length > cap) {
     const hidden = ranked.length - cap;
-    lines.push(`  …and ${hidden} more (${overCount > cap ? `${overCount - cap} still over ceiling, ` : ''}${hidden} total hidden)`);
+    const still = overCount > cap ? ` (${overCount - cap} still over ceiling)` : '';
+    lines.push(`  …and ${hidden} more${still}`);
   }
   lines.push(overCount > 0 ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).` : 'all cells within ceiling.');
   return `${lines.join('\n')}\n`;
@@ -240,7 +241,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     if (!xOk && !verbose) drill.push('crossings'); // already named inline under --verbose
     const drillHint = drill.length > 0 ? ` Run \`cells ${drill.join('` / `cells ')}\` for details.` : '';
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
-    lines.push(`→ Gate failed.${aside}${drillHint}`);
+    lines.push(`→ Gate failed.${aside}${drillHint}${timing}`);
   }
 
   // Detail/info sections BELOW the verdict — optional reading on the failing path.

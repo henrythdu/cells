@@ -66,14 +66,17 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-tsc-jsonc-'));
     fixtures.add(dir);
     // jsonc: trailing comma after the last `paths` entry — legal TS, invalid strict JSON
-    writeFileSync(join(dir, 'tsconfig.json'), `{
+    writeFileSync(
+      join(dir, 'tsconfig.json'),
+      `{
   "compilerOptions": {
     "paths": {
       "@/*": ["src/*"],
       "~/*": ["server/*"],
     },
   },
-}`);
+}`,
+    );
     mkdirSync(join(dir, 'src'), { recursive: true });
     mkdirSync(join(dir, 'server'), { recursive: true });
     writeFileSync(join(dir, 'src', 'a.ts'), "import { b } from '@/b';\nimport { s } from '~/s';\n");
