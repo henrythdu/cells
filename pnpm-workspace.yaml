@@ -1,6 +1,8 @@
 # pnpm v11 dropped onlyBuiltDependencies; use allowBuilds instead.
 allowBuilds:
   esbuild: true
+  # postinstall downloads the native binary (grammar builds)
+  tree-sitter-cli: true
 # pnpm's pre-run deps-check errors on the ignored esbuild build script;
 # vitest runs fine regardless, so skip the check.
 verifyDepsBeforeRun: false
