@@ -13,8 +13,10 @@ mismatch with the shipped `web-tree-sitter` runtime fails the gate).
    language version") — `cells health` confirms the pairing.
 
    ```sh
-   npx tree-sitter-cli build-wasm --output grammars/tree-sitter-python.wasm tree-sitter-python
+   npx tree-sitter-cli build --wasm -o grammars/tree-sitter-python.wasm tree-sitter-python
    ```
+
+   (The CLI renamed the subcommand: pre-0.26 it was `build-wasm`.)
 
 4. Run `cells health` — the `grammars` check must stay green.
 

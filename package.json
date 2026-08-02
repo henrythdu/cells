@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "tree-sitter-cli": "^0.26.11",
     "vitest": "^2.1.0"
   }
 }

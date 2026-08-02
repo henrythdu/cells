@@ -1,4 +1,8 @@
 {
   "runtime": "web-tree-sitter",
-  "grammars": [{ "lang": "python", "wasm": "tree-sitter-python.wasm" }, { "lang": "rust", "wasm": "tree-sitter-rust.wasm" }]
+  "grammars": [
+    { "lang": "python", "wasm": "tree-sitter-python.wasm" },
+    { "lang": "rust", "wasm": "tree-sitter-rust.wasm" },
+    { "lang": "go", "wasm": "tree-sitter-go.wasm" }
+  ]
 }

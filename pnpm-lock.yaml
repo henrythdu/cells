@@ -27,6 +27,9 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      tree-sitter-cli:
+        specifier: ^0.26.11
+        version: 0.26.11
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@26.1.1)(supports-color@7.2.0)
@@ -634,6 +637,11 @@ packages:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
 
+  tree-sitter-cli@0.26.11:
+    resolution: {integrity: sha512-/hRCA0Ehkgk6B5WTYSiENk1R2Zv3LJcfvL3wjofzx+EYaKySZDu0agGRQcccay9Lg7wxJWsDa9cTRS92wsM5gQ==}
+    engines: {node: '>=12.0.0'}
+    hasBin: true
+
   tsconfig-paths-webpack-plugin@4.2.0:
     resolution: {integrity: sha512-zbem3rfRS8BgeNK50Zz5SIQgXzLafiHjOwUAvk/38/o1jHn/V5QAgVUcz884or7WYcPaH3N2CIfUc2u0ul7UcA==}
     engines: {node: '>=10.13.0'}
@@ -1197,6 +1205,8 @@ snapshots:
   tinyrainbow@1.2.0: {}
 
   tinyspy@3.0.2: {}
+
+  tree-sitter-cli@0.26.11: {}
 
   tsconfig-paths-webpack-plugin@4.2.0:
     dependencies:
