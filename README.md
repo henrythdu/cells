@@ -80,7 +80,7 @@ cells list                          # see the whole partition
 | command | what it does |
 | --- | --- |
 | `cells init` | bootstrap `.cells/` — detects your language (code-exts/code-dirs) (idempotent) |
-| `cells plan [--apply] [--dry-run]` | propose a cell partition: crates / npm packages / Python __init__ packages become one cell each, other files group by directory (prints declarations + ownership to review — writes nothing). `--apply` creates the cells + adopts the files mechanically (never overwrites existing cells or steals curated ownership); `--dry-run` previews |
+| `cells plan [--apply] [--dry-run]` | propose a cell partition: crates / npm packages / Python **init** packages become one cell each, other files group by directory (prints declarations + ownership to review — writes nothing). `--apply` creates the cells + adopts the files mechanically (never overwrites existing cells or steals curated ownership); `--dry-run` previews |
 | `cells assign <cell> <file...>` | assign file(s) to a cell (records ownership; stubs declaration if new) |
 | `cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]` | scaffold a cell declaration (`.cell.toml`) — declare the contract first, then `assign` files into it |
 | `cells prune-stale [--apply]` | remove requires that are declared but never imported (stale); dry-run by default, `--apply` rewrites the declaration files |
@@ -162,6 +162,8 @@ vendor/
 - **TypeScript/JavaScript** via `dependency-cruiser` (source-based; handles path aliases, `.js`→`.ts`).
 - **Python** via `tree-sitter` (WASM; bundled grammar, no native build).
 - **Rust** via `tree-sitter` (WASM; handles `use`/`super`/`self`, groups, re-exports).
+- **Go** via `tree-sitter` (WASM; package→directory resolution, nested `go.mod` sub-modules).
+- **C/C++** via `tree-sitter` (WASM; `#include` → file resolution: quoted = local, angle = external unless owned; probes importer-dir + repo `-I` roots derived from the census).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
 Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the

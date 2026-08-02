@@ -109,8 +109,8 @@ FILES (.cells/)
                      (a trailing / matches the whole dir tree, like gitignore's dir/)
 
 LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts
-in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python and
-Rust via tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
+in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python, Rust, Go, and
+C/C++ via tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
 uses ownership (a module->file map from owned files), not the filesystem — runs on source you're
 just reading, nothing to build or install.
 

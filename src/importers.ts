@@ -10,13 +10,14 @@ import { depCruiserImporter } from './languages/typescript.js';
 import { pythonImporter } from './languages/python.js';
 import { rustImporter } from './languages/rust.js';
 import { goImporter } from './languages/go.js';
+import { cppImporter } from './languages/cpp.js';
 // The grammar-bundle integrity check re-exported here: commands/health reaches the language
 // machinery ONLY through this hub (the declared single seam for "everything language").
 export { checkGrammars } from './languages/tree-sitter.js';
-export { depCruiserImporter, pythonImporter, rustImporter, goImporter };
+export { depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter };
 
 /** Default importer registry (add a language = add an importer here). */
-export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter, goImporter];
+export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter];
 
 /** Which importers run for the given extensions. Pure — unit-testable. */
 export function selectImporters(exts: readonly string[], importers: readonly Importer[]): Importer[] {
