@@ -57,13 +57,15 @@ describe('fileToModule', () => {
 });
 
 describe('resolvePackageImport', () => {
+  // a module'd repo — every key's first segment is the go.mod module path
   const m2f = new Map<string, string>([
     ['example.com/proj', 'main.go'],
     ['example.com/proj::pkg', 'pkg/foo.go'],
     ['example.com/proj::pkg::foo', 'pkg/foo/bar.go'],
     ['example.com/proj::internal', 'internal/thing.go'],
-    ['github.com::me::proj::pkg', 'github.com/me/proj/pkg/x.go'],
   ]);
+  // a no-module (GOPATH) repo — first segments are top-level dirs
+  const gopathM2f = new Map<string, string>([['github.com::me::proj::pkg', 'github.com/me/proj/pkg/x.go']]);
 
   it('resolves module-relative imports to the package file', () => {
     expect(resolvePackageImport('example.com/proj/pkg', 'example.com/proj::pkg', m2f)).toEqual({
@@ -90,8 +92,39 @@ describe('resolvePackageImport', () => {
     expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f)).toEqual({ toFile: null, local: false }); // cgo
   });
 
+  it('resolves nested go.mod sub-module imports from any importer (stress #9/#10)', () => {
+    // terraform shape: internal/legacy has its OWN go.mod → its files' keys carry the full
+    // module path as the first segment; a ROOT-module importer strips the root path only.
+    const nested = new Map<string, string>([
+      ['example.com/proj', 'main.go'],
+      ['example.com/proj::cmd', 'cmd/cli.go'],
+      ['example.com/proj/internal/legacy::terraform', 'internal/legacy/terraform/state.go'],
+      ['example.com/proj/internal/backend/remote-state/aws', 'internal/backend/remote-state/aws/backend.go'],
+    ]);
+    // root-module file importing a sub-module package
+    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj::cmd', nested)).toEqual({
+      toFile: 'internal/legacy/terraform/state.go',
+      local: true,
+    });
+    // root-module file importing a sub-module ROOT package (dir with go.mod = package too)
+    expect(resolvePackageImport('example.com/proj/internal/backend/remote-state/aws', 'example.com/proj::cmd', nested)).toEqual({
+      toFile: 'internal/backend/remote-state/aws/backend.go',
+      local: true,
+    });
+    // sub-module file importing another sub-module — still local, still resolves
+    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj/internal/legacy::helper', nested)).toEqual({
+      toFile: 'internal/legacy/terraform/state.go',
+      local: true,
+    });
+    // a local miss inside a sub-module namespace → unresolved (honest)
+    expect(resolvePackageImport('example.com/proj/internal/legacy/missing', 'example.com/proj::cmd', nested)).toEqual({
+      toFile: null,
+      local: true,
+    });
+  });
+
   it('resolves GOPATH-style and relative imports', () => {
-    expect(resolvePackageImport('github.com/me/proj/pkg', 'github.com::me::proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('github.com/me/proj/pkg', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
       toFile: 'github.com/me/proj/pkg/x.go',
       local: true,
     });
@@ -108,9 +141,14 @@ describe('resolvePackageImport', () => {
   });
 
   it('no-module importer: a miss is external, not unresolved', () => {
-    expect(resolvePackageImport('golang.org/x/sync', 'github.com::me::proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('golang.org/x/sync', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
       toFile: null,
       local: false,
+    });
+    // a top-dir prefix match is local even when it misses (broken own import under github.com/)
+    expect(resolvePackageImport('github.com/me/other', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
+      toFile: null,
+      local: true,
     });
   });
 });

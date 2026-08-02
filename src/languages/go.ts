@@ -83,19 +83,34 @@ function collectImports(node: Node, out: string[]): void {
 
 // --- resolution: import path + importer package → file (via the module→file map) ---
 
-/** Candidate package keys for an import path: the module-relative form (module path + `::` +
- *  dir segments — the shape of every key in a module'd repo), then the plain `::`-joined form
- *  (GOPATH/no-module layout). Deduped. */
-function candidateKeys(imp: string, modulePath: string): string[] {
+/** The module paths present in this partition — the first segment of every module key (a
+ *  module'd repo: the go.mod `module` directive; a NESTED go.mod (sub-module — terraform's
+ *  internal/legacy + internal/backend/remote-state/*) makes those files' keys carry the full
+ *  module path as their first segment). Stripping ANY of them resolves cross-sub-module imports
+ *  from any importer (stress #9/#10). Longest-first: a sub-module's path is the more specific
+ *  owner. Derived from the map — ownership-derived, no extra go.mod reads. */
+function modulePathsOf(moduleToFile: Map<string, string>): string[] {
+  const set = new Set<string>();
+  for (const k of moduleToFile.keys()) {
+    const first = k.split('::')[0];
+    if (first) set.add(first);
+  }
+  return [...set].sort((a, b) => b.length - a.length);
+}
+
+/** Candidate package keys for an import path: the module-relative form (each known module path
+ *  + `::` + dir segments — the shape of the keys under that module), then the plain `::`-joined
+ *  form (GOPATH/no-module layout). Deduped. */
+function candidateKeys(imp: string, modulePaths: readonly string[]): string[] {
   const out: string[] = [];
-  if (modulePath && (imp === modulePath || imp.startsWith(modulePath + '/'))) {
-    if (imp === modulePath) out.push(modulePath);
-    else {
+  for (const mp of modulePaths) {
+    if (imp === mp) out.push(mp);
+    else if (imp.startsWith(`${mp}/`)) {
       const rest = imp
-        .slice(modulePath.length + 1)
+        .slice(mp.length + 1)
         .split('/')
         .join('::');
-      out.push(rest ? `${modulePath}::${rest}` : modulePath);
+      out.push(rest ? `${mp}::${rest}` : mp);
     }
   }
   out.push(imp.split('/').join('::'));
@@ -136,23 +151,21 @@ function relativeKeys(imp: string, importerModule: string): string[] {
 }
 
 /** Does this import look local (owned code)? Relative paths always do; absolute ones if they
- *  address this module. Everything else — stdlib (`fmt`), third-party (`github.com/other/…`),
- *  cgo's `"C"` — is external and silently skipped. No go.mod (GOPATH): the first segment of
- *  every import is a domain, so only a resolve hit makes it local — a miss is external, not a
- *  broken local (without a module there's no member list to distinguish them). */
-function looksLocal(imp: string, modulePath: string): boolean {
+ *  address ANY known module path. Everything else — stdlib (`fmt`), third-party
+ *  (`github.com/other/…`), cgo's `"C"` — is external and silently skipped. No go.mod (GOPATH):
+ *  the first segments are top-level dirs; only a resolve hit makes an import local — a miss is
+ *  external, not a broken local (without a module there's no member list to distinguish them). */
+function looksLocal(imp: string, modulePaths: readonly string[]): boolean {
   if (imp.startsWith('.')) return true;
-  return modulePath !== '' && (imp === modulePath || imp.startsWith(modulePath + '/'));
+  return modulePaths.some((mp) => imp === mp || imp.startsWith(`${mp}/`));
 }
 
 /** Resolve ONE import path to a package file + whether it's local. Pure over the module→file
  *  map (no FS chasing — the map IS the ownership-derived census). The factory's last-set-wins
  *  makes any file in the target dir's package the deterministic representative. */
 export function resolvePackageImport(imp: string, importerModule: string, moduleToFile: Map<string, string>): { toFile: string | null; local: boolean } {
-  // The importer's module path is its key's first segment (module paths can't contain `::`);
-  // files outside any module have a dir-derived first segment instead.
-  const modulePath = importerModule.split('::')[0];
-  const keys = [...candidateKeys(imp, modulePath), ...relativeKeys(imp, importerModule)];
+  const modulePaths = modulePathsOf(moduleToFile);
+  const keys = [...candidateKeys(imp, modulePaths), ...relativeKeys(imp, importerModule)];
   let toFile: string | null = null;
   for (const k of keys) {
     const hit = moduleToFile.get(k);
@@ -161,7 +174,7 @@ export function resolvePackageImport(imp: string, importerModule: string, module
       break;
     }
   }
-  return { toFile, local: looksLocal(imp, modulePath) };
+  return { toFile, local: looksLocal(imp, modulePaths) };
 }
 
 /** Go importer — tree-sitter analysis + package→file resolution via ownership. A Go package is
