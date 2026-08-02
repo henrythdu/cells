@@ -359,9 +359,7 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
       // lives in a local module).
       const firstSeg = imp.split('::')[0];
       const localProbe = `${ns}::${firstSeg}`;
-      local =
-        ctx.moduleToFile.has(localProbe) ||
-        [...ctx.moduleToFile.keys()].some((k) => k.startsWith(localProbe + '::'));
+      local = ctx.moduleToFile.has(localProbe) || [...ctx.moduleToFile.keys()].some((k) => k.startsWith(localProbe + '::'));
       real = `${ns}::${imp}`;
     } else {
       local = true;
