@@ -38,7 +38,7 @@ files = ["src/ignore.ts", "test/ignore.test.ts"]
 files = ["src/help.ts"]
 
 [importers]
-files = ["src/importers.ts", "test/importers.test.ts", "test/multilang.test.ts"]
+files = ["src/importers.ts", "test/importers.test.ts", "test/multilang.test.ts", "src/bridges.ts", "test/bridges.test.ts"]
 
 [imports]
 files = ["src/imports.ts"]

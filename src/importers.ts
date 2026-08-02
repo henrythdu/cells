@@ -1,6 +1,7 @@
 import { extname, join } from 'node:path';
 import type { ImportEdge, SourceFile, UnresolvedImport, Importer } from './imports.js';
 import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
+import { buildBridgeMap, applyBridges } from './bridges.js';
 
 // Language importer specs live in ./languages/ — add a language = add a spec file there
 // (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
@@ -90,6 +91,13 @@ export async function collectImportEdges(
       failures.push({ importer: imp.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
+  // Bridge crossings (ADR 0001): FFI extension-module imports (pyo3) that came back
+  // unresolved resolve to the binding crate's entry file — declaration-derived, so no
+  // per-repo config. Empty map (no cdylib crates) = zero behavior change.
+  const bridged = applyBridges(buildBridgeMap(codeDirs, baseDir), unresolved, baseDir);
+  edges.push(...bridged.edges);
+  unresolved.length = 0;
+  unresolved.push(...bridged.unresolved);
   return { edges, uncoveredExts, unresolved, failures, ignoreBlindExts: config.ignoreBlindExts };
 }
 

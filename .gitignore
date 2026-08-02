@@ -6,3 +6,7 @@ dist/
 
 # feedback notes from external agents — never commit
 HANDOFF.md
+
+# agent-internal docs — npm ships dist/grammars/README/LICENSE only
+CONTEXT.md
+docs/
