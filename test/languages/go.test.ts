@@ -148,16 +148,11 @@ describe('go importer', () => {
 
   it('tree-sitter-go parses import variants (grammar sanity)', async () => {
     const parser = await getGrammarParser('tree-sitter-go.wasm');
-    const tree = parser.parse(
-      'package main\nimport "example.com/proj/a"\nimport (\n\t"example.com/proj/b"\n\talias "example.com/proj/c"\n\t_ "example.com/proj/d"\n\t. "example.com/proj/e"\n)\n',
-    );
+    const tree = parser.parse('package main\nimport "example.com/proj/a"\nimport (\n\t"example.com/proj/b"\n\talias "example.com/proj/c"\n\t_ "example.com/proj/d"\n\t. "example.com/proj/e"\n)\n');
     if (!tree) throw new Error('go grammar failed to parse the fixture');
     const content = tree.rootNode.text;
     tree.delete();
-    const files: SourceFile[] = [
-      { path: 'main.go', content },
-      ...['a', 'b', 'c', 'd', 'e'].map((n) => ({ path: `${n}/${n}.go`, content: `package ${n}\n` })),
-    ];
+    const files: SourceFile[] = [{ path: 'main.go', content }, ...['a', 'b', 'c', 'd', 'e'].map((n) => ({ path: `${n}/${n}.go`, content: `package ${n}\n` }))];
     const ownership: Ownership = { root: ['main.go'], pkgs: files.slice(1).map((f) => f.path) };
     const { edges } = await extractInModule('example.com/proj', files, ownership);
     // single + grouped + aliased + blank + dot specs all extract; blank/dot still create the dep

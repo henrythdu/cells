@@ -91,7 +91,10 @@ function candidateKeys(imp: string, modulePath: string): string[] {
   if (modulePath && (imp === modulePath || imp.startsWith(modulePath + '/'))) {
     if (imp === modulePath) out.push(modulePath);
     else {
-      const rest = imp.slice(modulePath.length + 1).split('/').join('::');
+      const rest = imp
+        .slice(modulePath.length + 1)
+        .split('/')
+        .join('::');
       out.push(rest ? `${modulePath}::${rest}` : modulePath);
     }
   }
