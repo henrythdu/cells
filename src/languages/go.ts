@@ -88,8 +88,10 @@ function collectImports(node: Node, out: string[]): void {
  *  internal/legacy + internal/backend/remote-state/*) makes those files' keys carry the full
  *  module path as their first segment). Stripping ANY of them resolves cross-sub-module imports
  *  from any importer (stress #9/#10). Longest-first: a sub-module's path is the more specific
- *  owner. Derived from the map — ownership-derived, no extra go.mod reads. */
-function modulePathsOf(moduleToFile: Map<string, string>): string[] {
+ *  owner. Derived from the map — ownership-derived, no extra go.mod reads. The map is stable
+ *  during phase-2 resolution, so callers compute this ONCE and pass it down (python's
+ *  localPackages precedent). */
+export function modulePathsOf(moduleToFile: Map<string, string>): string[] {
   const set = new Set<string>();
   for (const k of moduleToFile.keys()) {
     const first = k.split('::')[0];
@@ -124,6 +126,8 @@ function candidateKeys(imp: string, modulePaths: readonly string[]): string[] {
  *  normalizes them the same way). */
 function relativeKeys(imp: string, importerModule: string): string[] {
   if (!imp.startsWith('.')) return [];
+  if (importerModule === '__root__') return []; // GOPATH root file — no dir to resolve against; the
+  // import stays unresolved (honest: a root-dir relative import is broken GOPATH anyway)
   let rest = imp;
   let up = 0;
   for (;;) {
@@ -163,8 +167,7 @@ function looksLocal(imp: string, modulePaths: readonly string[]): boolean {
 /** Resolve ONE import path to a package file + whether it's local. Pure over the module→file
  *  map (no FS chasing — the map IS the ownership-derived census). The factory's last-set-wins
  *  makes any file in the target dir's package the deterministic representative. */
-export function resolvePackageImport(imp: string, importerModule: string, moduleToFile: Map<string, string>): { toFile: string | null; local: boolean } {
-  const modulePaths = modulePathsOf(moduleToFile);
+export function resolvePackageImport(imp: string, importerModule: string, moduleToFile: Map<string, string>, modulePaths: readonly string[]): { toFile: string | null; local: boolean } {
   const keys = [...candidateKeys(imp, modulePaths), ...relativeKeys(imp, importerModule)];
   let toFile: string | null = null;
   for (const k of keys) {
@@ -191,10 +194,11 @@ export const goImporter = createTreeSitterImporter<string[]>({
     uses: extractImports(root),
   }),
   resolveEdges: (imports, sourcePath, importerModule, ctx) => {
+    const modulePaths = modulePathsOf(ctx.moduleToFile); // stable across this file's imports
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const imp of imports) {
-      const { toFile, local } = resolvePackageImport(imp, importerModule, ctx.moduleToFile);
+      const { toFile, local } = resolvePackageImport(imp, importerModule, ctx.moduleToFile, modulePaths);
       if (toFile && toFile !== sourcePath) {
         edges.push({ fromFile: sourcePath, toFile, import: imp });
       } else if (!toFile && local) {

@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { goImporter, fileToModule, resolvePackageImport } from '../../src/languages/go.js';
+import { goImporter, fileToModule, modulePathsOf, resolvePackageImport } from '../../src/languages/go.js';
 import { getGrammarParser } from '../../src/languages/tree-sitter.js';
 import type { SourceFile } from '../../src/imports.js';
 import type { Ownership } from '../../src/ownership.js';
@@ -64,32 +64,34 @@ describe('resolvePackageImport', () => {
     ['example.com/proj::pkg::foo', 'pkg/foo/bar.go'],
     ['example.com/proj::internal', 'internal/thing.go'],
   ]);
+  const paths = modulePathsOf(m2f);
   // a no-module (GOPATH) repo — first segments are top-level dirs
   const gopathM2f = new Map<string, string>([['github.com::me::proj::pkg', 'github.com/me/proj/pkg/x.go']]);
+  const gopathPaths = modulePathsOf(gopathM2f);
 
   it('resolves module-relative imports to the package file', () => {
-    expect(resolvePackageImport('example.com/proj/pkg', 'example.com/proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('example.com/proj/pkg', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: 'pkg/foo.go',
       local: true,
     });
-    expect(resolvePackageImport('example.com/proj/pkg/foo', 'example.com/proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('example.com/proj/pkg/foo', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: 'pkg/foo/bar.go',
       local: true,
     });
-    expect(resolvePackageImport('example.com/proj', 'example.com/proj', m2f)).toEqual({
+    expect(resolvePackageImport('example.com/proj', 'example.com/proj', m2f, paths)).toEqual({
       toFile: 'main.go',
       local: true, // importing the module's root package from within it
     });
   });
 
   it('flags local misses as unresolved, silently skips externals', () => {
-    expect(resolvePackageImport('example.com/proj/pkg/missing', 'example.com/proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('example.com/proj/pkg/missing', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: null,
       local: true, // module-prefixed → a broken local import, the LLM's to read
     });
-    expect(resolvePackageImport('fmt', 'example.com/proj::pkg', m2f)).toEqual({ toFile: null, local: false });
-    expect(resolvePackageImport('github.com/other/x', 'example.com/proj::pkg', m2f)).toEqual({ toFile: null, local: false });
-    expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f)).toEqual({ toFile: null, local: false }); // cgo
+    expect(resolvePackageImport('fmt', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false });
+    expect(resolvePackageImport('github.com/other/x', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false });
+    expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false }); // cgo
   });
 
   it('resolves nested go.mod sub-module imports from any importer (stress #9/#10)', () => {
@@ -101,52 +103,53 @@ describe('resolvePackageImport', () => {
       ['example.com/proj/internal/legacy::terraform', 'internal/legacy/terraform/state.go'],
       ['example.com/proj/internal/backend/remote-state/aws', 'internal/backend/remote-state/aws/backend.go'],
     ]);
+    const nestedPaths = modulePathsOf(nested);
     // root-module file importing a sub-module package
-    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj::cmd', nested)).toEqual({
+    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: 'internal/legacy/terraform/state.go',
       local: true,
     });
     // root-module file importing a sub-module ROOT package (dir with go.mod = package too)
-    expect(resolvePackageImport('example.com/proj/internal/backend/remote-state/aws', 'example.com/proj::cmd', nested)).toEqual({
+    expect(resolvePackageImport('example.com/proj/internal/backend/remote-state/aws', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: 'internal/backend/remote-state/aws/backend.go',
       local: true,
     });
     // sub-module file importing another sub-module — still local, still resolves
-    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj/internal/legacy::helper', nested)).toEqual({
+    expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj/internal/legacy::helper', nested, nestedPaths)).toEqual({
       toFile: 'internal/legacy/terraform/state.go',
       local: true,
     });
     // a local miss inside a sub-module namespace → unresolved (honest)
-    expect(resolvePackageImport('example.com/proj/internal/legacy/missing', 'example.com/proj::cmd', nested)).toEqual({
+    expect(resolvePackageImport('example.com/proj/internal/legacy/missing', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: null,
       local: true,
     });
   });
 
   it('resolves GOPATH-style and relative imports', () => {
-    expect(resolvePackageImport('github.com/me/proj/pkg', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
+    expect(resolvePackageImport('github.com/me/proj/pkg', 'github.com::me::proj::pkg', gopathM2f, gopathPaths)).toEqual({
       toFile: 'github.com/me/proj/pkg/x.go',
       local: true,
     });
-    expect(resolvePackageImport('./foo', 'example.com/proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('./foo', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: 'pkg/foo/bar.go', // ./foo from pkg/ → the pkg::foo package
       local: true,
     });
-    expect(resolvePackageImport('../internal', 'example.com/proj::pkg', m2f)).toEqual({
+    expect(resolvePackageImport('../internal', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: 'internal/thing.go',
       local: true,
     });
     // escapes the root → no candidates, still local (broken — Go rejects it)
-    expect(resolvePackageImport('../../../nope', 'example.com/proj', m2f)).toEqual({ toFile: null, local: true });
+    expect(resolvePackageImport('../../../nope', 'example.com/proj', m2f, paths)).toEqual({ toFile: null, local: true });
   });
 
   it('no-module importer: a miss is external, not unresolved', () => {
-    expect(resolvePackageImport('golang.org/x/sync', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
+    expect(resolvePackageImport('golang.org/x/sync', 'github.com::me::proj::pkg', gopathM2f, gopathPaths)).toEqual({
       toFile: null,
       local: false,
     });
     // a top-dir prefix match is local even when it misses (broken own import under github.com/)
-    expect(resolvePackageImport('github.com/me/other', 'github.com::me::proj::pkg', gopathM2f)).toEqual({
+    expect(resolvePackageImport('github.com/me/other', 'github.com::me::proj::pkg', gopathM2f, gopathPaths)).toEqual({
       toFile: null,
       local: true,
     });
