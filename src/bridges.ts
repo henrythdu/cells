@@ -75,7 +75,9 @@ export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): 
     const name = lib?.name ?? (toml['package'] as { name?: string } | undefined)?.name;
     if (!name) continue;
     const dir = dirname(file);
-    const entry = relative(baseDir, join(dir, lib?.path ?? 'src/lib.rs')).split(sep).join('/');
+    const entry = relative(baseDir, join(dir, lib?.path ?? 'src/lib.rs'))
+      .split(sep)
+      .join('/');
     crates.push({ tail: name, entry });
   }
   return crates;
@@ -113,11 +115,7 @@ export function buildBridgeMap(codeDirs: readonly string[], baseDir: string): Ma
 
 /** Resolve unresolved imports through the bridge map. Returns the new edges + the
  *  unresolved entries that remain. Pure over its inputs (reads the FS once, via the map). */
-export function applyBridges(
-  map: Map<string, string>,
-  unresolved: readonly UnresolvedImport[],
-  baseDir = '.',
-): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+export function applyBridges(map: Map<string, string>, unresolved: readonly UnresolvedImport[], baseDir = '.'): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   if (map.size === 0) return { edges: [], unresolved: [...unresolved] };
   const edges: ImportEdge[] = [];
   const rest: UnresolvedImport[] = [];

@@ -14,14 +14,8 @@ afterAll(() => {
 function setupPyo3Fixture(): string {
   tmp = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
   mkdirSync(join(tmp, 'crates', 'headroom-py', 'src'), { recursive: true });
-  writeFileSync(
-    join(tmp, 'pyproject.toml'),
-    '[tool.maturin]\nmodule-name = "headroom._core"\n',
-  );
-  writeFileSync(
-    join(tmp, 'crates', 'headroom-py', 'Cargo.toml'),
-    '[package]\nname = "headroom-py"\n\n[lib]\nname = "_core"\ncrate-type = ["cdylib"]\n',
-  );
+  writeFileSync(join(tmp, 'pyproject.toml'), '[tool.maturin]\nmodule-name = "headroom._core"\n');
+  writeFileSync(join(tmp, 'crates', 'headroom-py', 'Cargo.toml'), '[package]\nname = "headroom-py"\n\n[lib]\nname = "_core"\ncrate-type = ["cdylib"]\n');
   writeFileSync(join(tmp, 'crates', 'headroom-py', 'src', 'lib.rs'), '#[pymodule]\n');
   return tmp;
 }
@@ -37,10 +31,7 @@ describe('scanCdylibCrates', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
     tmp = dir;
     mkdirSync(join(dir, 'crates', 'plain', 'src'), { recursive: true });
-    writeFileSync(
-      join(dir, 'crates', 'plain', 'Cargo.toml'),
-      '[package]\nname = "plain"\n\n[lib]\nname = "plain"\ncrate-type = ["lib"]\n',
-    );
+    writeFileSync(join(dir, 'crates', 'plain', 'Cargo.toml'), '[package]\nname = "plain"\n\n[lib]\nname = "plain"\ncrate-type = ["lib"]\n');
     expect(scanCdylibCrates(['.'], dir)).toEqual([]);
   });
 });
@@ -56,10 +47,7 @@ describe('buildBridgeMap', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
     tmp = dir;
     mkdirSync(join(dir, 'src'), { recursive: true });
-    writeFileSync(
-      join(dir, 'Cargo.toml'),
-      '[lib]\nname = "native_ops"\ncrate-type = ["cdylib"]\n',
-    );
+    writeFileSync(join(dir, 'Cargo.toml'), '[lib]\nname = "native_ops"\ncrate-type = ["cdylib"]\n');
     writeFileSync(join(dir, 'src', 'lib.rs'), '');
     expect(buildBridgeMap(['.'], dir).size).toBe(0);
   });
@@ -73,7 +61,10 @@ describe('buildBridgeMap', () => {
 });
 
 describe('applyBridges', () => {
-  const map = new Map([['headroom._core', 'crates/headroom-py/src/lib.rs'], ['native_ops', 'src/lib.rs']]);
+  const map = new Map([
+    ['headroom._core', 'crates/headroom-py/src/lib.rs'],
+    ['native_ops', 'src/lib.rs'],
+  ]);
   const tmpDir = () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
     tmp = dir;
@@ -86,14 +77,8 @@ describe('applyBridges', () => {
 
   it('resolves a full-name match to the crate entry', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(
-      map,
-      [{ fromFile: 'headroom/transforms/diff_compressor.py', import: 'headroom._core' }],
-      dir,
-    );
-    expect(edges).toEqual([
-      { fromFile: 'headroom/transforms/diff_compressor.py', toFile: 'crates/headroom-py/src/lib.rs', import: 'headroom._core' },
-    ]);
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'headroom/transforms/diff_compressor.py', import: 'headroom._core' }], dir);
+    expect(edges).toEqual([{ fromFile: 'headroom/transforms/diff_compressor.py', toFile: 'crates/headroom-py/src/lib.rs', import: 'headroom._core' }]);
     expect(unresolved).toEqual([]);
   });
 
@@ -113,11 +98,7 @@ describe('applyBridges', () => {
 
   it('drops the bridge when the entry file does not exist (honest — no dead edges)', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(
-      new Map([['gone.mod', 'crates/none/src/lib.rs']]),
-      [{ fromFile: 'a.py', import: 'gone.mod' }],
-      dir,
-    );
+    const { edges, unresolved } = applyBridges(new Map([['gone.mod', 'crates/none/src/lib.rs']]), [{ fromFile: 'a.py', import: 'gone.mod' }], dir);
     expect(edges).toEqual([]);
     expect(unresolved).toHaveLength(1);
   });
