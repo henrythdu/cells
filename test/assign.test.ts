@@ -133,6 +133,32 @@ describe('planGroups', () => {
     expect(g.get('crates/uv')).toEqual(['crates/uv/src/main.rs', 'crates/uv/benches/bench.rs']);
   });
 
+  it('root [workspace] Cargo.toml is not a crate — python files outside crates/ still get units (headroom)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('Cargo.toml', '[workspace]\nmembers = ["crates/*"]\n');
+    touch('crates/headroom-py/Cargo.toml', '[package]\n');
+    touch('crates/headroom-py/src/lib.rs');
+    touch('headroom/__init__.py');
+    touch('headroom/transforms/__init__.py');
+    touch('headroom/transforms/diff_compressor.py');
+    const g = planGroups(
+      ['crates/headroom-py/src/lib.rs', 'headroom/transforms/diff_compressor.py'],
+      repo,
+    );
+    expect([...g.keys()].sort()).toEqual(['crates/headroom-py', 'headroom/transforms']);
+  });
+
+  it('root Cargo.toml WITH [package] stays a unit root (ripgrep — root crate + workspace)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('Cargo.toml', '[package]\nname = "ripgrep"\n\n[workspace]\n');
+    touch('src/main.rs');
+    touch('crates/extra/src/lib.rs');
+    touch('crates/extra/Cargo.toml', '[package]\n');
+    const g = planGroups(['src/main.rs', 'crates/extra/src/lib.rs'], repo);
+    expect(g.has('crates/extra')).toBe(true); // the sub-crate is its own unit
+    expect(g.has('.')).toBe(false); // root package folds into dir groups — never the catch-all
+  });
+
   it('collapses TS monorepo packages (vite packages/*)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('packages/a/src/x.ts');

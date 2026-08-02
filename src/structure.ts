@@ -166,13 +166,17 @@ export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetr
   return out.sort((a, b) => b.toInstability - b.fromInstability - (a.toInstability - a.fromInstability) || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
 }
 
-/** Format SDP violations as an info-only report. Returns null when there are none. Pure. */
+/** Format SDP violations as an info-only report. Returns null when there are none. A long
+ *  list (pandas: 100+ entries) dominates the structure output, so it's capped — the count
+ *  and the first entries carry the signal; the tail of instability numbers is noise. Pure. */
 export function formatSdpReport(violations: SdpViolation[]): string | null {
   if (violations.length === 0) return null;
+  const cap = 20;
   const lines = ['SDP (Stable Dependencies Principle) — edges depending away from stability:'];
-  for (const v of violations) {
+  for (const v of violations.slice(0, cap)) {
     lines.push(`  ${v.fromCell} (I=${v.fromInstability.toFixed(2)}) → ${v.toCell} (I=${v.toInstability.toFixed(2)})   depends on a less stable cell`);
   }
+  if (violations.length > cap) lines.push(`  …and ${violations.length - cap} more (${violations.length} total)`);
   return lines.join('\n') + '\n';
 }
 

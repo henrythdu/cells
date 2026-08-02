@@ -145,6 +145,21 @@ describe('formatSdpReport', () => {
     expect(formatSdpReport([])).toBeNull();
   });
 
+  it('caps a long list with a count (pandas: 100+ entries dominate the output)', () => {
+    const metrics: Record<string, CellMetrics> = {};
+    const crossings = [];
+    for (let i = 0; i < 30; i++) {
+      metrics[`c${i}`] = m(0.1);
+      metrics[`d${i}`] = m(0.9);
+      crossings.push(c(`c${i}`, `d${i}`));
+    }
+    const report = formatSdpReport(checkSDP(crossings, metrics));
+    const lines = report!.split('\n');
+    expect(lines.length).toBe(1 + 20 + 1 + 1); // header + 20 capped + ellipsis + trailing
+    expect(lines[21]).toContain('10 more');
+    expect(lines[21]).toContain('30 total');
+  });
+
   it('renders violations with instability values', () => {
     const metrics = { stable: m(0.0), unstable: m(0.8) };
     const report = formatSdpReport(checkSDP([c('stable', 'unstable')], metrics));

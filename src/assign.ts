@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Ownership } from './ownership.js';
 import { STUB_PURPOSE, type Cell } from './declaration.js';
@@ -70,12 +70,23 @@ export function cellNameOf(key: string): string {
  *  fold to their nearest valid ancestor — plan never proposes un-creatable cells.
  *  Pure-ish: manifest probes hit the FS (like the rust importer's crate-root walk). */
 export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, string[]> {
+  // The repo-root Cargo.toml is usually a [workspace] manifest (headroom, uv), not a crate —
+  // a crate owns its subtree, so a root workspace manifest would swallow every file outside
+  // crates/ into '.', which plan drops (key === '.') — headroom's 1333 python files vanished
+  // from the plan. Only a root Cargo.toml WITH a [package] section (ripgrep: root crate +
+  // workspace) is a real unit root. Mirrors the root-package.json rule below.
+  let rootCargoIsPackage = false;
+  try {
+    rootCargoIsPackage = /^\s*\[package\]/m.test(readFileSync(join(baseDir, 'Cargo.toml'), 'utf8'));
+  } catch {
+    rootCargoIsPackage = false;
+  }
   // all manifest dirs above a dir, deepest first (each with its manifest kind)
   const manifestAncestors = (dir: string): { dir: string; kind: 'cargo' | 'pkg' | 'pyinit' }[] => {
     const out: { dir: string; kind: 'cargo' | 'pkg' | 'pyinit' }[] = [];
     let d = dir;
     for (;;) {
-      const cargo = existsSync(join(baseDir, d, 'Cargo.toml'));
+      const cargo = existsSync(join(baseDir, d, 'Cargo.toml')) && (d !== '.' || rootCargoIsPackage);
       const pkg = existsSync(join(baseDir, d, 'package.json'));
       const pyinit = existsSync(join(baseDir, d, '__init__.py'));
       if (cargo) out.push({ dir: d, kind: 'cargo' });
