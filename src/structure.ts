@@ -221,8 +221,10 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     lines.push('ADP: acyclic — no circular dependencies.');
   } else {
     lines.push(`ADP: ${cycles.length} cycle(s):`);
+    const cap = 20; // a 500-cell cycle (transformers) must not print 500 lines — the cut candidates carry the signal
     for (const cyc of cycles) {
-      lines.push(`  ⚠ ${cyc.cells.join(' ↔ ')}`);
+      const cells = cyc.cells.length > cap ? cyc.cells.slice(0, cap) : cyc.cells;
+      lines.push(`  ⚠ ${cells.join(' ↔ ')}${cyc.cells.length > cap ? ` ↔ … ${cyc.cells.length - cap} more cells` : ''}`);
       const cuts = cycleCutCandidates(cyc, crossings);
       if (cuts.length > 0)
         lines.push(

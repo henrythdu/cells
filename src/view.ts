@@ -134,9 +134,12 @@ export interface PeelCandidate {
 
 export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[] }[], ceiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
-  const width = Math.max(...ranked.map((e) => e.name.length), 4);
+  const overCount = ranked.filter((e) => e.size.tokens > ceiling).length;
+  const cap = 20; // transformers: 502/1103 over ceiling — 500 bar rows drown the signal; the count + top rows carry it
+  const shown = ranked.slice(0, cap);
+  const width = Math.max(...shown.map((e) => e.name.length), 4);
   const lines: string[] = [`context-fit — ceiling: ${ceiling} tok (max-payload-tokens)`];
-  for (const { name, size, peel } of ranked) {
+  for (const { name, size, peel } of shown) {
     const over = size.tokens > ceiling;
     const segs = Math.min(10, Math.round((size.tokens / ceiling) * 10));
     const bar = '█'.repeat(segs).padEnd(10, '░');
@@ -147,7 +150,10 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
       lines.push(`    peel candidates: ${top.map((p) => `${p.file} (${p.tokens} tok, ${p.fanIn} importer${p.fanIn === 1 ? '' : 's'})`).join(', ')}`);
     }
   }
-  const overCount = ranked.filter((e) => e.size.tokens > ceiling).length;
+  if (ranked.length > cap) {
+    const hidden = ranked.length - cap;
+    lines.push(`  …and ${hidden} more (${overCount > cap ? `${overCount - cap} still over ceiling, ` : ''}${hidden} total hidden)`);
+  }
   lines.push(overCount > 0 ? `${overCount} cell(s) over ceiling — consider dividing (cells assign <new-cell> <file...>).` : 'all cells within ceiling.');
   return `${lines.join('\n')}\n`;
 }
@@ -172,6 +178,8 @@ export interface HealthValues {
   unresolvedCount: number;
   unresolvedDetails: string[];
   grammarResults: { lang: string; ok: boolean; error?: string }[];
+  /** Wall-clock of the health run in seconds — rendered on the gate line. */
+  elapsedSec?: number;
 }
 
 export interface HealthReport {
@@ -223,8 +231,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   if (!structOk) warnings.push('structure');
   if (!sizeOk) warnings.push('size');
   lines.push('');
+  const timing = v.elapsedSec !== undefined ? `  (${v.elapsedSec.toFixed(1)}s)` : '';
   if (gateOk) {
-    lines.push(warnings.length > 0 ? `→ Gate passed with ${warnings.length} warning(s). Run ${warnings.map((w) => `\`cells ${w}\``).join(' / ')} for details.` : '→ All checks passed.');
+    lines.push(warnings.length > 0 ? `→ Gate passed with ${warnings.length} warning(s). Run ${warnings.map((w) => `\`cells ${w}\``).join(' / ')} for details.${timing}` : `→ All checks passed.${timing}`);
   } else {
     const drill: string[] = [];
     if (!valOk) drill.push('validate');

@@ -68,6 +68,7 @@ export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> 
  *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
  *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
 export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<void> {
+  const started = performance.now();
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
@@ -110,6 +111,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
       unresolvedCount: unresolved.length,
       unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
       grammarResults,
+      elapsedSec: (performance.now() - started) / 1000,
     },
     verbose,
   );

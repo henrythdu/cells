@@ -190,6 +190,8 @@ describe('formatCellShow', () => {
 });
 
 describe('formatSizeReport', () => {
+  const sz = (tokens: number) => ({ files: 1, chars: tokens * 4, tokens });
+
   it('ranks cells by payload (biggest first), shows a bar, flags over-ceiling', () => {
     const entries = [
       { name: 'small', size: { files: 1, chars: 400, tokens: 100 } },
@@ -199,6 +201,17 @@ describe('formatSizeReport', () => {
     expect(out).toMatch(/big[\s\S]*small/); // ranked biggest first
     expect(out).toContain('16000'); // ceiling echoed
     expect(out).toContain('⚠'); // over-ceiling flagged
+  });
+
+  it('caps a huge over-ceiling list (transformers: 502/1103) with a count', () => {
+    const entries = [];
+    for (let i = 0; i < 25; i++) entries.push({ name: `c${i}`, size: sz(20000 + i) });
+    const out = formatSizeReport(entries, 16000);
+    expect(out).toContain('and 5 more');
+    expect(out).toContain('still over ceiling');
+    expect(out).toContain('25 cell(s) over ceiling');
+    const rows = out.split('\n').filter((l) => /\[█/.test(l));
+    expect(rows.length).toBe(20); // capped rows only
   });
 
   it('reports all-clear when nothing exceeds the ceiling', () => {
@@ -260,6 +273,13 @@ describe('formatHealthReport', () => {
     expect(report).toContain('✓ structure');
     expect(report).toContain('✓ size');
     expect(report).toContain('All checks passed');
+  });
+
+  it('renders the elapsed time on the gate line when provided', () => {
+    const { report } = formatHealthReport({ ...clear, elapsedSec: 1.234 });
+    expect(report).toContain('All checks passed.  (1.2s)');
+    const { report: plain } = formatHealthReport(clear);
+    expect(plain).not.toMatch(/\(\d+\.\ds\)/);
   });
 
   it('undeclared leakage gate-fails (✗ crossings, exit 1)', () => {

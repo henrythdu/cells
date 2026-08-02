@@ -184,6 +184,17 @@ describe('formatStructureReport', () => {
     expect(out).toContain('cli ↔ io ↔ view');
   });
 
+  it('caps a giant cycle (transformers: 500+ cells) and keeps the cut candidates', () => {
+    const cells = Array.from({ length: 60 }, (_, i) => `c${i}`);
+    const out = formatStructureReport([{ cells }], [], true, {}, [
+      { fromCell: 'c1', toCell: 'c2', fromFile: 'x.ts', toFile: 'y.ts', import: "from 'x'" },
+    ]);
+    expect(out).toContain('c0 ↔ c1');
+    expect(out).not.toContain('c59'); // tail folded
+    expect(out).toContain('40 more cells');
+    expect(out).toContain('cheapest edges'); // actionable part survives the cap
+  });
+
   it('reports a direction violation (raw numbers when no legend)', () => {
     const out = formatStructureReport([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true);
     expect(out).toContain('Direction: 1 violation(s):');
