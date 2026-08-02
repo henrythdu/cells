@@ -47,6 +47,7 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
   const flatBase = flatSrc ? flatSrc.replace(/\.js$/, '') : null; // strip the ext — the source may be a dir (index.ts)
   const candidates = [
     toPosix,
+    `${toPosix}.d.ts`, // types-only exports resolve to declaration files (vite/types/*)
     `${toPosix}.ts`,
     `${toPosix}.tsx`,
     `${toPosix}/index.ts`,
