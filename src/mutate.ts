@@ -11,11 +11,18 @@ import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, valid
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { buildConfig } from './config.js';
+import { importableExts, DEFAULT_IMPORTERS } from './importers.js';
 import { loadCrossings, warnIfNoCodeFiles } from './commands/read.js';
 
 /** `cells init` — bootstrap a `.cells/` store (idempotent + self-healing). */
 export function cmdInit(dryRun = false): void {
-  const { codeExts, codeDirs } = detectProject();
+  const detected = detectProject();
+  // Only ship exts cells can analyze — a repo with importable code shouldn't warn forever
+  // about a stray blind fixture (uv's .h). A repo whose languages are ALL blind (pure C)
+  // keeps its dominant ext so the BLIND warning fires honestly instead of a silent empty census.
+  let codeExts = importableExts(detected.codeExts, DEFAULT_IMPORTERS);
+  if (codeExts.length === 0 && detected.codeExts.length > 0) codeExts = [detected.codeExts[0]];
+  const { codeDirs } = detected;
   if (dryRun) {
     const ownPath = join(CELLS_DIR, 'ownership.toml');
     const cfgPath = join(CELLS_DIR, 'config.toml');

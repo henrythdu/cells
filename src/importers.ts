@@ -31,6 +31,15 @@ export function uncoveredImporterExts(exts: readonly string[], importers: readon
   return [...new Set(exts)].filter((e) => !covered.has(e)).sort();
 }
 
+/** The subset of detected extensions cells can actually analyze (the inverse of
+ *  uncoveredImporterExts, preserving input order). Used by `cells init` so a repo's
+ *  config doesn't ship blind extensions (a lone .h fixture) that would warn forever.
+ *  Pure — unit-testable. */
+export function importableExts(exts: readonly string[], importers: readonly Importer[]): string[] {
+  const covered = new Set(importers.flatMap((i) => i.extensions));
+  return exts.filter((e) => covered.has(e));
+}
+
 /**
  * Collect raw file→file import edges by dispatching to importers by extension.
  * The only language-coupled seam in Cells; everything downstream consumes ImportEdge[].

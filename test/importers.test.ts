@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectImporters, uncoveredImporterExts, pythonImporter } from '../src/importers.js';
+import { selectImporters, uncoveredImporterExts, importableExts, pythonImporter } from '../src/importers.js';
 import type { Importer } from '../src/imports.js';
 
 describe('importer selection', () => {
@@ -81,5 +81,36 @@ describe('uncoveredImporterExts', () => {
       },
     };
     expect(uncoveredImporterExts(['.ts', '.js'], [ts])).toEqual([]);
+  });
+});
+
+describe('importableExts', () => {
+  it('keeps only extensions with an importer, preserving order', () => {
+    const ts: Importer = {
+      name: 'ts',
+      extensions: ['.ts', '.js'],
+      async extract() {
+        return { edges: [], unresolved: [] };
+      },
+    };
+    const py: Importer = {
+      name: 'py',
+      extensions: ['.py'],
+      async extract() {
+        return { edges: [], unresolved: [] };
+      },
+    };
+    expect(importableExts(['.py', '.h', '.ts', '.rb'], [ts, py])).toEqual(['.py', '.ts']);
+  });
+
+  it('returns [] when nothing is importable (the cmdInit all-blind guard handles that)', () => {
+    const ts: Importer = {
+      name: 'ts',
+      extensions: ['.ts'],
+      async extract() {
+        return { edges: [], unresolved: [] };
+      },
+    };
+    expect(importableExts(['.c', '.h'], [ts])).toEqual([]);
   });
 });

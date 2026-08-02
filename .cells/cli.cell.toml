@@ -21,5 +21,6 @@ requires = [
   "payload",
   "assign",
   "help",
+  "importers",
 ]
 layer = 7
