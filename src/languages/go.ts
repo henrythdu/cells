@@ -20,8 +20,10 @@ function findGoMod(filePath: string, baseDir: string): string | null {
 
 /** The `module` directive of the nearest go.mod — the import-path prefix every package in the
  *  module is addressed by. Cached per absolute go.mod path: fileToModule runs once per file and
- *  re-reading the same go.mod hundreds of times would dominate a big scan. */
-const moduleCache = new Map<string, string>();
+ *  re-reading the same go.mod hundreds of times would dominate a big scan. Keyed by the ABSOLUTE
+ *  path (resolve(baseDir, …)), so distinct baseDirs/repos never collide; the cells CLI is
+ *  one-shot per run — a watch-mode caller reusing a path with new content would need to clear it. */
+const moduleCache = new Map<string, string | null>();
 function modulePathOf(goModDir: string, baseDir: string): string | null {
   const abs = resolve(baseDir, goModDir, 'go.mod');
   const hit = moduleCache.get(abs);
@@ -33,7 +35,7 @@ function modulePathOf(goModDir: string, baseDir: string): string | null {
   } catch {
     path = null;
   }
-  moduleCache.set(abs, path ?? '');
+  moduleCache.set(abs, path); // store null as null — `?? 'gopath'` must see the same value every call
   return path;
 }
 
@@ -63,7 +65,7 @@ export function fileToModule(path: string, _moduleRoot?: string, baseDir = '.'):
  *  import_spec_list → import_spec; each spec = optional package_identifier (an alias, `_` for
  *  side-effect, `.` for dot-imports — irrelevant to the dependency) + interpreted_string_literal
  *  (the path). */
-export function extractImports(root: Node): string[] {
+function extractImports(root: Node): string[] {
   const out: string[] = [];
   collectImports(root, out);
   return out;
@@ -97,23 +99,27 @@ function candidateKeys(imp: string, modulePath: string): string[] {
   return [...new Set(out)];
 }
 
-/** Resolve a relative import (`./foo`, `../foo`) against the importer's package key — GOPATH-era
- *  syntax, a compile error in modules but resolved honestly when the target exists. Pops one
- *  segment per `..` (never the first — the module/first segment); escaping the root → no
- *  candidates (broken either way). */
+/** Resolve a relative import (`./foo`, `../foo`, `./../foo`) against the importer's package key —
+ *  GOPATH-era syntax, a compile error in modules but resolved honestly when the target exists.
+ *  Pops one segment per `..` (never the first — the module/first segment); escaping the root →
+ *  no candidates (broken either way). Mixed `./`/`../` prefixes are stripped iteratively (Go
+ *  normalizes them the same way). */
 function relativeKeys(imp: string, importerModule: string): string[] {
   if (!imp.startsWith('.')) return [];
   let rest = imp;
   let up = 0;
-  while (rest.startsWith('../')) {
-    up++;
-    rest = rest.slice(3);
-  }
-  if (rest === '..') {
-    up++;
-    rest = '';
-  } else if (rest.startsWith('./')) {
-    rest = rest.slice(2);
+  for (;;) {
+    if (rest.startsWith('../')) {
+      up++;
+      rest = rest.slice(3);
+    } else if (rest === '..') {
+      up++;
+      rest = '';
+    } else if (rest.startsWith('./')) {
+      rest = rest.slice(2);
+    } else {
+      break;
+    }
   }
   const segs = importerModule.split('::');
   const min = 1; // keep the module/first segment
