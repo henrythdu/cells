@@ -11,12 +11,13 @@ import type { ImportEdge, UnresolvedImport } from './imports.js';
  * own Cargo.toml/pyproject.toml, no per-repo config) says which crate produces it, and the
  * import becomes a real edge: from .py → to .rs, a crossing that marks the language change.
  *
- * The map keys are module names; a bare-tail key (lib name, pyo3 convention: the module's
- * last segment == [lib] name) matches any import whose last '.'-segment equals it, and a
- * full-name key from [tool.maturin] module-name overrides when present. The pass only
- * rewrites UNRESOLVED local imports — external imports stay silent, resolved imports never
- * reach it — so the false-positive window is an unresolved import whose tail collides with
- * an unrelated cdylib lib name (rare, and the edge beats leaving it unresolved).
+ * The map keys are module names, declared explicitly: pyproject.toml [tool.maturin]
+ * module-name ("headroom._core"), linked to the binding crate by its cdylib lib name
+ * (maturin builds the crate whose [lib] name is the module's last segment). Declaration-only
+ * by design: a bare-tail convention fallback (lib name == import tail) false-positived on
+ * uv's deptry_reproducer test fixture — an unrelated cdylib crate whose lib name collided
+ * with an unresolved import's tail. Maturin-built crates always declare module-name, so
+ * the fallback bought nothing. No declaration = no bridge = stays unresolved (honest).
  *
  * Known ceiling (in the ADR): a BUILT repo that silences .so imports never reports them as
  * unresolved, so they don't reach this pass. Source-only repos — the analysis case — are
@@ -80,9 +81,10 @@ export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): 
   return crates;
 }
 
-/** The module-name overrides: pyproject.toml [tool.maturin] module-name ("headroom._core")
- *  explicitly names the produced module. Linked to a crate by its tail (maturin builds the
- *  crate whose lib name is the module's last segment). */
+/** The bridge map: pyproject.toml [tool.maturin] module-name ("headroom._core") explicitly
+ *  names the produced module. Linked to a crate by its tail (maturin builds the crate whose
+ *  lib name is the module's last segment). Declaration-only — a bare-tail convention fallback
+ *  false-positived on uv's deptry_reproducer fixture. */
 function readModuleNameOverrides(codeDirs: readonly string[], baseDir: string, crates: CrateEntry[]): Map<string, string> {
   const files: string[] = [];
   for (const dir of codeDirs) walkToml(join(baseDir, dir), 'pyproject.toml', files);
@@ -100,21 +102,13 @@ function readModuleNameOverrides(codeDirs: readonly string[], baseDir: string, c
   return overrides;
 }
 
-/** The full bridge map: full-name overrides first, then bare-tail keys (deduped — an
- *  override's tail key would duplicate its crate's tail entry; the exact key wins by
- *  lookup order, so dropping the duplicate is safe). */
+/** The full bridge map — one key per [tool.maturin] module-name override (see above for
+ *  why the bare-tail convention fallback is gone). Empty when no cdylib crate or no
+ *  declaration exists: zero behavior change. */
 export function buildBridgeMap(codeDirs: readonly string[], baseDir: string): Map<string, string> {
   const crates = scanCdylibCrates(codeDirs, baseDir);
   if (crates.length === 0) return new Map();
-  const map = readModuleNameOverrides(codeDirs, baseDir, crates);
-  // Full-name overrides are authoritative for their crate — skip the crate's bare-tail
-  // duplicate (the exact key wins by lookup order in applyBridges anyway).
-  const overriddenTails = new Set([...map.keys()].map((k) => k.split('.').pop() as string));
-  for (const c of crates) {
-    if (overriddenTails.has(c.tail)) continue;
-    map.set(c.tail, c.entry);
-  }
-  return map;
+  return readModuleNameOverrides(codeDirs, baseDir, crates);
 }
 
 /** Resolve unresolved imports through the bridge map. Returns the new edges + the
@@ -128,9 +122,7 @@ export function applyBridges(
   const edges: ImportEdge[] = [];
   const rest: UnresolvedImport[] = [];
   for (const u of unresolved) {
-    const full = map.get(u.import);
-    const tail = u.import.split('.').pop()!;
-    const entry = full ?? (tail !== u.import ? map.get(tail) : undefined);
+    const entry = map.get(u.import); // exact full-name match only — declaration-derived, conservative
     if (entry && existsSync(join(baseDir, entry))) {
       edges.push({ fromFile: u.fromFile, toFile: entry, import: u.import });
     } else {

@@ -46,14 +46,13 @@ describe('scanCdylibCrates', () => {
 });
 
 describe('buildBridgeMap', () => {
-  it('full-name override wins; bare tail also matches (headroom case)', () => {
+  it('full-name override bridges (headroom case)', () => {
     const dir = setupPyo3Fixture();
     const map = buildBridgeMap(['.'], dir);
     expect(map.get('headroom._core')).toBe('crates/headroom-py/src/lib.rs');
-    expect(map.get('_core')).toBeUndefined(); // override tail is authoritative — bare key skipped
   });
 
-  it('no pyproject: bare lib-name tail still bridges (convention fallback)', () => {
+  it('no module-name declaration: no bridge (conservative — uv deptry fixture lesson)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
     tmp = dir;
     mkdirSync(join(dir, 'src'), { recursive: true });
@@ -62,8 +61,7 @@ describe('buildBridgeMap', () => {
       '[lib]\nname = "native_ops"\ncrate-type = ["cdylib"]\n',
     );
     writeFileSync(join(dir, 'src', 'lib.rs'), '');
-    const map = buildBridgeMap(['.'], dir);
-    expect(map.get('native_ops')).toBe('src/lib.rs');
+    expect(buildBridgeMap(['.'], dir).size).toBe(0);
   });
 
   it('empty map when no cdylib crate exists (zero behavior change)', () => {
@@ -99,11 +97,11 @@ describe('applyBridges', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('matches by bare tail when the import has a package prefix', () => {
+  it('does not tail-match: an unrelated cdylib lib name colliding with an import tail stays unresolved', () => {
     const dir = tmpDir();
-    const { edges } = applyBridges(map, [{ fromFile: 'pkg/foo.py', import: 'myapp.native_ops' }], dir);
-    expect(edges).toHaveLength(1);
-    expect(edges[0].toFile).toBe('src/lib.rs');
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'pkg/foo.py', import: 'myapp.native_ops' }], dir);
+    expect(edges).toEqual([]);
+    expect(unresolved).toHaveLength(1);
   });
 
   it('does not touch imports that match nothing (broken local stays unresolved)', () => {
