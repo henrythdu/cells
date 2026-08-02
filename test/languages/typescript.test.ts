@@ -62,6 +62,29 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     expect(unresolved.some((u) => u.import === '@/b')).toBe(true); // …but surfaced, not swallowed
   });
 
+  it('reads `paths` from a jsonc tsconfig (trailing comma — bug #11: turborepo apps/web)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-tsc-jsonc-'));
+    fixtures.add(dir);
+    // jsonc: trailing comma after the last `paths` entry — legal TS, invalid strict JSON
+    writeFileSync(join(dir, 'tsconfig.json'), `{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["src/*"],
+      "~/*": ["server/*"],
+    },
+  },
+}`);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'server'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import { b } from '@/b';\nimport { s } from '~/s';\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const b = 1;\n');
+    writeFileSync(join(dir, 'server', 's.ts'), 'export const s = 1;\n');
+    const { edges, unresolved } = await extractAt(dir);
+    expect(edges.some((e) => e.import === '@/b')).toBe(true); // aliases resolve despite the trailing comma
+    expect(edges.some((e) => e.import === '~/s')).toBe(true);
+    expect(unresolved.some((u) => u.import === '@/b' || u.import === '~/s')).toBe(false);
+  });
+
   it('resolves workspace package-name imports to the package entry source (monorepo)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ws-ts-'));
     fixtures.add(dir);

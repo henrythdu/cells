@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { dirname, join, posix, resolve, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { cruise, type ICruiseOptions, type ICruiseResult } from 'dependency-cruiser';
+import ts from 'typescript';
 import type { ImportEdge, ImportResult, UnresolvedImport, Importer, SourceFile } from '../imports.js';
 
 /** A workspace package: its dir (repo-relative), parsed `exports` (for subpath keys), and the
@@ -143,6 +144,16 @@ function wildcardTarget(exports: Record<string, unknown> | null, rest: string): 
   return null;
 }
 
+/** Parse a tsconfig.json. TS config files are jsonc by spec — comments and trailing commas
+ *  are legal (turborepo's apps/web/tsconfig.json has a trailing comma in `paths`); strict
+ *  JSON.parse would throw and silently drop the config, losing its `paths` aliases.
+ *  ts.readConfigFile handles comments/trailing commas/BOM natively. Returns null on
+ *  read/parse failure (same contract as the old try/catch JSON.parse). */
+function readTsconfig(filePath: string): Record<string, unknown> | null {
+  const result = ts.readConfigFile(filePath, ts.sys.readFile);
+  return result.error ? null : ((result.config as Record<string, unknown> | undefined) ?? null);
+}
+
 /**
  * Collect `paths` aliases from every tsconfig.json found along the code-file ancestor walk
  * (root + nested per-app configs), rewritten to repo-root-relative targets (a nested
@@ -167,20 +178,16 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
       seen.add(dir);
       const tsPath = join(baseDir, dir, 'tsconfig.json');
       if (existsSync(tsPath)) {
-        try {
-          const cfg = JSON.parse(readFileSync(tsPath, 'utf8')) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } };
-          const paths = cfg.compilerOptions?.paths;
-          if (paths) {
-            const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
-            for (const [alias, targets] of Object.entries(paths)) {
-              mergeAlias(
-                alias,
-                targets.map((t) => posix.normalize(`${base}/${t}`)),
-              );
-            }
+        const cfg = readTsconfig(tsPath) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } } | null;
+        const paths = cfg?.compilerOptions?.paths;
+        if (paths) {
+          const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
+          for (const [alias, targets] of Object.entries(paths)) {
+            mergeAlias(
+              alias,
+              targets.map((t) => posix.normalize(`${base}/${t}`)),
+            );
           }
-        } catch {
-          /* malformed nested tsconfig — skip; its aliases stay unresolved */
         }
       }
       dir = dirname(dir);
@@ -189,16 +196,12 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
   // the root tsconfig itself: read its paths too (files at the repo root never enter the loop)
   const rootPath = join(baseDir, 'tsconfig.json');
   if (existsSync(rootPath)) {
-    try {
-      const cfg = JSON.parse(readFileSync(rootPath, 'utf8')) as { compilerOptions?: { paths?: Record<string, string[]> } };
-      for (const [alias, targets] of Object.entries(cfg.compilerOptions?.paths ?? {})) {
-        mergeAlias(
-          alias,
-          targets.map((t) => posix.normalize(t)),
-        );
-      }
-    } catch {
-      /* skip */
+    const cfg = readTsconfig(rootPath) as { compilerOptions?: { paths?: Record<string, string[]> } } | null;
+    for (const [alias, targets] of Object.entries(cfg?.compilerOptions?.paths ?? {})) {
+      mergeAlias(
+        alias,
+        targets.map((t) => posix.normalize(t)),
+      );
     }
   }
   return merged;
@@ -269,11 +272,7 @@ export const depCruiserImporter: Importer = {
     let tempDir: string | null = null;
     if (mergedPaths.size > 0) {
       const cfg: Record<string, unknown> = { compilerOptions: {} };
-      try {
-        if (existsSync(tsConfigPath)) Object.assign(cfg, JSON.parse(readFileSync(tsConfigPath, 'utf8')) as Record<string, unknown>);
-      } catch {
-        /* unreadable root tsconfig — synthesize from the merged paths alone */
-      }
+      if (existsSync(tsConfigPath)) Object.assign(cfg, readTsconfig(tsConfigPath) ?? {});
       const co = (cfg.compilerOptions ?? {}) as Record<string, unknown>;
       co.paths = { ...((co.paths as Record<string, unknown>) ?? {}), ...Object.fromEntries(mergedPaths) };
       cfg.compilerOptions = co;

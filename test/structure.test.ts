@@ -186,9 +186,7 @@ describe('formatStructureReport', () => {
 
   it('caps a giant cycle (transformers: 500+ cells) and keeps the cut candidates', () => {
     const cells = Array.from({ length: 60 }, (_, i) => `c${i}`);
-    const out = formatStructureReport([{ cells }], [], true, {}, [
-      { fromCell: 'c1', toCell: 'c2', fromFile: 'x.ts', toFile: 'y.ts', import: "from 'x'" },
-    ]);
+    const out = formatStructureReport([{ cells }], [], true, {}, [{ fromCell: 'c1', toCell: 'c2', fromFile: 'x.ts', toFile: 'y.ts', import: "from 'x'" }]);
     expect(out).toContain('c0 ↔ c1');
     expect(out).not.toContain('c59'); // tail folded
     expect(out).toContain('40 more cells');
