@@ -141,10 +141,7 @@ describe('planGroups', () => {
     touch('headroom/__init__.py');
     touch('headroom/transforms/__init__.py');
     touch('headroom/transforms/diff_compressor.py');
-    const g = planGroups(
-      ['crates/headroom-py/src/lib.rs', 'headroom/transforms/diff_compressor.py'],
-      repo,
-    );
+    const g = planGroups(['crates/headroom-py/src/lib.rs', 'headroom/transforms/diff_compressor.py'], repo);
     expect([...g.keys()].sort()).toEqual(['crates/headroom-py', 'headroom/transforms']);
   });
 
