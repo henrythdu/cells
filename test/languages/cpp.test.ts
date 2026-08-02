@@ -33,10 +33,7 @@ describe('includeCandidates (probe order)', () => {
   });
 
   it('angle: repo-relative across every root (no importer-dir probe)', () => {
-    expect(includeCandidates({ path: 'project/foo.hpp', quoted: false }, 'src/a.cpp', ['.', 'include'])).toEqual([
-      'project/foo.hpp',
-      'include/project/foo.hpp',
-    ]);
+    expect(includeCandidates({ path: 'project/foo.hpp', quoted: false }, 'src/a.cpp', ['.', 'include'])).toEqual(['project/foo.hpp', 'include/project/foo.hpp']);
     expect(includeCandidates({ path: 'vector', quoted: false }, 'src/a.cpp', ['.'])).toEqual(['vector']);
   });
 

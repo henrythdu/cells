@@ -50,6 +50,20 @@ export function includeRoots(files: ReadonlySet<string>): string[] {
   return ['.', ...[...dirs].sort()];
 }
 
+/** includeRoots, memoized per census set. resolveEdges runs once per file with the SAME ctx
+ *  (same Set identity) — recomputing the top-level scan per file would be O(files²) on big
+ *  C++ repos. WeakMap: the Set dies with the extract, no cross-run staleness (the factory
+ *  builds a fresh Set every extract). */
+const rootsCache = new WeakMap<ReadonlySet<string>, string[]>();
+function includeRootsCached(files: ReadonlySet<string>): string[] {
+  let cached = rootsCache.get(files);
+  if (!cached) {
+    cached = includeRoots(files);
+    rootsCache.set(files, cached);
+  }
+  return cached;
+}
+
 /** Candidate targets for an include, in probe order:
  *  1. importer-dir-relative (quoted only — the C standard: `"..."` first searches the
  *     including file's directory; `../`/`./` segments normalize away),
@@ -98,7 +112,7 @@ export const cppImporter = createTreeSitterImporter<CppInclude[]>({
     uses: extractIncludes(root),
   }),
   resolveEdges: (includes, sourcePath, _importerModule, ctx) => {
-    const roots = includeRoots(ctx.files); // stable across this file's includes
+    const roots = includeRootsCached(ctx.files); // stable across this file's includes, memoized per census
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const inc of includes) {
