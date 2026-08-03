@@ -227,7 +227,8 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     `  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`,
   );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
-  if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; check specifiers or module-root)`);
+  if (v.unresolvedCount > 0)
+    lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; check specifiers or module-root)`);
 
   // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];

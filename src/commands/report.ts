@@ -79,9 +79,7 @@ export function groupUnresolved(unresolved: UnresolvedImport[]): string[] {
     if (g) g.count++;
     else byFile.set(u.fromFile, { count: 1, example: u.import });
   }
-  return [...byFile.entries()]
-    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
-    .map(([f, g]) => `${f}: ${g.count} unresolved (e.g. "${g.example}")`);
+  return [...byFile.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).map(([f, g]) => `${f}: ${g.count} unresolved (e.g. "${g.example}")`);
 }
 
 export async function cmdHealth(ctx: CellsContext, verbose = false, summary = false): Promise<void> {
