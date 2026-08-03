@@ -42,6 +42,52 @@ describe('includeCandidates (probe order)', () => {
   });
 });
 
+describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
+  it('resolves a bare header via a depth-2 root (llama: ggml/include)', async () => {
+    const { edges, unresolved } = await extract({
+      'ggml/src/ggml.c': '#include "ggml-backend.h"\n',
+      'ggml/include/ggml-backend.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === 'ggml-backend.h')?.toFile).toBe('ggml/include/ggml-backend.h');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('resolves a namespaced header via a depth-3 root (pandas: _libs/include)', async () => {
+    const { edges, unresolved } = await extract({
+      'pandas/_libs/src/parser/tokenizer.c': '#include "pandas/portable.h"\n',
+      'pandas/_libs/include/pandas/portable.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === 'pandas/portable.h')?.toFile).toBe('pandas/_libs/include/pandas/portable.h');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('applies to angle includes too (consistency — the quoted/angle split is classification, not probes)', async () => {
+    const { edges } = await extract({
+      'src/a.cpp': '#include <pandas/portable.h>\n',
+      'pandas/_libs/include/pandas/portable.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === 'pandas/portable.h')?.toFile).toBe('pandas/_libs/include/pandas/portable.h');
+  });
+
+  it('shortest-path wins on ambiguity (deterministic)', async () => {
+    const { edges } = await extract({
+      'src/a.cpp': '#include "deep.h"\n',
+      'aa/deep.h': '#pragma once\n',
+      'bb/cc/deep.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === 'deep.h')?.toFile).toBe('aa/deep.h'); // shortest path
+  });
+
+  it('quoted miss still flagged unresolved when no census file ends with the include', async () => {
+    const { edges, unresolved } = await extract({
+      'src/a.cpp': '#include "never/here.h"\n',
+      'src/other.h': '#pragma once\n',
+    });
+    expect(edges).toEqual([]);
+    expect(unresolved).toEqual([{ fromFile: 'src/a.cpp', import: 'never/here.h' }]);
+  });
+});
+
 describe('cppImporter (include resolution)', () => {
   it('resolves quoted includes importer-dir-relative, then repo-relative', async () => {
     const { edges, unresolved } = await extract({

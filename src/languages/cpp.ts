@@ -64,6 +64,30 @@ function includeRootsCached(files: ReadonlySet<string>): string[] {
   return cached;
 }
 
+/** cpp-family census paths, shortest-first (then alpha) — the suffix-match candidate order.
+ *  Derived from the importer's own module→file map (keys are paths — identity keys).
+ *  Memoized per map like includeRootsCached. */
+const cppFilesCache = new WeakMap<Map<string, string>, string[]>();
+function sortedCppFiles(moduleToFile: Map<string, string>): string[] {
+  let cached = cppFilesCache.get(moduleToFile);
+  if (!cached) {
+    cached = [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1));
+    cppFilesCache.set(moduleToFile, cached);
+  }
+  return cached;
+}
+
+/** Suffix-match fallback: an include no probe reached but that SOME census file ends with —
+ *  a header found via a DEEP `-I` root (llama ggml/include, pandas _libs/include — stress
+ *  bug #12; the grilled probes cover only top-level roots). Any hit here is a file the build
+ *  could compile against in some -I config. Deterministic: shortest path first, then alpha.
+ *  Probes already exhausted the standard locations, so a root-level/same-dir twin would have
+ *  won there — the fallback only ever fires on -I-rooted files. */
+function suffixMatch(include: string, files: readonly string[]): string | undefined {
+  const target = `/${include}`;
+  return files.find((p) => p.endsWith(target));
+}
+
 /** Candidate targets for an include, in probe order:
  *  1. importer-dir-relative (quoted only — the C standard: `"..."` first searches the
  *     including file's directory; `../`/`./` segments normalize away),
@@ -113,10 +137,12 @@ export const cppImporter = createTreeSitterImporter<CppInclude[]>({
   }),
   resolveEdges: (includes, sourcePath, _importerModule, ctx) => {
     const roots = includeRootsCached(ctx.files); // stable across this file's includes, memoized per census
+    const cppFiles = sortedCppFiles(ctx.moduleToFile); // suffix-match candidates, shortest-first
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const inc of includes) {
-      const target = includeCandidates(inc, sourcePath, roots).find((c) => ctx.files.has(c));
+      const target =
+        includeCandidates(inc, sourcePath, roots).find((c) => ctx.files.has(c)) ?? suffixMatch(inc.path, cppFiles);
       if (target) {
         if (target !== sourcePath) edges.push({ fromFile: sourcePath, toFile: target, import: inc.path });
       } else if (inc.quoted) {
