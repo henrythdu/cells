@@ -82,9 +82,14 @@ function sortedCppFiles(moduleToFile: Map<string, string>): string[] {
  *  bug #12; the grilled probes cover only top-level roots). Any hit here is a file the build
  *  could compile against in some -I config. Deterministic: shortest path first, then alpha.
  *  Probes already exhausted the standard locations, so a root-level/same-dir twin would have
- *  won there — the fallback only ever fires on -I-rooted files. */
+ *  won there — the fallback only ever fires on -I-rooted files.
+ *  Leading `../` segments are stripped (bug #13): `../include/ggml-cann.h` from
+ *  ggml/src/ggml-cann/ is `-I ggml/include` + the relative prefix — the meaningful part for
+ *  a suffix scan is `include/ggml-cann.h`; the `..`s cancel inside the root and are
+ *  meaningless to a bare path scan. Census paths never contain `..` segments, so the raw
+ *  form can never match. */
 function suffixMatch(include: string, files: readonly string[]): string | undefined {
-  const target = `/${include}`;
+  const target = `/${include.replace(/^(\.\.\/)+/, '')}`;
   return files.find((p) => p.endsWith(target));
 }
 
@@ -104,8 +109,12 @@ export function includeCandidates(inc: CppInclude, sourcePath: string, roots: re
     if (!fromDir.startsWith('..') && fromDir !== '.') out.push(fromDir);
   }
   const clean = posix.normalize(inc.path);
-  if (!clean.startsWith('..') && clean !== '.') {
+  if (clean !== '.') {
     for (const root of roots) {
+      // Join + normalize per root, drop only if the RESULT escapes the repo. `..`-relative
+      // includes (bug #13) are NOT pre-dropped: `-I src` + `../src/x.h` = `src/../src/x.h`
+      // → `src/x.h` — a valid in-repo target the importer-dir probe (a different dir)
+      // can't reach. Only escapes (`../../out.h` from `src/`) drop.
       const probe = root === '.' ? clean : posix.normalize(`${root}/${clean}`);
       if (!probe.startsWith('..') && probe !== '.') out.push(probe);
     }

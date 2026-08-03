@@ -40,6 +40,19 @@ describe('includeCandidates (probe order)', () => {
   it('drops candidates escaping the repo root', () => {
     expect(includeCandidates({ path: '../../out.h', quoted: true }, 'src/a.cpp', ['.', 'src'])).toEqual([]);
   });
+
+  it('resolves `..`-relative includes against a root that cancels them (llama bug #13: -I src + ../src/x.h)', () => {
+    // from tools/fit-params/fit-params.cpp, `../src/llama-ext.h` — the importer-dir probe gives
+    // tools/src/llama-ext.h (miss); the `src` root probe normalizes to src/llama-ext.h (hit).
+    const cands = includeCandidates({ path: '../src/llama-ext.h', quoted: true }, 'tools/fit-params/fit-params.cpp', [
+      '.',
+      'common',
+      'src',
+      'tools',
+    ]);
+    expect(cands).toContain('src/llama-ext.h');
+    expect(cands).not.toContain('../../out.h');
+  });
 });
 
 describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
@@ -85,6 +98,35 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     });
     expect(edges).toEqual([]);
     expect(unresolved).toEqual([{ fromFile: 'src/a.cpp', import: 'never/here.h' }]);
+  });
+
+  it('resolves `..`-relative includes against a deep root via stripped suffix (llama bug #13: ggml-cann)', async () => {
+    const { edges, unresolved } = await extract({
+      'ggml/src/ggml-cann/common.h': '#include "../include/ggml-cann.h"\n#include "../include/ggml.h"\n',
+      'ggml/include/ggml-cann.h': '#pragma once\n',
+      'ggml/include/ggml.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === '../include/ggml-cann.h')?.toFile).toBe('ggml/include/ggml-cann.h');
+    expect(edges.find((e) => e.import === '../include/ggml.h')?.toFile).toBe('ggml/include/ggml.h');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('resolves `..`-relative includes that cancel against a top-level root (llama bug #13: fit-params)', async () => {
+    const { edges, unresolved } = await extract({
+      'tools/fit-params/fit-params.cpp': '#include "../src/llama-ext.h"\n',
+      'src/llama-ext.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === '../src/llama-ext.h')?.toFile).toBe('src/llama-ext.h');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('resolves generated builtin includes to the symlink realpath (cxx: ../../../include/cxx.h)', async () => {
+    const { edges, unresolved } = await extract({
+      'bridge/build/src/bridge/builtin/vector.h': '#include "../../../include/cxx.h"\n',
+      'bridge/build/src/bridge/include/cxx.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === '../../../include/cxx.h')?.toFile).toBe('bridge/build/src/bridge/include/cxx.h');
+    expect(unresolved).toEqual([]);
   });
 });
 
