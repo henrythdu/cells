@@ -1,0 +1,5 @@
+name = "java"
+purpose = "Java importer: extract file→file import edges via tree-sitter (bundled WASM grammar) + FQN→file resolution through the census (identity = package DECL + class name, layout-agnostic; wildcard imports → one representative edge per package). One language implementation of the Importer contract (in the imports cell), built on the shared tree-sitter engine. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
+provides = ["javaImporter"]
+requires = ["imports", "tree-sitter"]
+layer = 4

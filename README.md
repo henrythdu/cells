@@ -164,6 +164,7 @@ vendor/
 - **Rust** via `tree-sitter` (WASM; handles `use`/`super`/`self`, groups, re-exports).
 - **Go** via `tree-sitter` (WASM; package→directory resolution, nested `go.mod` sub-modules).
 - **C/C++** via `tree-sitter` (WASM; `#include` → file resolution: quoted = local, angle = external unless owned; probes importer-dir + repo `-I` roots derived from the census).
+- **Java** via `tree-sitter` (WASM; fully-qualified class imports → package-decl resolution, layout-agnostic; wildcards → one representative edge per package).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
 Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the

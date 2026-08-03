@@ -72,3 +72,6 @@ files = ["src/languages/go.ts", "test/languages/go.test.ts"]
 
 [cpp]
 files = ["src/languages/cpp.ts", "test/languages/cpp.test.ts"]
+
+[java]
+files = ["src/languages/java.ts", "test/languages/java.test.ts"]

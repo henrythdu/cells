@@ -11,13 +11,14 @@ import { pythonImporter } from './languages/python.js';
 import { rustImporter } from './languages/rust.js';
 import { goImporter } from './languages/go.js';
 import { cppImporter } from './languages/cpp.js';
+import { javaImporter } from './languages/java.js';
 // The grammar-bundle integrity check re-exported here: commands/health reaches the language
 // machinery ONLY through this hub (the declared single seam for "everything language").
 export { checkGrammars } from './languages/tree-sitter.js';
-export { depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter };
+export { depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter };
 
 /** Default importer registry (add a language = add an importer here). */
-export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter];
+export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter];
 
 /** Which importers run for the given extensions. Pure — unit-testable. */
 export function selectImporters(exts: readonly string[], importers: readonly Importer[]): Importer[] {
@@ -86,8 +87,10 @@ export async function collectImportEdges(
   for (const imp of selected) {
     try {
       const result = await imp.extract(ctx);
-      edges.push(...result.edges);
-      unresolved.push(...result.unresolved);
+      // push() with a spread would overflow the call stack on large graphs (a 300k-edge
+      // extract = 300k spread args → RangeError; java on elasticsearch hit it) — loop instead.
+      for (const e of result.edges) edges.push(e);
+      for (const u of result.unresolved) unresolved.push(u);
     } catch (err) {
       failures.push({ importer: imp.name, error: err instanceof Error ? err.message : String(err) });
     }
