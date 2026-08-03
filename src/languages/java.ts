@@ -64,9 +64,13 @@ function looksLocal(imp: JavaImport, pkg: string | undefined): boolean {
  *  declared submodule). No package decl (default package) → undefined → the fileToModule
  *  fallback `''` (inert; default-package classes can't be imported from anywhere). The regex
  *  is source-based and the map builds before parse — the AST is unavailable here (analyze
- *  still sees it for imports; the identity is a lookup key, not an analysis). */
+ *  still sees it for imports; the identity is a lookup key, not an analysis). Comments are
+ *  stripped first: `package` must be the first statement, but a commented-out decl (block or
+ *  `//` line) would otherwise match first and forge the identity (ocr HIGH — the old
+ *  AST-based packageOf was immune). */
 function moduleKeyOf(file: SourceFile): string | undefined {
-  const pkg = file.content.match(/^package\s+([\w.]+)/m)?.[1];
+  const stripped = file.content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const pkg = stripped.match(/^\s*package\s+([\w.$]+)\s*;/m)?.[1];
   if (!pkg) return undefined;
   return `${pkg}.${posix.basename(file.path).replace(/\.java$/, '')}`;
 }

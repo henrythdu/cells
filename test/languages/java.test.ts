@@ -21,6 +21,16 @@ describe('java: module identity (package decl + basename)', () => {
     expect(unresolved).toEqual([]);
   });
 
+  it('ignores commented-out package decls (ocr HIGH — a block comment containing a line starting `package` would forge the identity; the old AST packageOf was immune)', async () => {
+    const { edges, unresolved } = await extract({
+      'com/acme/util/Util.java': '/*\npackage com.acme.old;\n*/\npackage com.acme.util;\npublic class Util {}\n',
+      'com/acme/core/Service.java': '// package com.acme.other;\npackage com.acme.core;\nimport com.acme.util.Util;\npublic class Service {}\n',
+    });
+    expect(edges.find((e) => e.import === 'com.acme.util.Util')?.toFile).toBe('com/acme/util/Util.java');
+    expect(edges.some((e) => e.import === 'com.acme.old.Util')).toBe(false);
+    expect(unresolved).toEqual([]);
+  });
+
   it('keys SINGLE-segment packages (retrofit: `package retrofit2;` — v0.0.27 bug, the AST child is an identifier, not scoped_identifier)', async () => {
     const { edges, unresolved } = await extract({
       'retrofit/src/main/java/retrofit2/CallAdapter.java': 'package retrofit2;\npublic interface CallAdapter {}\n',

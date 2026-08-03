@@ -90,11 +90,11 @@ export async function checkGrammars(): Promise<{ lang: string; ok: boolean; erro
 export function memoizeWeak<K extends object, V>(compute: (key: K) => V): (key: K) => V {
   const cache = new WeakMap<K, V>();
   return (key) => {
-    let v = cache.get(key);
-    if (v === undefined) {
-      v = compute(key);
-      cache.set(key, v);
-    }
+    // `has`, not `get === undefined`: a stored `undefined` is indistinguishable from a miss
+    // with a get-sentinel, and would re-execute compute on every call (ocr low).
+    if (cache.has(key)) return cache.get(key)!;
+    const v = compute(key);
+    cache.set(key, v);
     return v;
   };
 }
@@ -215,7 +215,8 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       files = [...files].sort((a, b) => a.path.localeCompare(b.path));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
-      let moduleKey = (f: SourceFile): string => (spec.moduleKeyOf ? (spec.moduleKeyOf(f, moduleRoot, baseDir) ?? spec.fileToModule(f.path, moduleRoot, baseDir)) : spec.fileToModule(f.path, moduleRoot, baseDir));
+      const pathKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);
+      let moduleKey = (f: SourceFile): string => (spec.moduleKeyOf ? (spec.moduleKeyOf(f, moduleRoot, baseDir) ?? pathKey(f)) : pathKey(f));
       // Package names of workspace member crates — the factory aliases their namespaced
       // module keys by name so `use sibling_crate::…` resolves (rust.ts crates only).
       const crateNames = new Set<string>();
@@ -229,8 +230,13 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
             .filter((r): r is string => r !== null),
         );
         if (roots.size > 1) {
+          // Path-identity only: the crate-prefix shape (`crate::` → `<crate>::`) is rust's
+          // module-key grammar; content-keyed languages (java's moduleKeyOf) have no crate
+          // concept, and grafting `<crate>::` onto a plain FQN would forge identities. The
+          // two hooks are mutually exclusive by construction (ocr medium — kept honest with
+          // a comment rather than a dead branch).
           moduleKey = (f) => {
-            const m = spec.fileToModule(f.path, moduleRoot, baseDir);
+            const m = pathKey(f);
             const r = spec.crateRootOf!(f.path, baseDir);
             if (!r || r === '.') return m; // scan-root crate — no prefix
             return m === 'crate' ? r : `${r}::${m.slice('crate::'.length)}`;
