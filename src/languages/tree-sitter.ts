@@ -110,6 +110,12 @@ export interface ResolveCtx {
   baseDir?: string;
 }
 
+/** The key separator of the module→file map: the factory joins module-path segments with it
+ *  (`${importerModule}::${path.join('::')}`) and language resolvers split/join on it (go's
+ *  candidateKeys, java's KEY_PREFIX). Exporting it keeps the couple honest — a separator
+ *  change breaks the resolvers' key construction loudly (via tests), not silently. */
+export const MODULE_SEP = '::';
+
 /** A declared submodule (from `mod x;` or inline `mod x {}`). */
 export interface ModDecl {
   path: string[];
@@ -281,7 +287,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
           analyses.set(f.path, a);
           const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
           for (const m of a.mods) {
-            const key = `${importerModule}::${m.path.join('::')}`;
+            const key = `${importerModule}${MODULE_SEP}${m.path.join(MODULE_SEP)}`;
             moduleToFile.set(key, m.targetFile ?? f.path);
             aliasByName(key, root);
           }

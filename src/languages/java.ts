@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter } from './tree-sitter.js';
+import { createTreeSitterImporter, MODULE_SEP } from './tree-sitter.js';
 
 // --- AST → package + import paths ---
 
@@ -35,7 +35,9 @@ export interface JavaAnalysis {
 }
 
 /** Import paths declared in a Java file. import_declaration → scoped_identifier (its text IS
- *  the whole dotted path). Java has no relative imports — every import is fully qualified. */
+ *  the whole dotted path). Java has no relative imports — every import is fully qualified.
+ *  Wildcards: the `*` is a named `asterisk` child of the directive (AST-structural, not a
+ *  text heuristic). */
 function extractImports(root: Node): JavaImport[] {
   const out: JavaImport[] = [];
   collectImports(root, out);
@@ -46,7 +48,7 @@ function collectImports(node: Node, out: JavaImport[]): void {
   if (node.type === 'import_declaration') {
     const si = node.namedChildren.find((c) => c.type === 'scoped_identifier');
     const text = si?.text;
-    if (text) out.push({ fqn: text, star: node.text.includes('.*') });
+    if (text) out.push({ fqn: text, star: node.namedChildren.some((c) => c.type === 'asterisk') });
     return; // a directive's children are the package + optional star — no deeper imports
   }
   for (const child of node.namedChildren) collectImports(child, out);
@@ -78,28 +80,36 @@ function looksLocal(imp: JavaImport, pkg: string | undefined): boolean {
 // --- module identity: FQN from the package DECL (content), not the path ---
 
 /** The `::` prefix under which Java module keys live. The factory's mods enrichment joins with
- *  `::` (rust-shaped); java sets its key as `::<fqn>` — an EMPTY importerModule (fileToModule)
- *  keeps the prefix to exactly `::`. Fully private to this file: resolution always looks up
- *  `::<fqn>`, and nothing downstream consumes the keys. */
-const KEY_PREFIX = '::';
+ *  MODULE_SEP (rust-shaped); java sets its key as `<sep><fqn>` — an EMPTY importerModule
+ *  (fileToModule) keeps the prefix to exactly the separator. Fully private to this file:
+ *  resolution always looks up `<sep><fqn>`, and nothing downstream consumes the keys. */
+const KEY_PREFIX = MODULE_SEP;
 
 // --- resolution: import FQN → file (via the census) ---
 
 
-/** The deterministic representative file of a package — Go's package-representative model
- *  (Go keys are package-level and the map's last-set-wins file stands for the dir). Java keys
- *  are class-level, so a wildcard picks the package's shortest owned FQN (then alpha) — a
- *  stable stand-in for "depends on this package" with bounded edge counts. */
+/** package → its deterministic representative file (shortest FQN, then alpha — Go's
+ *  package-representative model), memoized per module→file map. Called once per WILDCARD
+ *  import — a full map scan per wildcard would be O(wildcards × modules) on big repos (ocr
+ *  HIGH; elasticsearch ~31k modules). WeakMap: the map dies with the extract, no cross-run
+ *  staleness (same shape as cpp.ts's includeRootsCached). */
+const repCache = new WeakMap<Map<string, string>, Map<string, string>>();
 function representativeOf(pkg: string, moduleToFile: Map<string, string>): string | null {
-  let best: string | null = null;
-  for (const k of moduleToFile.keys()) {
-    if (!k.startsWith(KEY_PREFIX)) continue;
-    const fqn = k.slice(KEY_PREFIX.length);
-    const i = fqn.lastIndexOf('.');
-    if (i > 0 && fqn.slice(0, i) === pkg && (best === null || fqn.length < best.length || (fqn.length === best.length && fqn < best))) {
-      best = fqn;
+  let cache = repCache.get(moduleToFile);
+  if (!cache) {
+    cache = new Map();
+    for (const k of moduleToFile.keys()) {
+      if (!k.startsWith(KEY_PREFIX)) continue;
+      const fqn = k.slice(KEY_PREFIX.length);
+      const i = fqn.lastIndexOf('.');
+      if (i <= 0) continue;
+      const p = fqn.slice(0, i);
+      const prev = cache.get(p);
+      if (prev === undefined || fqn.length < prev.length || (fqn.length === prev.length && fqn < prev)) cache.set(p, fqn);
     }
+    repCache.set(moduleToFile, cache);
   }
+  const best = cache.get(pkg) ?? null;
   return best ? (moduleToFile.get(KEY_PREFIX + best) ?? null) : null;
 }
 
