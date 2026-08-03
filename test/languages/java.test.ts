@@ -81,7 +81,7 @@ describe('java: wildcard imports (package-level → one representative edge)', (
 });
 
 describe('java: unresolved classification (importer-package rule)', () => {
-  it('missing sibling class in the importer\'s OWN package → flagged (same-package import = unambiguously own-code)', async () => {
+  it("missing sibling class in the importer's OWN package → flagged (same-package import = unambiguously own-code)", async () => {
     const { edges, unresolved } = await extract({
       'com/acme/core/Service.java': 'package com.acme.core;\npublic class Service {}\n',
       'com/acme/core/Main.java': 'package com.acme.core;\nimport com.acme.core.Servce;\npublic class Main {}\n',
@@ -90,7 +90,7 @@ describe('java: unresolved classification (importer-package rule)', () => {
     expect(unresolved).toEqual([{ fromFile: 'com/acme/core/Main.java', import: 'com.acme.core.Servce' }]);
   });
 
-  it('nested missing class in the importer\'s OWN package → flagged (generated class shape: retrofit PhoneProtos.Phone)', async () => {
+  it("nested missing class in the importer's OWN package → flagged (generated class shape: retrofit PhoneProtos.Phone)", async () => {
     const { unresolved } = await extract({
       'retrofit2/converter/protobuf/ProtoConverterFactory.java': 'package retrofit2.converter.protobuf;\npublic class ProtoConverterFactory {}\n',
       'retrofit2/converter/protobuf/Test.java': 'package retrofit2.converter.protobuf;\nimport retrofit2.converter.protobuf.PhoneProtos.Phone;\npublic class Test {}\n',

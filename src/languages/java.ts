@@ -22,14 +22,14 @@ function packageOf(root: Node): string | undefined {
  *  imports carry the member too (`com.acme.util.Helper.escape`) — resolution strips it when the
  *  full path misses. The `*` is a separate token (not in the scoped_identifier), detected via
  *  the directive text. */
-export interface JavaImport {
+interface JavaImport {
   fqn: string;
   star: boolean;
 }
 
 /** What one file's analysis yields: its declared package (the importer's own package — the
  *  ownership anchor for unresolved classification) + its imports. */
-export interface JavaAnalysis {
+interface JavaAnalysis {
   pkg: string | undefined;
   imports: JavaImport[];
 }
@@ -86,7 +86,6 @@ function looksLocal(imp: JavaImport, pkg: string | undefined): boolean {
 const KEY_PREFIX = MODULE_SEP;
 
 // --- resolution: import FQN → file (via the census) ---
-
 
 /** package → its deterministic representative file (shortest FQN, then alpha — Go's
  *  package-representative model), memoized per module→file map. Called once per WILDCARD
