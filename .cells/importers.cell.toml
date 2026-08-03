@@ -3,9 +3,9 @@ purpose = "The language-coupled seam: collect file→file import edges by dispat
 provides = [
   "checkGrammars() — the grammar-bundle integrity check (re-exported for health)",
   "collectImportEdges() — the single entry point cli/crossings/structure/graph call",
-  "DEFAULT_IMPORTERS registry (typescript + python + rust)",
+  "DEFAULT_IMPORTERS registry (typescript + python + rust + go + cpp)",
   "selectImporters(exts, importers) — pure dispatch by extension",
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
 ]
-requires = ["imports", "io", "tree-sitter", "typescript", "python", "rust"]
+requires = ["imports", "io", "tree-sitter", "typescript", "python", "rust", "go", "cpp"]
 layer = 5

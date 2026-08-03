@@ -6,5 +6,5 @@ provides = [
   "formatSizeReport",
   "formatHealthReport",
 ]
-requires = ["declaration", "ownership", "crossings", "payload"]
+requires = ["declaration", "crossings", "payload"]
 layer = 3

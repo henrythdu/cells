@@ -1,0 +1,5 @@
+name = "cpp"
+purpose = "C/C++ importer: extract `#include` edges via tree-sitter (bundled WASM grammar) + include→file resolution through the census (importer-dir probe, top-level -I roots, suffix-match for deep roots — stress bugs #12/#13). One language implementation of the Importer contract (in the imports cell), built on the shared tree-sitter engine. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
+provides = ["cppImporter"]
+requires = ["imports", "tree-sitter"]
+layer = 4

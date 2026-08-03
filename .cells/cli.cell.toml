@@ -16,7 +16,6 @@ requires = [
   "commands",
   "config",
   "declaration",
-  "ownership",
   "crossings",
   "payload",
   "assign",
