@@ -141,8 +141,7 @@ export const cppImporter = createTreeSitterImporter<CppInclude[]>({
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const inc of includes) {
-      const target =
-        includeCandidates(inc, sourcePath, roots).find((c) => ctx.files.has(c)) ?? suffixMatch(inc.path, cppFiles);
+      const target = includeCandidates(inc, sourcePath, roots).find((c) => ctx.files.has(c)) ?? suffixMatch(inc.path, cppFiles);
       if (target) {
         if (target !== sourcePath) edges.push({ fromFile: sourcePath, toFile: target, import: inc.path });
       } else if (inc.quoted) {
