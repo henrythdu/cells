@@ -178,6 +178,8 @@ export interface HealthValues {
   uncoveredExts: string[];
   unresolvedCount: number;
   unresolvedDetails: string[];
+  /** Present when `health --summary` grouped the details by file — the header shows "across M files". */
+  unresolvedFiles?: number;
   grammarResults: { lang: string; ok: boolean; error?: string }[];
   /** Wall-clock of the health run in seconds — rendered on the gate line. */
   elapsedSec?: number;
@@ -225,7 +227,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     `  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`,
   );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
-  if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s) — no matching file; check specifiers or module-root)`);
+  if (v.unresolvedCount > 0) lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; check specifiers or module-root)`);
 
   // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];
@@ -251,7 +253,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     for (const s of v.staleEdges) lines.push(`  ${s}`);
   }
   if (v.unresolvedCount > 0) {
-    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s) — likely a broken specifier or module-root mismatch:`);
+    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — likely a broken specifier or module-root mismatch:`);
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
   return { report: lines.join('\n') + '\n', gateOk };

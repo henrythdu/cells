@@ -29,7 +29,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list | size | structure | graph [--mermaid] | show <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -71,7 +71,7 @@ const COMMANDS: Record<string, Command> = {
     needsCells: true,
     run: (a, dryRun) => cmdUnassign(a, dryRun),
   },
-  health: { usage: 'cells health [--verbose]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdHealth(ctx!, a.includes('--verbose')) },
+  health: { usage: 'cells health [--verbose] [--summary]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdHealth(ctx!, a.includes('--verbose'), a.includes('--summary')) },
   new: {
     usage: 'cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]',
     minArgs: 1,

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { groupUnresolved } from '../src/commands/report.js';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
 
@@ -128,5 +129,23 @@ describe('cells health', () => {
       expect(res.stderr).toContain('is now `cells health`');
       expect(res.stdout).toMatch(/All checks passed|Gate passed/);
     });
+  });
+});
+
+describe('health --summary grouping', () => {
+  it('collapses per-entry unresolved into per-file groups, sorted desc, with a representative specifier', () => {
+    const lines = groupUnresolved([
+      { fromFile: 'a/opencl.cpp', import: 'ggml-kernels.cl.h' },
+      { fromFile: 'a/opencl.cpp', import: 'ggml-shaders.cl.h' },
+      { fromFile: 'a/opencl.cpp', import: 'ggml-wgsl.cl.h' },
+      { fromFile: 'b/kai.cpp', import: 'kai_matmul_x.h' },
+      { fromFile: 'b/kai.cpp', import: 'kai_matmul_y.h' },
+      { fromFile: 'c/solo.cpp', import: 'stdint.h' },
+    ]);
+    expect(lines).toEqual([
+      'a/opencl.cpp: 3 unresolved (e.g. "ggml-kernels.cl.h")',
+      'b/kai.cpp: 2 unresolved (e.g. "kai_matmul_x.h")',
+      'c/solo.cpp: 1 unresolved (e.g. "stdint.h")',
+    ]);
   });
 });

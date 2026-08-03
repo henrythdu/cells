@@ -7,6 +7,7 @@ import { checkLeakage, computeMetrics } from '../crossings.js';
 import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../view.js';
 import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
 import { checkGrammars } from '../importers.js';
+import type { UnresolvedImport } from '../imports.js';
 import { validatePartition } from '../validate.js';
 import { loadCrossings, warnIfNoCodeFiles } from './read.js';
 
@@ -67,7 +68,23 @@ export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> 
 /** `cells health` — all four checks at once (validate + crossings + structure + size).
  *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
  *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
-export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<void> {
+/** `health --summary`: collapse per-entry unresolved lines into per-FILE groups (the triage
+ *  unit — llama.cpp's 161 OpenCL headers from ONE file become one line), sorted desc, with a
+ *  representative specifier. Source-based, no language heuristics: the from-file is the honest
+ *  key every unresolved entry carries. */
+export function groupUnresolved(unresolved: UnresolvedImport[]): string[] {
+  const byFile = new Map<string, { count: number; example: string }>();
+  for (const u of unresolved) {
+    const g = byFile.get(u.fromFile);
+    if (g) g.count++;
+    else byFile.set(u.fromFile, { count: 1, example: u.import });
+  }
+  return [...byFile.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+    .map(([f, g]) => `${f}: ${g.count} unresolved (e.g. "${g.example}")`);
+}
+
+export async function cmdHealth(ctx: CellsContext, verbose = false, summary = false): Promise<void> {
   const started = performance.now();
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
@@ -93,6 +110,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
 
   // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
   const undeclared = leakage.filter((l) => l.kind === 'undeclared');
+  const unresolvedFiles = summary ? groupUnresolved(unresolved) : undefined;
   const { report, gateOk } = formatHealthReport(
     {
       cellCount: cellNames.length,
@@ -109,7 +127,8 @@ export async function cmdHealth(ctx: CellsContext, verbose = false): Promise<voi
       maxPercent,
       uncoveredExts: visibleUncoveredExts,
       unresolvedCount: unresolved.length,
-      unresolvedDetails: unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
+      unresolvedDetails: unresolvedFiles ?? unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
+      unresolvedFiles: unresolvedFiles?.length,
       grammarResults,
       elapsedSec: (performance.now() - started) / 1000,
     },
