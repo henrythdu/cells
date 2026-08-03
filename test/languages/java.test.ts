@@ -21,6 +21,15 @@ describe('java: module identity (package decl + basename)', () => {
     expect(unresolved).toEqual([]);
   });
 
+  it('keys SINGLE-segment packages (retrofit: `package retrofit2;` — v0.0.27 bug, the AST child is an identifier, not scoped_identifier)', async () => {
+    const { edges, unresolved } = await extract({
+      'retrofit/src/main/java/retrofit2/CallAdapter.java': 'package retrofit2;\npublic interface CallAdapter {}\n',
+      'retrofit-adapters/guava/src/main/java/retrofit2/adapter/guava/GuavaCallAdapterFactory.java': 'package retrofit2.adapter.guava;\nimport retrofit2.CallAdapter;\npublic class GuavaCallAdapterFactory {}\n',
+    });
+    expect(edges.find((e) => e.import === 'retrofit2.CallAdapter')?.toFile).toBe('retrofit/src/main/java/retrofit2/CallAdapter.java');
+    expect(unresolved).toEqual([]);
+  });
+
   it('no package decl → not importable (default-package classes cannot be imported)', async () => {
     const { edges, unresolved } = await extract({
       'Util.java': 'public class Util {}\n',

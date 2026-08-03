@@ -82,6 +82,23 @@ export async function checkGrammars(): Promise<{ lang: string; ok: boolean; erro
   return results;
 }
 
+/** Memoize a pure function of an object key, WeakMap-backed — the run-wide caches (cpp's
+ *  include roots, java's wildcard representatives) share one shape: compute once per
+ *  extract-identity object (a census Set or the importer's own module→file Map), no
+ *  cross-run staleness — the key dies with the extract. The caller's compute fn must be pure
+ *  in its key. */
+export function memoizeWeak<K extends object, V>(compute: (key: K) => V): (key: K) => V {
+  const cache = new WeakMap<K, V>();
+  return (key) => {
+    let v = cache.get(key);
+    if (v === undefined) {
+      v = compute(key);
+      cache.set(key, v);
+    }
+    return v;
+  };
+}
+
 /** Run-wide resolution facts every language importer resolves against — ONE object instead of
  *  a positional param list (the external ImportContext already set that precedent; the internal
  *  seam kept growing a param per wave — crateNames in wave-1, reexports in wave-3). */
@@ -151,6 +168,13 @@ export interface TreeSitterImporterSpec<U = unknown> {
   extensions: readonly string[];
   wasmBasename: string;
   fileToModule(path: string, moduleRoot?: string, baseDir?: string): string;
+  /** Optional: content-aware module key. A language whose identity lives in the FILE, not the
+   *  path (java — the package decl; kotlin/scala would be the same) derives its key here; the
+   *  map-build loop calls this first and falls back to fileToModule when it returns undefined.
+   *  Undefined is also the honest answer for a file with NO key (java: default-package class —
+   *  not importable from anywhere): the factory keeps the fileToModule fallback key, which
+   *  resolution never consults. Path-identity languages skip the hook entirely. */
+  moduleKeyOf?(file: SourceFile, moduleRoot?: string, baseDir?: string): string | undefined;
   /** Optional: content transform BEFORE parsing (e.g. Cython — blank cimport lines so
    *  tree-sitter-python's error recovery can't swallow neighboring real from-imports). */
   preprocess?(content: string): string;
@@ -191,7 +215,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       files = [...files].sort((a, b) => a.path.localeCompare(b.path));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
-      let moduleKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);
+      let moduleKey = (f: SourceFile): string => (spec.moduleKeyOf ? spec.moduleKeyOf(f, moduleRoot, baseDir) ?? spec.fileToModule(f.path, moduleRoot, baseDir) : spec.fileToModule(f.path, moduleRoot, baseDir));
       // Package names of workspace member crates — the factory aliases their namespaced
       // module keys by name so `use sibling_crate::…` resolves (rust.ts crates only).
       const crateNames = new Set<string>();

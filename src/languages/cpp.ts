@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter } from './tree-sitter.js';
+import { createTreeSitterImporter, memoizeWeak } from './tree-sitter.js';
 
 // --- AST → include paths ---
 
@@ -54,28 +54,14 @@ export function includeRoots(files: ReadonlySet<string>): string[] {
  *  (same Set identity) — recomputing the top-level scan per file would be O(files²) on big
  *  C++ repos. WeakMap: the Set dies with the extract, no cross-run staleness (the factory
  *  builds a fresh Set every extract). */
-const rootsCache = new WeakMap<ReadonlySet<string>, string[]>();
-function includeRootsCached(files: ReadonlySet<string>): string[] {
-  let cached = rootsCache.get(files);
-  if (!cached) {
-    cached = includeRoots(files);
-    rootsCache.set(files, cached);
-  }
-  return cached;
-}
+const includeRootsCached = memoizeWeak(includeRoots);
 
 /** cpp-family census paths, shortest-first (then alpha) — the suffix-match candidate order.
  *  Derived from the importer's own module→file map (keys are paths — identity keys).
  *  Memoized per map like includeRootsCached. */
-const cppFilesCache = new WeakMap<Map<string, string>, string[]>();
-function sortedCppFiles(moduleToFile: Map<string, string>): string[] {
-  let cached = cppFilesCache.get(moduleToFile);
-  if (!cached) {
-    cached = [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1));
-    cppFilesCache.set(moduleToFile, cached);
-  }
-  return cached;
-}
+const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) =>
+  [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1)),
+);
 
 /** Suffix-match fallback: an include no probe reached but that SOME census file ends with —
  *  a header found via a DEEP `-I` root (llama ggml/include, pandas _libs/include — stress

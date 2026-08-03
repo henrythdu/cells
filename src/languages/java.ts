@@ -1,22 +1,9 @@
 import { posix } from 'node:path';
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter, MODULE_SEP } from './tree-sitter.js';
+import type { SourceFile, ImportEdge, UnresolvedImport } from '../imports.js';
+import { createTreeSitterImporter, memoizeWeak } from './tree-sitter.js';
 
-// --- AST → package + import paths ---
-
-/** The declared package of a file (`package com.acme.util;` → `com.acme.util`). The
- *  package_declaration's scoped_identifier carries the FULL dotted path as its text (the
- *  nested nodes are irrelevant — text slicing is enough). */
-function packageOf(root: Node): string | undefined {
-  for (const c of root.namedChildren) {
-    if (c.type === 'package_declaration') {
-      const si = c.namedChildren.find((x) => x.type === 'scoped_identifier');
-      return si?.text;
-    }
-  }
-  return undefined;
-}
+// --- AST → import paths ---
 
 /** An `import` statement: the dotted path + whether it's a wildcard (`import a.b.*;`). Static
  *  imports carry the member too (`com.acme.util.Helper.escape`) — resolution strips it when the
@@ -25,13 +12,6 @@ function packageOf(root: Node): string | undefined {
 interface JavaImport {
   fqn: string;
   star: boolean;
-}
-
-/** What one file's analysis yields: its declared package (the importer's own package — the
- *  ownership anchor for unresolved classification) + its imports. */
-interface JavaAnalysis {
-  pkg: string | undefined;
-  imports: JavaImport[];
 }
 
 /** Import paths declared in a Java file. import_declaration → scoped_identifier (its text IS
@@ -79,38 +59,36 @@ function looksLocal(imp: JavaImport, pkg: string | undefined): boolean {
 
 // --- module identity: FQN from the package DECL (content), not the path ---
 
-/** The `::` prefix under which Java module keys live. The factory's mods enrichment joins with
- *  MODULE_SEP (rust-shaped); java sets its key as `<sep><fqn>` — an EMPTY importerModule
- *  (fileToModule) keeps the prefix to exactly the separator. Fully private to this file:
- *  resolution always looks up `<sep><fqn>`, and nothing downstream consumes the keys. */
-const KEY_PREFIX = MODULE_SEP;
+/** The content-aware module key: the file's FQN = package decl + basename. Keys are PLAIN
+ *  FQNs (`com.acme.Util`) — no prefix, no mods (the identity is a key in the map, not a
+ *  declared submodule). No package decl (default package) → undefined → the fileToModule
+ *  fallback `''` (inert; default-package classes can't be imported from anywhere). The regex
+ *  is source-based and the map builds before parse — the AST is unavailable here (analyze
+ *  still sees it for imports; the identity is a lookup key, not an analysis). */
+function moduleKeyOf(file: SourceFile): string | undefined {
+  const pkg = file.content.match(/^package\s+([\w.]+)/m)?.[1];
+  if (!pkg) return undefined;
+  return `${pkg}.${posix.basename(file.path).replace(/\.java$/, '')}`;
+}
 
 // --- resolution: import FQN → file (via the census) ---
 
-/** package → its deterministic representative file (shortest FQN, then alpha — Go's
- *  package-representative model), memoized per module→file map. Called once per WILDCARD
+/** package → its deterministic representative FQN (shortest, then alpha — Go's
+ *  package-representative model), computed ONCE per module→file map. Called once per WILDCARD
  *  import — a full map scan per wildcard would be O(wildcards × modules) on big repos (ocr
- *  HIGH; elasticsearch ~31k modules). WeakMap: the map dies with the extract, no cross-run
- *  staleness (same shape as cpp.ts's includeRootsCached). */
-const repCache = new WeakMap<Map<string, string>, Map<string, string>>();
-function representativeOf(pkg: string, moduleToFile: Map<string, string>): string | null {
-  let cache = repCache.get(moduleToFile);
-  if (!cache) {
-    cache = new Map();
-    for (const k of moduleToFile.keys()) {
-      if (!k.startsWith(KEY_PREFIX)) continue;
-      const fqn = k.slice(KEY_PREFIX.length);
-      const i = fqn.lastIndexOf('.');
-      if (i <= 0) continue;
-      const p = fqn.slice(0, i);
-      const prev = cache.get(p);
-      if (prev === undefined || fqn.length < prev.length || (fqn.length === prev.length && fqn < prev)) cache.set(p, fqn);
-    }
-    repCache.set(moduleToFile, cache);
+ *  HIGH; elasticsearch ~31k modules). memoizeWeak: the map dies with the extract, no
+ *  cross-run staleness. */
+const representativeOf = memoizeWeak((moduleToFile: Map<string, string>) => {
+  const byPkg = new Map<string, string>();
+  for (const k of moduleToFile.keys()) {
+    const i = k.lastIndexOf('.');
+    if (i <= 0) continue; // `''` (default-package fallback) and non-FQN keys — not class keys
+    const pkg = k.slice(0, i);
+    const prev = byPkg.get(pkg);
+    if (prev === undefined || k.length < prev.length || (k.length === prev.length && k < prev)) byPkg.set(pkg, k);
   }
-  const best = cache.get(pkg) ?? null;
-  return best ? (moduleToFile.get(KEY_PREFIX + best) ?? null) : null;
-}
+  return byPkg;
+});
 
 /** Java importer — tree-sitter analysis + FQN→file resolution via the census. Java has no
  *  relative imports and no package-module file (no __init__ analog): every import is a
@@ -120,37 +98,32 @@ function representativeOf(pkg: string, moduleToFile: Map<string, string>): strin
  *  ponytail: wildcards resolve to ONE representative file per package (Go parity); a package
  *  whose members span cells is drawn as a single edge — upgrade to per-file edges if a real
  *  repo's graph needs the granularity. Kotlin files are invisible (no kotlin grammar). */
-export const javaImporter = createTreeSitterImporter<JavaAnalysis>({
+export const javaImporter = createTreeSitterImporter<JavaImport[]>({
   name: 'java',
   extensions: ['.java'],
   wasmBasename: 'tree-sitter-java.wasm',
-  // The package decl (content) defines identity, not the path — the mods hook below registers
-  // the real `::<fqn>` key. The path-only fileToModule hook has nothing path-derived to offer,
-  // so every file maps to '' (one inert map entry; resolution never consults it).
+  // The package decl (content) defines identity — moduleKeyOf returns the plain FQN key;
+  // fileToModule stays as the inert fallback for default-package files (no key — unimportable).
   fileToModule: () => '',
-  analyze: (root, sourcePath) => {
-    const pkg = packageOf(root);
-    const cls = posix.basename(sourcePath).replace(/\.java$/, '');
-    return {
-      // key = `::<pkg>.<cls>` — the FQN imports address the file by. A file's public class
-      // matches its basename (javac enforces it), so the basename IS the importable identity.
-      // No package decl (default package) → no key → not importable from anywhere (correct —
-      // default-package classes can't be imported). Files with the same FQN (a test double in
-      // src/test mirroring src/main) resolve to the LEXICALLY-LAST file — deterministic, and
-      // the same last-set-wins shape as Go's package representatives.
-      mods: pkg ? [{ path: [`${pkg}.${cls}`], targetFile: null }] : [],
-      reexports: [],
-      uses: { pkg, imports: extractImports(root) },
-    };
-  },
-  resolveEdges: (uses, sourcePath, _importerModule, ctx) => {
+  moduleKeyOf,
+  analyze: (root) => ({
+    mods: [],
+    reexports: [],
+    uses: extractImports(root),
+  }),
+  resolveEdges: (imports, sourcePath, importerModule, ctx) => {
+    // The importer's own package = its FQN key minus the class segment ('' → undefined — a
+    // default-package file's imports are never classified local).
+    const pkg = importerModule.includes('.') ? importerModule.slice(0, importerModule.lastIndexOf('.')) : undefined;
+    const reps = representativeOf(ctx.moduleToFile); // pkg → representative FQN, once per extract
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
-    for (const imp of uses.imports) {
+    for (const imp of imports) {
       if (imp.star) {
         // package-level dependency — one representative edge (Go parity); never flagged (a
         // wildcard to a missing package is external or a no-op, not a broken import).
-        const rep = representativeOf(imp.fqn, ctx.moduleToFile);
+        const best = reps.get(imp.fqn);
+        const rep = best ? (ctx.moduleToFile.get(best) ?? null) : null;
         if (rep && rep !== sourcePath) edges.push({ fromFile: sourcePath, toFile: rep, import: `${imp.fqn}.*` });
         continue;
       }
@@ -162,7 +135,7 @@ export const javaImporter = createTreeSitterImporter<JavaAnalysis>({
       let target: string | null = null;
       let f = imp.fqn;
       for (;;) {
-        target = ctx.moduleToFile.get(KEY_PREFIX + f) ?? null;
+        target = ctx.moduleToFile.get(f) ?? null;
         if (target) break;
         const i = f.lastIndexOf('.');
         if (i <= 0) break;
@@ -170,7 +143,7 @@ export const javaImporter = createTreeSitterImporter<JavaAnalysis>({
       }
       if (target) {
         if (target !== sourcePath) edges.push({ fromFile: sourcePath, toFile: target, import: imp.fqn });
-      } else if (looksLocal(imp, uses.pkg)) {
+      } else if (looksLocal(imp, pkg)) {
         unresolved.push({ fromFile: sourcePath, import: imp.fqn });
       }
     }
