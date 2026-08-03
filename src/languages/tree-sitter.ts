@@ -215,7 +215,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       files = [...files].sort((a, b) => a.path.localeCompare(b.path));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
-      let moduleKey = (f: SourceFile): string => (spec.moduleKeyOf ? spec.moduleKeyOf(f, moduleRoot, baseDir) ?? spec.fileToModule(f.path, moduleRoot, baseDir) : spec.fileToModule(f.path, moduleRoot, baseDir));
+      let moduleKey = (f: SourceFile): string => (spec.moduleKeyOf ? (spec.moduleKeyOf(f, moduleRoot, baseDir) ?? spec.fileToModule(f.path, moduleRoot, baseDir)) : spec.fileToModule(f.path, moduleRoot, baseDir));
       // Package names of workspace member crates — the factory aliases their namespaced
       // module keys by name so `use sibling_crate::…` resolves (rust.ts crates only).
       const crateNames = new Set<string>();

@@ -59,9 +59,7 @@ const includeRootsCached = memoizeWeak(includeRoots);
 /** cpp-family census paths, shortest-first (then alpha) — the suffix-match candidate order.
  *  Derived from the importer's own module→file map (keys are paths — identity keys).
  *  Memoized per map like includeRootsCached. */
-const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) =>
-  [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1)),
-);
+const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) => [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1)));
 
 /** Suffix-match fallback: an include no probe reached but that SOME census file ends with —
  *  a header found via a DEEP `-I` root (llama ggml/include, pandas _libs/include — stress
