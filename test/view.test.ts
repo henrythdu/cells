@@ -278,8 +278,10 @@ describe('formatHealthReport', () => {
   it('renders the elapsed time on the gate line when provided', () => {
     const { report } = formatHealthReport({ ...clear, elapsedSec: 1.234 });
     expect(report).toContain('All checks passed.  (1.2s)');
+    expect(report).toContain('health: 1.2s'); // machine-parseable tail (stress-agent ask)
     const { report: plain } = formatHealthReport(clear);
     expect(plain).not.toMatch(/\(\d+\.\ds\)/);
+    expect(plain).not.toContain('health: ');
   });
 
   it('undeclared leakage gate-fails (✗ crossings, exit 1)', () => {

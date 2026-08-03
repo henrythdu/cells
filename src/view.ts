@@ -246,6 +246,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
     lines.push(`→ Gate failed.${aside}${drillHint}${timing}`);
   }
+  // Machine-parseable timing line (stress-agent ask): stable `health: X.Xs` tail for grep/sed
+  // consumers — the prose `(X.Xs)` above is human-facing; this is the automation contract.
+  if (v.elapsedSec !== undefined) lines.push(`health: ${v.elapsedSec.toFixed(1)}s`);
 
   // Detail/info sections BELOW the verdict — optional reading on the failing path.
   for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
