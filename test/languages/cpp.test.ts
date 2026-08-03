@@ -123,6 +123,15 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     expect(edges.find((e) => e.import === '../../../include/cxx.h')?.toFile).toBe('bridge/build/src/bridge/include/cxx.h');
     expect(unresolved).toEqual([]);
   });
+
+  it('normalizes ./ prefixes before the suffix scan (ocr MEDIUM — ./include/x.h into a deep root)', async () => {
+    const { edges, unresolved } = await extract({
+      'ggml/src/ggml-cann/common.h': '#include "./../include/ggml-cann.h"\n',
+      'ggml/include/ggml-cann.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.import === './../include/ggml-cann.h')?.toFile).toBe('ggml/include/ggml-cann.h');
+    expect(unresolved).toEqual([]);
+  });
 });
 
 describe('cppImporter (include resolution)', () => {

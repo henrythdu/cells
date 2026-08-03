@@ -86,10 +86,11 @@ function sortedCppFiles(moduleToFile: Map<string, string>): string[] {
  *  Leading `../` segments are stripped (bug #13): `../include/ggml-cann.h` from
  *  ggml/src/ggml-cann/ is `-I ggml/include` + the relative prefix — the meaningful part for
  *  a suffix scan is `include/ggml-cann.h`; the `..`s cancel inside the root and are
- *  meaningless to a bare path scan. Census paths never contain `..` segments, so the raw
- *  form can never match. */
+ *  meaningless to a bare path scan. The include is normalized first (`.`/`..` segments
+ *  resolve — ocr MEDIUM), then stripped; census paths never contain `.`/`..` segments, so
+ *  the raw form can never match. */
 function suffixMatch(include: string, files: readonly string[]): string | undefined {
-  const target = `/${include.replace(/^(\.\.\/)+/, '')}`;
+  const target = `/${posix.normalize(include).replace(/^(\.\.\/)+/, '')}`;
   return files.find((p) => p.endsWith(target));
 }
 
@@ -131,9 +132,11 @@ const fileToModule = (path: string): string => path;
  *  includes are local by definition (missing → unresolved, the LLM's problem); angle
  *  includes are external unless a census hit proves them owned. No build system, no -I
  *  reads — source-based only (design philosophy).
- *  ponytail: -I roots = top-level code dirs only — a DEEPER root (vendored gtest at
- *  test/gtest/gtest/gtest.h reached via `-I test/gtest`) stays unresolved; add depth-2
- *  probes if a real repo needs them. */
+ *  ponytail: -I roots = top-level code dirs only (census-derived). The suffix fallback covers
+ *  DEEPER roots (ggml/include, pandas _libs/include, vendored gtest at test/gtest/…), but a
+ *  header whose suffix appears nowhere in the census — or whose every suffix twin lives under
+ *  a non-top-level root the probes never reached (ambiguous common names like config.h) —
+ *  stays unresolved; shortest-first picks deterministically when several twins exist. */
 export const cppImporter = createTreeSitterImporter<CppInclude[]>({
   name: 'cpp',
   extensions: ['.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.hxx'],
