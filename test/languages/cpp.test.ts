@@ -44,12 +44,7 @@ describe('includeCandidates (probe order)', () => {
   it('resolves `..`-relative includes against a root that cancels them (llama bug #13: -I src + ../src/x.h)', () => {
     // from tools/fit-params/fit-params.cpp, `../src/llama-ext.h` — the importer-dir probe gives
     // tools/src/llama-ext.h (miss); the `src` root probe normalizes to src/llama-ext.h (hit).
-    const cands = includeCandidates({ path: '../src/llama-ext.h', quoted: true }, 'tools/fit-params/fit-params.cpp', [
-      '.',
-      'common',
-      'src',
-      'tools',
-    ]);
+    const cands = includeCandidates({ path: '../src/llama-ext.h', quoted: true }, 'tools/fit-params/fit-params.cpp', ['.', 'common', 'src', 'tools']);
     expect(cands).toContain('src/llama-ext.h');
     expect(cands).not.toContain('../../out.h');
   });
