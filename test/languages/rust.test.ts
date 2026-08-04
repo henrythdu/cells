@@ -387,9 +387,9 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
     expect(unresolved).toEqual([]);
     // the brace form must resolve like the dotted form: super = crate::foo → foo/mod.rs,
-    // NOT fall through to the crate root
+    // NOT fall through to the crate root (lib.rs)
     expect(edges).toContainEqual({ fromFile: 'src/foo/a.rs', toFile: 'src/foo/mod.rs', import: 'super::LoadError' });
-    expect(edges.some((e) => e.toFile === 'src/main.rs')).toBe(false);
+    expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/foo/a.rs')).toBe(false);
   });
 
   it('resolves use super::* in mod tests to the enclosing file — no crate-root edge (Speedy 34-file case)', async () => {
@@ -401,9 +401,10 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
     const ownership: Ownership = { root: ['src/lib.rs'], reading: ['src/reading/mod.rs', 'src/reading/ovp.rs'] };
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
     expect(unresolved).toEqual([]);
-    // glob re-export of the enclosing module is a SELF-import — no edge at all
+    // glob re-export of the enclosing module is a SELF-import — no edge at all (and never a
+    // false crate-root edge to lib.rs)
     expect(edges.filter((e) => e.fromFile === 'src/reading/ovp.rs')).toEqual([]);
-    expect(edges.some((e) => e.toFile === 'src/main.rs')).toBe(false);
+    expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
   });
 
   it('bin+lib crate: crate key resolves to lib.rs, main.rs keeps its own crate:: imports working', async () => {

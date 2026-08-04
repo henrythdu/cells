@@ -74,16 +74,8 @@ const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) => [...mo
  *  the raw form can never match. */
 function suffixMatch(include: string, files: readonly string[]): string | undefined {
   const target = `/${posix.normalize(include).replace(/^(\.\.\/)+/, '')}`;
-  let hit: string | undefined;
-  let n = 0;
-  for (const p of files) {
-    if (p.endsWith(target)) {
-      n++;
-      hit = p;
-      if (n > 1) return undefined; // ambiguous — a guessed twin would be a wrong edge
-    }
-  }
-  return n === 1 ? hit : undefined;
+  const hits = files.filter((p) => p.endsWith(target));
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 /** Candidate targets for an include, in probe order:

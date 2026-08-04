@@ -253,6 +253,26 @@ function resolveSuper(imp: string, importerModule: string): string | null {
  *  intermediate module (broken import: stays unresolved; a root edge would be a false hit).
  *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
  *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
+/** Bare first segment (`use tokenization::foo` inside crate::reading) — Rust resolves it
+ *  MODULE-RELATIVE, walking up the importer's module chain (crate::reading::tokenization,
+ *  then crate::tokenization, then the root). Returns the absolute path of the first ancestor
+ *  under which the first segment names a real module, else null. The probe must test that
+ *  `ancestor::firstSeg` is a real module key — NOT look()'s prefix-fallback, which would match
+ *  the ancestor itself (a false self-import). An external crate's first segment is never a
+ *  module under any ancestor → null. Shared by resolveImportPath and collectReexports (the
+ *  two must agree — a one-sided fix re-breaks one path silently). */
+function resolveBareFirstSegment(effective: string, imp: string, moduleToFile: Map<string, string>): string | null {
+  const firstSeg = imp.split('::')[0];
+  const effSegs = effective.split('::');
+  for (let i = effSegs.length; i >= 1; i--) {
+    const probe = `${effSegs.slice(0, i).join('::')}::${firstSeg}`;
+    if (moduleToFile.has(probe) || [...moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
+      return `${effSegs.slice(0, i).join('::')}::${imp}`;
+    }
+  }
+  return null;
+}
+
 export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set(), reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): string | null {
   // The importer's own crate root (the namespace's first segment: 'crate' or the root path).
   // A 2-segment `crate::Item` resolves to it legitimately (the item lives in root lib.rs); a
@@ -272,29 +292,13 @@ export function resolveImportPath(imp: string, importerModule: string, moduleToF
     return null;
   };
   let abs: string | null = absoluteModulePath(imp, importerModule, crateNames, moduleToFile);
-  // Bare first segment (`use tokenization::foo` inside crate::reading) — Rust resolves it
-  // MODULE-RELATIVE, walking up the importer's module chain (crate::reading::tokenization,
-  // then crate::tokenization, then the root). The crate-root probe alone misses nested
-  // modules. The probe must test that `ancestor::firstSeg` is a real module key — NOT look(),
-  // whose prefix-fallback would match the ancestor itself (a false self-import). No ancestor
-  // matches = external crate (std::…, owo_colors) or broken local — null (the old crate-root
-  // fallback drew a false edge to the root file for 2-segment externals).
-  if (abs === null) {
-    const firstSeg = imp.split('::')[0];
-    const eff = importerModule.split('::');
-    for (let i = eff.length; i >= 1; i--) {
-      const probe = `${eff.slice(0, i).join('::')}::${firstSeg}`;
-      if (moduleToFile.has(probe) || [...moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
-        abs = `${eff.slice(0, i).join('::')}::${imp}`;
-        break;
-      }
-    }
-    if (abs === null) return null;
-  }
   // Bare first segment: Rust resolves `use foo::bar` to a crate-LOCAL module when foo isn't
-  // an extern crate (wave-3 #2 target — `pub use service::osv` refers to crate::service::osv).
-  // The fallback probes the crate-namespaced path — an external crate never has one, so no
-  // false edge.
+  // an extern crate — module-relative, walking up the importer's chain (wave-3 #2 target —
+  // `pub use service::osv` refers to crate::service::osv; Speedy bug 4). No ancestor matches
+  // = external crate (std::…, owo_colors) or broken local — null (the old crate-root fallback
+  // drew a false edge to the root file for 2-segment externals).
+  if (abs === null) abs = resolveBareFirstSegment(importerModule, imp, moduleToFile);
+  if (abs === null) return null;
   // Direct hit wins — re-export rewriting only on miss, else item aliases (e.g. a function
   // named `metadata`) would hijack genuine module references like `crate::metadata::X`.
   const direct = look(abs);
@@ -386,25 +390,12 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
     if (target === null) {
       // Bare first segment — either a crate-LOCAL module (`pub use service::osv;`,
       // `pub use tokenization::tokenize_text;`) or an external crate (`pub use owo_colors;`).
-      // Rust 2018 resolves a bare first segment MODULE-RELATIVE, walking up the importer's
-      // module chain (`pub use tokenization::…` inside crate::reading means
-      // crate::reading::tokenization) — probing only the crate root (`crate::tokenization`)
-      // misses nested modules and misclassifies the re-export as EXTERNAL, after which every
-      // import routed through it is silently dropped (no edge, no unresolved — Speedy bug 4).
-      // Walk the effective module chain deepest-first; an external crate matches no ancestor
-      // (its first segment is never a module key under any ancestor).
-      const firstSeg = imp.split('::')[0];
-      const effSegs = effective.split('::');
-      local = false;
-      real = '';
-      for (let i = effSegs.length; i >= 1; i--) {
-        const probe = `${effSegs.slice(0, i).join('::')}::${firstSeg}`;
-        if (ctx.moduleToFile.has(probe) || [...ctx.moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
-          local = true;
-          real = `${effSegs.slice(0, i).join('::')}::${imp}`;
-          break;
-        }
-      }
+      // Rust 2018 resolves it module-relative up the effective module chain; probing only the
+      // crate root misclassified a nested re-export as EXTERNAL and every import routed
+      // through it was silently dropped (no edge, no unresolved — Speedy bug 4).
+      const resolved = resolveBareFirstSegment(effective, imp, ctx.moduleToFile);
+      local = resolved !== null;
+      real = resolved ?? '';
     } else {
       local = true;
       real = target;
