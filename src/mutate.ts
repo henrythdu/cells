@@ -8,7 +8,7 @@ import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { writeOwnership } from './io.js';
 import { checkLeakage } from './crossings.js';
 import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject } from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject, readFiles } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { buildConfig } from './config.js';
 import { importableExts, DEFAULT_IMPORTERS } from './importers.js';
@@ -159,7 +159,7 @@ export function cmdAssign(cell: string, files: string[], dryRun = false): void {
   // Size pre-flight: warn if the destination would exceed its ceiling after the move.
   const cellDecl = declarations[cell] ?? stub;
   if (cellDecl) {
-    const pct = computePayloadSize(cellDecl, ownership[cell] ?? [], neighborsOf(cellDecl, declarations)).tokens / loadConfig().maxPayloadTokens;
+    const pct = computePayloadSize(cellDecl, ownership[cell] ?? [], readFiles(ownership[cell] ?? []), neighborsOf(cellDecl, declarations)).tokens / loadConfig().maxPayloadTokens;
     if (pct > 1) console.log(`⚠ ${cell} would be ${Math.round(pct * 100)}% of the ceiling after this move — consider peeling a file out first (\`cells size ${cell}\`).`);
   }
   if (dryRun) {

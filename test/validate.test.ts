@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validatePartition } from '../src/validate.js';
+import { validatePartition, staleProvidesOf } from '../src/validate.js';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
 
@@ -33,5 +33,32 @@ describe('validatePartition', () => {
     const declarations = decls({ parser: [] });
     const codeFiles = ['src/parser.ts', 'src/orphan.ts'];
     expect(validatePartition(ownership, declarations, codeFiles)).toEqual([]);
+  });
+});
+
+describe('staleProvidesOf', () => {
+  const cell = (provides: string[]): Cell => ({ name: 'cell', purpose: '...', provides, requires: [] });
+
+  it('flags a provides entry whose token no owned file references (membrane drift)', () => {
+    const c = cell(['parseCell', 'Cell']);
+    const contents = { 'src/cell.ts': 'export interface Cell {}' }; // parseCell gone, Cell present
+    expect(staleProvidesOf(c, ['src/cell.ts'], contents)).toEqual([{ cell: 'cell', provide: 'parseCell' }]);
+  });
+
+  it('matches function-call-style entries and camelCase tokens', () => {
+    const c = cell(['collectImportEdges() — the entry point', 'DEFAULT_IMPORTERS registry']);
+    const contents = { 'src/cell.ts': 'export function collectImportEdges() {} const DEFAULT_IMPORTERS = [];' };
+    expect(staleProvidesOf(c, ['src/cell.ts'], contents)).toEqual([]);
+  });
+
+  it('skips pure-prose entries (no identifier token) — never a false positive', () => {
+    const c = cell(['the parse loop', 'A deep module']);
+    expect(staleProvidesOf(c, ['src/cell.ts'], { 'src/cell.ts': 'unrelated code' })).toEqual([]);
+  });
+
+  it('does not match a longer identifier (word boundary)', () => {
+    const c = cell(['parseCell']);
+    const contents = { 'src/cell.ts': 'export function parseCellExtra() {}' }; // parseCell inside a longer identifier
+    expect(staleProvidesOf(c, ['src/cell.ts'], contents)).toEqual([{ cell: 'cell', provide: 'parseCell' }]);
   });
 });

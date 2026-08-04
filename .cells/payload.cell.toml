@@ -1,6 +1,12 @@
 name = "payload"
 purpose = "Assemble a cell's completeness payload (declaration + owned code + neighbor membranes) into one markdown document."
-provides = ["assemblePayload", "CellSize"]
-requires = ["declaration", "io"]
+provides = [
+  "assemblePayload",
+  "computePayloadSize",
+  "estimateTokens",
+  "neighborsOf",
+  "CellSize",
+]
+requires = ["declaration"]
 
 layer = 2

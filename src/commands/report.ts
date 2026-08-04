@@ -8,8 +8,8 @@ import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../vie
 import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
 import { checkGrammars } from '../importers.js';
 import type { UnresolvedImport } from '../imports.js';
-import { validatePartition } from '../validate.js';
-import { loadCrossings, warnIfNoCodeFiles } from './read.js';
+import { validatePartition, staleProvidesOf, type StaleProvide } from '../validate.js';
+import { loadCrossings, warnIfNoCodeFiles, requireCell } from './read.js';
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
 export async function cmdSize(ctx: CellsContext): Promise<void> {
@@ -22,12 +22,12 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
   const entries = Object.keys(declarations).map((name) => {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
-    const size = computePayloadSize(cell, owned, neighborsOf(cell, declarations));
+    const contents = readFiles(owned); // one read, shared by the size computation and peel candidates
+    const size = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations));
     // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
     // (a big file few others import is the cheapest chunk to carve out).
     let peel: PeelCandidate[] | undefined;
     if (size.tokens > config.maxPayloadTokens) {
-      const contents = readFiles(owned);
       peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
     }
     return { name, size, peel };
@@ -57,10 +57,7 @@ export async function cmdStructure(ctx: CellsContext): Promise<void> {
 /** `cells impact <name>` — blast radius: who transitively depends on this cell? */
 export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> {
   const { declarations, ownership } = ctx;
-  if (!declarations[name]) {
-    console.error(`error: no cell named "${name}"`);
-    process.exit(1);
-  }
+  requireCell(declarations, name); // guard: no cell named → die with the standard error
   const { crossings } = await loadCrossings(ownership);
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
@@ -100,10 +97,14 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
 
   const cellNames = Object.keys(declarations);
   let maxPercent = 0;
+  const staleProvides: StaleProvide[] = [];
   for (const name of cellNames) {
     const cell = declarations[name];
-    const pct = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations)).tokens / config.maxPayloadTokens;
+    const owned = ownership[name] ?? [];
+    const contents = readFiles(owned); // one read, shared by the size check and the provides-drift check
+    const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations)).tokens / config.maxPayloadTokens;
     if (pct > maxPercent) maxPercent = pct;
+    staleProvides.push(...staleProvidesOf(cell, owned, contents));
   }
 
   // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
@@ -120,6 +121,8 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
       undeclaredEdges: undeclared.map((u) => u.detail),
       staleCount: stale.length,
       staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
+      staleProvidesCount: staleProvides.length,
+      staleProvidesDetails: staleProvides.map((s) => `${s.cell} provides "${s.provide}"`),
       cycleCount: cycles.length,
       dirViolationCount: dirViolations.length,
       maxPercent,

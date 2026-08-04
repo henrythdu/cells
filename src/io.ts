@@ -3,7 +3,7 @@ import { join, relative, extname } from 'node:path';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
 import { parseIgnore, isIgnored } from './ignore.js';
-import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, type CellsConfig } from './config.js';
+import { parseConfig, type CellsConfig } from './config.js';
 
 export const CELLS_DIR = '.cells';
 
@@ -76,10 +76,12 @@ export function writeOwnership(ownership: Ownership): void {
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filterIgnored(ownership)));
 }
 
-/** Load `.cells/config.toml` (optional — missing file → defaults). */
+/** Load `.cells/config.toml` (optional — missing file → defaults). `parseConfig('')`
+ *  is the empty-document parse — every key missing → every default — so the fallback
+ *  shape lives in ONE place (parseConfig), not duplicated inline here. */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
-  if (!existsSync(path)) return { maxPayloadTokens: DEFAULT_MAX_PAYLOAD_TOKENS, layers: {}, codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
+  if (!existsSync(path)) return parseConfig('');
   return readParsed(path, parseConfig, '.cells/config.toml');
 }
 
@@ -99,7 +101,7 @@ export function loadContext(): CellsContext {
 /** Recursively list files under a directory whose extension is in `exts` (relative paths).
  *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
  *  can't grow the result, only re-walk forever. */
-export function listFiles(dir: string, exts: string[], visited = new Set<string>()): string[] {
+function listFiles(dir: string, exts: string[], visited = new Set<string>()): string[] {
   if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
   const real = realpathSync(dir);
   if (visited.has(real)) return []; // symlink cycle — stop

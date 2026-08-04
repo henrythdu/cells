@@ -1,6 +1,47 @@
 import type { Cell } from './declaration.js';
 import type { Ownership } from './ownership.js';
 
+/** A provides entry the cell's own code never references — the membrane describes
+ *  something the code doesn't deliver (mirror of stale requires). Info-level: the LLM
+ *  decides whether the export was removed (drop the entry) or the code lost it (restore
+ *  it). Never a gate. */
+export interface StaleProvide {
+  cell: string;
+  provide: string;
+}
+
+/** Word-boundary membership: does `content` contain `token` as a whole word (identifier)?
+ *  indexOf + boundary chars instead of RegExp — tokens are caller-constrained identifiers,
+ *  and a non-literal RegExp would trip the non-literal-regexp lint for zero benefit. */
+function containsIdentifier(content: string, token: string): boolean {
+  let i = content.indexOf(token);
+  while (i !== -1) {
+    const before = i === 0 ? '' : content[i - 1];
+    const after = i + token.length >= content.length ? '' : content[i + token.length];
+    if (!/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after)) return true;
+    i = content.indexOf(token, i + 1);
+  }
+  return false;
+}
+
+/** Flag provides entries whose leading token never appears in the cell's owned files.
+ *  Conservative by design (a nudge, not a verdict): only entries whose leading token
+ *  LOOKS like a real identifier are checked — function-call style ("collectImportEdges()")or internal-uppercase camelCase/SCREAMING ("ResolveCtx", "DEFAULT_IMPORTERS"). Pure
+ *  prose entries ("the parse loop") are skipped — they can't be matched, and flagging
+ *  them would be a false positive. Pure. */
+export function staleProvidesOf(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>): StaleProvide[] {
+  const contents = ownedFiles.map((f) => fileContents[f] ?? '').join('\n');
+  const out: StaleProvide[] = [];
+  for (const provide of cell.provides) {
+    const token = provide.match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0];
+    if (!token) continue;
+    const rest = provide.slice(token.length);
+    const looksLikeId = rest.startsWith('(') || /[A-Z]/.test(token.slice(1)); // fn-call style, or internal-uppercase (camelCase/Pascal/SCREAMING)
+    if (!looksLikeId) continue; // ambiguous prose — skip, never flag
+    if (!containsIdentifier(contents, token)) out.push({ cell: cell.name, provide });
+  }
+  return out;
+}
 export type ViolationKind =
   | 'duplicate' // a file owned by 2+ cells (violates non-overlap)
   | 'dangling' // an owned file missing from disk

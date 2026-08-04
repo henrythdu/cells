@@ -88,10 +88,11 @@ cells list                          # see the whole partition
 | `cells rename <old> <new>` | rename a cell across the store (file, ownership keys, requires refs) |
 | `cells remove <cell> [--force]` | delete a cell's declaration (ownership freed → orphans unless `--force` also clears them) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
-| `cells list` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans |
-| `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size |
+| `cells list [--verbose]` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans; `--verbose` adds a per-cell health line (size%, stale provides, unresolved) |
+| `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size + dead-at-boundary files + co-changes + stale provides + unresolved imports |
+| `cells surface <name>` | print the cell's export-like declaration lines (file:line) — the starting point for populating the membrane `signatures` field |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
-| `cells payload <name>` | print a cell's full payload (membrane + code + neighbors) — the context to work it |
+| `cells payload <name>` | print a cell's full payload (membrane + code + neighbors + the cells that depend on you) — the context to work it |
 | `cells health [--verbose]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip). `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
@@ -210,4 +211,4 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 21 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 26 cells. Run `cells list` to see.*

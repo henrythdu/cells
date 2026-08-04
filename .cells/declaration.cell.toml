@@ -1,6 +1,6 @@
 name = "declaration"
 purpose = "Parse a .cell.toml file into a Cell (its membrane + identity)."
-provides = ["parseCell", "Cell"]
+provides = ["parseCell", "serializeCell", "Cell", "STUB_PURPOSE"]
 requires = ["toml"]
 
 layer = 1

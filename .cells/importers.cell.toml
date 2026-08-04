@@ -6,6 +6,8 @@ provides = [
   "DEFAULT_IMPORTERS registry (typescript + python + rust + go + cpp + java)",
   "selectImporters(exts, importers) — pure dispatch by extension",
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
+  "importableExts(exts, importers) — the inverse of uncoveredImporterExts (init drops blind exts)",
+  "ImporterFailure — a failed extraction (name + error), surfaced by collectImportEdges",
 ]
 requires = [
   "imports",

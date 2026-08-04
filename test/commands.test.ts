@@ -4,8 +4,46 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { loadContext } from '../src/io.js';
-import { loadCrossings, warnIfNoCodeFiles, cmdShow } from '../src/commands/read.js';
+import { loadCrossings, warnIfNoCodeFiles, cmdShow, extractSurface } from '../src/commands/read.js';
 import type { CellsConfig } from '../src/config.js';
+
+describe("extractSurface — the raw material for a cell's signatures field", () => {
+  it('extracts TS export declarations, Rust pub items, Python defs, Go funcs', () => {
+    const src = [
+      'export function parseCell(raw: string): Cell {',
+      'export const DEFAULT = 1;',
+      'export interface Foo {}',
+      'function privateHelper() {}', // not exported — skipped
+      'pub fn resolve(imp: &str) -> Option<String> {',
+      'pub struct Config {',
+      'fn internal() {}', // not pub — skipped
+      'def parse_cell(raw):',
+      'class Parser:',
+      '    def method(self):', // indented method — skipped
+      'func Resolve(path string) string {',
+      'func helper() {}',
+      '  const x = 1;', // indented — skipped
+      '',
+    ].join('\n');
+    const hits = extractSurface(src);
+    const texts = hits.map((h) => h.text);
+    expect(texts).toContain('export function parseCell(raw: string): Cell {');
+    expect(texts).toContain('export const DEFAULT = 1;');
+    expect(texts).toContain('export interface Foo {}');
+    expect(texts).toContain('pub fn resolve(imp: &str) -> Option<String> {');
+    expect(texts).toContain('pub struct Config {');
+    expect(texts).toContain('def parse_cell(raw):');
+    expect(texts).toContain('class Parser:');
+    expect(texts).toContain('func Resolve(path string) string {');
+    expect(texts).toContain('func helper() {}'); // top-level Go func IS part of the surface
+    expect(texts).not.toContain('function privateHelper() {}');
+    expect(texts).not.toContain('fn internal() {}');
+    expect(texts).not.toContain('def method(self):'); // indented method — not top-level
+    expect(texts).not.toContain('const x = 1;'); // indented const — not top-level
+    // line numbers are 1-based
+    expect(hits[0].line).toBe(1);
+  });
+});
 
 let repo: string;
 const startCwd = process.cwd();

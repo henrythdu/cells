@@ -3,12 +3,14 @@ purpose = "Read Cells state from disk (declarations, ownership, config, code fil
 provides = [
   "loadDeclarations",
   "loadOwnership",
+  "writeOwnership",
   "loadConfig",
   "loadContext",
   "CellsContext",
   "readFiles",
   "listCodeFiles",
   "detectProject",
+  "requireCells",
   "CELLS_DIR",
 ]
 requires = ["declaration", "ownership", "config", "ignore"]

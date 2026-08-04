@@ -1,5 +1,4 @@
 import type { Cell } from './declaration.js';
-import { readFiles } from './io.js';
 
 /** Size of a cell's payload: file count, raw chars, ~tokens. */
 export interface CellSize {
@@ -20,11 +19,11 @@ export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cel
 }
 
 /** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes).
- *  Includes test files so the size gate (health/size) matches what `payload` actually emits. */
-export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: Cell[]): CellSize {
-  const fileContents = readFiles(ownedFiles);
+ *  Includes test files so the size gate (health/size) matches what `payload` actually emits.
+ *  Pure: file contents are passed in (the caller reads them via io) — same seam as
+ *  assemblePayload, so the module has no hidden IO dependency. */
+export function computePayloadSize(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], testContents?: Record<string, string>): CellSize {
   const testFiles = cell.tests ?? [];
-  const testContents = testFiles.length > 0 ? readFiles(testFiles) : undefined;
   const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors, undefined, testFiles, testContents).length;
   return { files: ownedFiles.length + testFiles.length, chars, tokens: estimateTokens(chars) };
 }
@@ -36,7 +35,7 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], neighbors: 
  * Pure: takes resolved data (no FS access). The CLI layer reads files
  * from disk and resolves neighbors from the declarations map.
  */
-export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], dependedByCount?: number, testFiles?: string[], testContents?: Record<string, string>): string {
+export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], dependedByCount?: number, testFiles?: string[], testContents?: Record<string, string>, dependents?: Cell[]): string {
   const lines: string[] = [];
 
   lines.push(`# Cell: ${cell.name}`);
@@ -76,6 +75,15 @@ export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: 
     }
     lines.push(`requires: [${neighbor.requires.join(', ')}]`);
     lines.push('');
+  }
+  if (dependents && dependents.length > 0) {
+    lines.push('## Cells that depend on you');
+    for (const dep of dependents) {
+      lines.push(`### Cell: ${dep.name}`);
+      lines.push(`purpose: ${dep.purpose}`);
+      lines.push(`requires: [${dep.requires.join(', ')}]`); // what it expects from you (and others)
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

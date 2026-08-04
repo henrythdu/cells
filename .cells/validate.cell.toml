@@ -1,6 +1,6 @@
 name = "validate"
-purpose = "Check partition integrity: single-valued, dangling, orphan, undeclared-cell, unknown-require."
-provides = ["validatePartition", "Violation"]
+purpose = "Check partition integrity: single-valued, dangling, orphan, undeclared-cell, unknown-require, and membrane drift (stale provides — declared but no owned file references them)."
+provides = ["validatePartition", "staleProvidesOf", "Violation", "StaleProvide"]
 requires = ["ownership", "declaration"]
 
 layer = 2

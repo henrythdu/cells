@@ -54,6 +54,25 @@ describe('formatCellList', () => {
     expect(out).toContain('and 10 more');
   });
 
+  it('renders a per-cell health smell line under the row (list --verbose)', () => {
+    const smells = {
+      cli: { pct: 1.1, staleProvides: 2, unresolved: 3 },
+      declaration: { pct: 0.2, staleProvides: 0, unresolved: 0 },
+    };
+    const out = formatCellList(decls, sizes, listMetrics, [], smells);
+    expect(out).toContain('⚠ 110% size · 2 stale provides · 3 unresolved imports');
+    // the smell line sits directly under its cell's row
+    const lines = out.split('\n');
+    const cliIdx = lines.findIndex((l) => l.startsWith('  cli '));
+    const declIdx = lines.findIndex((l) => l.startsWith('  declaration '));
+    expect(lines[cliIdx + 1]).toContain('⚠');
+    // a cell with no signals still shows its size line (verbose = full detail) — but nothing else
+    expect(lines[declIdx + 1]).toContain('20% size');
+    expect(lines[declIdx + 1]).not.toContain('stale provides');
+    // no smells map → no smell lines at all
+    expect(formatCellList(decls, sizes, listMetrics, [])).not.toContain('⚠');
+  });
+
   it('reports zero orphans cleanly', () => {
     expect(formatCellList(decls, sizes, listMetrics, [])).toContain('0 orphan');
   });
@@ -96,7 +115,7 @@ describe('formatCellShow', () => {
   const size: CellSize = { files: 2, chars: 640, tokens: 160 };
   // out: validate → {ownership, declaration} (fanOut 2); in: cli → validate (fanIn 1) → I = 2/3 ≈ 0.67
   const metrics: CellMetrics = { fanIn: 1, fanOut: 2, instability: 2 / 3 };
-  const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [] };
+  const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [], staleProvides: [], unresolved: [] };
   const out2 = formatCellShow(ctx);
 
   it('lists dead-at-boundary files and co-change partners when present', () => {
@@ -107,6 +126,16 @@ describe('formatCellShow', () => {
     expect(rendered).toContain('  src/validate.ts');
     expect(rendered).toContain("co-changes in git history (same-commit pairs — logical coupling imports can't see):");
     expect(rendered).toContain('  src/ownership.ts  (cell ownership · 12×)');
+  });
+
+  it("lists the cell's unresolved imports when present (structure fact, not a nudge)", () => {
+    const rendered = formatCellShow({ ...ctx, unresolved: ['parseX', 'parseY'] });
+    expect(rendered).toContain('unresolved local imports (2) — no matching owned file (check the specifier or module-root):');
+    expect(rendered).toContain('  parseX');
+    expect(rendered).toContain('  parseY');
+    // absent when there is nothing to report
+    const clean = formatCellShow(ctx);
+    expect(clean).not.toContain('unresolved local imports');
   });
 
   it('omits the dead/co-change sections when empty', () => {
@@ -255,6 +284,8 @@ describe('formatHealthReport', () => {
     undeclaredEdges: [],
     staleCount: 0,
     staleEdges: [],
+    staleProvidesCount: 0,
+    staleProvidesDetails: [],
     cycleCount: 0,
     dirViolationCount: 0,
     maxPercent: 0.4,

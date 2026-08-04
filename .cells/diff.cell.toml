@@ -1,6 +1,6 @@
 name = "diff"
 purpose = "The `crossings --diff` feature: how cross-cell crossings changed between the working tree and git HEAD (added/removed). A deep module — one call (crossingsDelta) hides HEAD-tree extraction, re-collecting import edges there, re-deriving crossings under the same ownership, and diffing. Returns null when git/HEAD is unavailable so the caller degrades to the current view. Owns the git machinery internally (only this feature needs it)."
-provides = ["crossingsDelta"]
+provides = ["crossingsDelta", "coChangePairs"]
 requires = ["crossings", "importers", "ownership"]
 
 layer = 6

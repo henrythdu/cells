@@ -5,9 +5,10 @@
 import { listCodeFiles, readFiles, type CellsContext } from '../io.js';
 import { computePayloadSize, neighborsOf, estimateTokens, assemblePayload, type CellSize } from '../payload.js';
 import { deriveCrossings, checkLeakage, computeMetrics, type Crossing, type CrossingsDelta } from '../crossings.js';
-import { formatCellList, formatCellShow } from '../view.js';
+import { formatCellList, formatCellShow, type CellSmell } from '../view.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
 import { coChangePairs, crossingsDelta } from '../diff.js';
+import { staleProvidesOf } from '../validate.js';
 import { collectImportEdges } from '../importers.js';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { owningCell, type Ownership } from '../ownership.js';
@@ -35,6 +36,18 @@ export function warnIfNoCodeFiles(config: CellsConfig, codeFiles: string[]): voi
 /** The shared read-command pipeline: collect import edges, warn on blind exts, derive cell
  *  crossings. Every analysis command routes through this (one drift surface). `warn` lets
  *  health skip the stderr blind-warning — its report already covers it. */
+/** Get a cell declaration or die with the standard error — cmdShow/cmdPayload/cmdImpact
+ *  all repeat this guard; one home keeps the message consistent. Same-cell helper (read.ts
+ *  exports it for report.ts); not a neighbor surface. */
+export function requireCell(declarations: Record<string, Cell>, name: string): Cell {
+  const cell = declarations[name];
+  if (!cell) {
+    console.error(`error: no cell named "${name}"`);
+    process.exit(1);
+  }
+  return cell;
+}
+
 export async function loadCrossings(ownership: Ownership, warn = true): Promise<{ edges: ImportEdge[]; crossings: Crossing[]; uncoveredExts: string[]; unresolved: UnresolvedImport[] }> {
   const { edges, uncoveredExts, unresolved, failures, ignoreBlindExts } = await collectImportEdges();
   if (failures.length > 0) {
@@ -148,21 +161,41 @@ function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new
   console.log(`${delta.added.length} added, ${delta.removed.length} removed.`);
 }
 
-/** `cells list` — partition overview: each cell's files/size/requires/fan-in-out + orphans. */
-export async function cmdList(ctx: CellsContext): Promise<void> {
+/** `cells list [--verbose]` — partition overview: each cell's files/size/requires/fan-in-out + orphans.
+ *  --verbose adds a per-cell health line (size%, stale provides, unresolved, dead files, tests) —
+ *  the one-screen orientation scan. All signals reuse data the overview already loads. */
+export async function cmdList(ctx: CellsContext, verbose = false): Promise<void> {
   const { declarations, ownership, config } = ctx;
   const sizes: Record<string, CellSize> = {};
+  const smells: Record<string, CellSmell> = {};
   for (const name of Object.keys(declarations)) {
     const cell = declarations[name];
-    sizes[name] = computePayloadSize(cell, ownership[name] ?? [], neighborsOf(cell, declarations));
+    const owned = ownership[name] ?? [];
+    const contents = readFiles(owned); // one read — reused for size, stale provides, dead files
+    sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations));
+    if (verbose) smells[name] = { pct: sizes[name].tokens / config.maxPayloadTokens, staleProvides: 0, unresolved: 0 };
   }
-  const { crossings } = await loadCrossings(ownership);
+  const { crossings, unresolved } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
   const orphanFiles = codeFiles.filter((f) => !owned.has(f));
-  process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles));
+  if (verbose) {
+    const unresolvedByCell = new Map<string, number>();
+    for (const u of unresolved) {
+      const owner = owningCell(ownership, u.fromFile);
+      if (owner) unresolvedByCell.set(owner, (unresolvedByCell.get(owner) ?? 0) + 1);
+    }
+    for (const name of Object.keys(declarations)) {
+      const cell = declarations[name];
+      const cellOwned = ownership[name] ?? [];
+      const s = smells[name];
+      s.unresolved = unresolvedByCell.get(name) ?? 0;
+      s.staleProvides = staleProvidesOf(cell, cellOwned, readFiles(cellOwned)).length;
+    }
+  }
+  process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined));
 }
 
 /** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.
@@ -170,15 +203,11 @@ export async function cmdList(ctx: CellsContext): Promise<void> {
  *  `--verbose` shows every per-file edge. */
 export async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promise<void> {
   const { declarations, ownership } = ctx;
-  const cell = declarations[name];
-  if (!cell) {
-    console.error(`error: no cell named "${name}"`);
-    process.exit(1);
-  }
+  const cell = requireCell(declarations, name);
   const ownedFiles = ownership[name] ?? [];
   const contents = readFiles(ownedFiles);
   const perFile = ownedFiles.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length) }));
-  const { edges, crossings } = await loadCrossings(ownership);
+  const { edges, crossings, unresolved } = await loadCrossings(ownership);
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
@@ -188,8 +217,12 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const externallyImported = new Set<string>();
   for (const e of edges) if (!ownedSet.has(e.fromFile)) externallyImported.add(e.toFile);
   const deadFiles = ownedFiles.filter((f) => !externallyImported.has(f));
+  // Unresolved imports FROM this cell's files (loadCrossings already filtered to owned files).
+  const cellUnresolved = unresolved.filter((u) => ownedSet.has(u.fromFile)).map((u) => u.import);
   // Logical coupling: files that co-change with this cell's files in git history.
   const coChange = coChangePairs(ownedFiles).map((c) => ({ ...c, cell: owningCell(ownership, c.file) }));
+  // Membrane drift: provides entries no owned file references (rides the contents read above).
+  const staleProvides = staleProvidesOf(cell, ownedFiles, contents);
   process.stdout.write(
     formatCellShow(
       {
@@ -197,10 +230,12 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
         owned: perFile,
         out,
         inc,
-        size: computePayloadSize(cell, ownedFiles, neighborsOf(cell, declarations)),
+        size: computePayloadSize(cell, ownedFiles, contents, neighborsOf(cell, declarations)),
         metrics: metrics[name],
         dead: deadFiles,
         coChange,
+        staleProvides,
+        unresolved: cellUnresolved,
       },
       verbose,
     ),
@@ -213,6 +248,42 @@ export async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<voi
   const { crossings } = await loadCrossings(ownership);
   const allCells = Object.keys(ownership);
   process.stdout.write(mermaid ? formatCellGraph(crossings, allCells) : formatCellGraphAscii(crossings, allCells));
+}
+
+/** Export-ish declaration lines, per language — the raw material for a cell's `signatures`
+ *  membrane field. A rough line regex, not a parser: the LLM curates the output (adapting
+ *  to type annotations) before pasting it into the .cell.toml. Pure. */
+export function extractSurface(content: string): { line: number; text: string }[] {
+  // TS/JS export decls; Rust pub items; Python top-level def/class; Go top-level decls; Java types.
+  // Matched against the RAW line — the ^ anchors mean column-0 (top-level) only, so indented
+  // methods/statements (Python defs inside a class, indented consts) are correctly skipped.
+  const RE =
+    /^(?:export\s+(?:async\s+)?function|export\s+(?:const|class|interface|type|enum)\s|pub\s+(?:fn|struct|enum|trait|type|const|mod|use)\s|(?:async\s+)?def\s|class\s|func\s|type\s|const\s|var\s|public\s+(?:class|interface|enum|record)\s)/;
+  const out: { line: number; text: string }[] = [];
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (RE.test(lines[i])) out.push({ line: i + 1, text: lines[i].trim() });
+  }
+  return out;
+}
+
+/** `cells surface <name>` — print the cell's export-ish declaration lines (file:line), the
+ *  starting point for populating the membrane `signatures` field. Groups by owned file. */
+export function cmdSurface(ctx: CellsContext, name: string): void {
+  const { declarations, ownership } = ctx;
+  const cell = requireCell(declarations, name);
+  const ownedFiles = ownership[name] ?? [];
+  const contents = readFiles(ownedFiles);
+  let any = false;
+  for (const f of ownedFiles) {
+    const hits = extractSurface(contents[f] ?? '');
+    if (hits.length === 0) continue;
+    any = true;
+    process.stdout.write(`## ${f}\n`);
+    for (const h of hits) process.stdout.write(`  ${h.line}: ${h.text}\n`);
+  }
+  if (!any) process.stdout.write(`No export-like declarations found in ${cell.name}'s ${ownedFiles.length} owned file(s).\n`);
+  process.stdout.write(`\nPopulate the membrane: add these to \`signatures\` in .cells/${cell.name}.cell.toml (adapt with types).\n`);
 }
 
 /** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
@@ -230,11 +301,7 @@ export function cmdOwns(ctx: CellsContext, file: string): void {
 /** `cells payload <name>` — assemble and print a cell's payload to stdout. */
 export function cmdPayload(ctx: CellsContext, name: string): void {
   const { declarations, ownership } = ctx;
-  const cell = declarations[name];
-  if (!cell) {
-    console.error(`error: no cell named "${name}"`);
-    process.exit(1);
-  }
+  const cell = requireCell(declarations, name);
 
   const ownedFiles = ownership[name] ?? [];
   const fileContents = readFiles(ownedFiles);
@@ -249,8 +316,8 @@ export function cmdPayload(ctx: CellsContext, name: string): void {
     else console.error(`warning: neighbor "${n}" of cell "${name}" has no declaration`);
   }
 
-  const dependedByCount = Object.values(declarations).filter((d) => d.requires.includes(name)).length;
-  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependedByCount, testFiles, testContents);
+  const dependents = Object.values(declarations).filter((d) => d.requires.includes(name));
+  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependents.length, testFiles, testContents, dependents);
   process.stdout.write(payload);
 
   const chars = payload.length;

@@ -81,6 +81,22 @@ describe('assemblePayload', () => {
     expect(noCtx).not.toContain('## Context');
   });
 
+  it('lists the cells that depend on this one (reverse contract) with their requires', () => {
+    const cell: Cell = { name: 'io', purpose: 'p', provides: ['readFiles'], requires: [] };
+    const dependents: Cell[] = [
+      { name: 'commands', purpose: 'handlers', provides: [], requires: ['io', 'crossings'] },
+      { name: 'cli', purpose: 'dispatch', provides: [], requires: ['io', 'commands'] },
+    ];
+    const result = assemblePayload(cell, [], {}, [], 2, undefined, undefined, dependents);
+    expect(result).toContain('## Cells that depend on you');
+    expect(result).toContain('### Cell: commands');
+    expect(result).toContain('requires: [io, crossings]'); // what commands expects from io (and others)
+    expect(result).toContain('### Cell: cli');
+    // no dependents → no section
+    const none = assemblePayload(cell, [], {}, [], 0);
+    expect(none).not.toContain('## Cells that depend on you');
+  });
+
   it('includes test code section when test files are provided', () => {
     const cell: Cell = { name: 'parser', purpose: 'p', provides: [], requires: [] };
     const testFiles = ['test/parser.test.ts'];

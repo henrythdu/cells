@@ -2,11 +2,32 @@ import { STUB_PURPOSE, type Cell } from './declaration.js';
 import type { CellMetrics, Crossing } from './crossings.js';
 import type { CellSize } from './payload.js';
 
+/** Per-cell health signals for `list --verbose` — every field already computed elsewhere;
+ *  this bundles them into the one-line orientation scan (all data, no new analysis).
+ *  No dead-file count: test files are dead at the boundary by definition (nothing outside
+ *  the cell imports them), so the count would read ~1 for every cell — noise. `show` lists
+ *  dead FILES with names, where the LLM can tell a test from a leaf. */
+export interface CellSmell {
+  pct: number; // payload tokens / ceiling (0-1)
+  staleProvides: number;
+  unresolved: number;
+}
+
+/** One-line health smell for a cell — rendered under its `list` row when non-empty.
+ *  Size always shows (verbose = full detail); the rest only when present. Pure. */
+export function formatCellSmell(s: CellSmell): string {
+  const parts: string[] = [];
+  parts.push(`${Math.round(s.pct * 100)}% size`);
+  if (s.staleProvides > 0) parts.push(`${s.staleProvides} stale provide${s.staleProvides === 1 ? '' : 's'}`);
+  if (s.unresolved > 0) parts.push(`${s.unresolved} unresolved import${s.unresolved === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
 /**
  * Format the partition overview: one row per cell (file count, ~tokens,
  * requires) + a header with totals and orphan count. Pure.
  */
-export function formatCellList(declarations: Record<string, Cell>, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[]): string {
+export function formatCellList(declarations: Record<string, Cell>, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[], smells?: Record<string, CellSmell>): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const stubSuffix = ' (stub)';
@@ -25,6 +46,8 @@ export function formatCellList(declarations: Record<string, Cell>, sizes: Record
     const coupling = m ? `${m.fanIn}/${m.fanOut}` : '—';
     const label = declarations[name]?.purpose === STUB_PURPOSE ? `${name}${stubSuffix}` : name;
     lines.push(`  ${label.padEnd(width)}  ${fileStr.padEnd(9)} ${tokStr.padEnd(8)} ${coupling.padEnd(5)} ${reqStr}`);
+    const smell = smells?.[name];
+    if (smell) lines.push(`      ⚠ ${formatCellSmell(smell)}`);
   }
   if (orphanFiles.length > 0) {
     lines.push('');
@@ -71,14 +94,21 @@ export interface CellShowContext {
   metrics: CellMetrics;
   dead: string[];
   coChange: { file: string; cell: string | undefined; count: number }[];
+  staleProvides: { cell: string; provide: string }[];
+  /** Import specifiers from this cell's files that resolved to no owned file. */
+  unresolved: string[];
 }
 
 export function formatCellShow(ctx: CellShowContext, verbose = false): string {
-  const { cell, owned: ownedFiles, out: outCrossings, inc: inCrossings, size, metrics, dead: deadFiles, coChange } = ctx;
+  const { cell, owned: ownedFiles, out: outCrossings, inc: inCrossings, size, metrics, dead: deadFiles, coChange, staleProvides, unresolved } = ctx;
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
   if (cell.provides.length > 0) lines.push(`provides: ${cell.provides.join(', ')}`);
+  if (staleProvides.length > 0) {
+    lines.push('⚠ provides not found in owned code (membrane drift — export removed or entry stale):');
+    for (const s of staleProvides) lines.push(`  ${s.provide}`);
+  }
   if (cell.signatures && cell.signatures.length > 0) {
     for (const sig of cell.signatures) lines.push(`  • ${sig}`);
   }
@@ -97,6 +127,11 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
     lines.push('');
     lines.push(`tests (${cell.tests.length} file${cell.tests.length === 1 ? '' : 's'}):`);
     for (const f of cell.tests) lines.push(`  ${f}`);
+  }
+  if (unresolved.length > 0) {
+    lines.push('');
+    lines.push(`unresolved local imports (${unresolved.length}) — no matching owned file (check the specifier or module-root):`);
+    for (const u of unresolved) lines.push(`  ${u}`);
   }
   lines.push('');
   lines.push(`imports (${outCrossings.length}):`);
@@ -172,6 +207,8 @@ export interface HealthValues {
   undeclaredEdges: string[];
   staleCount: number;
   staleEdges: string[];
+  staleProvidesCount: number;
+  staleProvidesDetails: string[];
   cycleCount: number;
   dirViolationCount: number;
   maxPercent: number;
@@ -255,6 +292,10 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   if (v.staleCount > 0) {
     lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
     for (const s of v.staleEdges) lines.push(`  ${s}`);
+  }
+  if (v.staleProvidesCount > 0) {
+    lines.push(`(info) ${v.staleProvidesCount} stale provide(s) — declared but no owned file references them (membrane drift — fix the code or the entry):`);
+    for (const s of v.staleProvidesDetails) lines.push(`  ${s}`);
   }
   if (v.unresolvedCount > 0) {
     lines.push(`(info) ${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — likely a broken specifier or module-root mismatch:`);

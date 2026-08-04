@@ -63,8 +63,13 @@ COMMANDS
   assign <cell> <file...>  assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)
   unassign <file...>       remove files from their cell (→ orphan; --dry-run previews)
   owns <file>              which cell owns this file? (reverse lookup)
-  list                     partition overview: cells, sizes, fan-in/out, requires, orphans
-  show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size
+  list [--verbose]         partition overview: cells, sizes, fan-in/out, requires, orphans;
+                           --verbose adds a per-cell health line (size%, stale provides,
+                           unresolved, dead files)
+  show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size,
+                           dead-at-boundary files, co-changes, stale provides, unresolved imports
+  surface <name>           print the cell's export-like declaration lines (file:line) — the
+                           starting point for populating the membrane signatures field
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
   health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage + a broken
@@ -80,6 +85,7 @@ COMMANDS
 RULES
   leakage    undeclared = GATE (exit 1)   import a cell you don't require
             stale = info (exit 0)            require one never imported (data dep? future plan?)
+  membrane   stale provide = info (exit 0)   provide no owned file references (drift — fix code or membrane)
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
   size       warning         payload over max-payload-tokens (config.toml — the per-repo
                              knob for cell size; default 16000)

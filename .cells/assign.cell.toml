@@ -1,6 +1,14 @@
 name = "assign"
 purpose = "Mutate the partition: assign/reassign file ownership between cells, or remove files to orphan (the write side of the workflow)."
-provides = ["planAssignment", "assignFiles", "unassignFiles", "validCellName"]
+provides = [
+  "planAssignment",
+  "assignFiles",
+  "unassignFiles",
+  "planGroups",
+  "planApply",
+  "cellNameOf",
+  "validCellName",
+]
 requires = ["ownership", "declaration"]
 
 layer = 2

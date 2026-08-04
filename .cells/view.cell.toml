@@ -5,6 +5,10 @@ provides = [
   "formatCellShow",
   "formatSizeReport",
   "formatHealthReport",
+  "CellShowContext",
+  "PeelCandidate",
+  "HealthValues",
+  "HealthReport",
 ]
 requires = ["declaration", "crossings", "payload"]
 layer = 3
