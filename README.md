@@ -218,6 +218,8 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 
 **Payload = tokens**, estimated at chars/3 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.
 
+**The estimate is crude — and that's fine.** Every LLM tokenizes differently (and the same LLM at different settings); chars/3 is a rough, consistent proxy. The ceiling is **not a hard limit** — nothing breaks when a cell exceeds it. Its purpose is to make the model (or human) *conscious* of cell size before pulling a payload: the warning is "this cell is getting big — do you really want to read it whole?", not "this cell is invalid." A cell at 1.5× the ceiling is often the right call for a coherent unit; the gate doesn't care, it's your judgment that matters.
+
 ---
 
 ## Working with a Cells project (for agents)
