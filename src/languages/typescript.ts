@@ -35,17 +35,6 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
   const toPosix = rel.replace(/\\/g, '/'); // win32: join/relative emit backslashes; string ops below need /
   // `dist/` at any depth → `src/` (a package's dist entry maps to its source tree)
   const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
-  // Divergent layouts: vite's exports map `./module-runner` → `dist/node/module-runner.js` but
-  // the source is `src/module-runner/` (rollup flattens `node/` away). Try src/<last-segment>
-  // (dropping the intermediate dirs the bundler rolled up) as well.
-  let flatSrc: string | null = null;
-  const flatIdx = toPosix.lastIndexOf('dist/');
-  if (flatIdx >= 0) {
-    const afterDist = toPosix.slice(flatIdx + 'dist/'.length);
-    const lastSeg = afterDist.includes('/') ? afterDist.slice(afterDist.lastIndexOf('/') + 1) : afterDist;
-    flatSrc = `${toPosix.slice(0, flatIdx)}src/${lastSeg}`;
-  }
-  const flatBase = flatSrc ? flatSrc.replace(/\.js$/, '') : null; // strip the ext — the source may be a dir (index.ts)
   const candidates = [
     toPosix,
     `${toPosix}.d.ts`, // types-only exports resolve to declaration files (vite/types/*)
@@ -60,7 +49,6 @@ function probeFile(baseDir: string, norm: (p: string) => string, rel: string, ca
     `${srcRel}/index.ts`,
     `${srcRel}/index.tsx`,
     srcRel.replace(/\.js$/, '.ts'),
-    ...(flatBase ? [flatSrc!, flatBase, `${flatBase}.ts`, `${flatBase}/index.ts`, `${flatBase}/index.tsx`] : []),
     // directory targets (`require('..')` → the dir's index): plain JS-family index files
     `${toPosix}/index.js`,
     `${toPosix}/index.jsx`,

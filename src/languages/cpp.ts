@@ -63,10 +63,9 @@ const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) => [...mo
 
 /** Suffix-match fallback: an include no probe reached but that SOME census file ends with —
  *  a header found via a DEEP `-I` root (llama ggml/include, pandas _libs/include — stress
- *  bug #12; the grilled probes cover only top-level roots). Any hit here is a file the build
- *  could compile against in some -I config. Deterministic: shortest path first, then alpha.
- *  Probes already exhausted the standard locations, so a root-level/same-dir twin would have
- *  won there — the fallback only ever fires on -I-rooted files.
+ *  bug #12; the grilled probes cover only top-level roots). UNIQUE twin only: two files ending
+ *  with the same include (common names like config.h under two roots) are indistinguishable
+ *  without -I reads — a guessed pick would be a wrong edge, an honest unresolved instead.
  *  Leading `../` segments are stripped (bug #13): `../include/ggml-cann.h` from
  *  ggml/src/ggml-cann/ is `-I ggml/include` + the relative prefix — the meaningful part for
  *  a suffix scan is `include/ggml-cann.h`; the `..`s cancel inside the root and are
@@ -75,7 +74,16 @@ const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) => [...mo
  *  the raw form can never match. */
 function suffixMatch(include: string, files: readonly string[]): string | undefined {
   const target = `/${posix.normalize(include).replace(/^(\.\.\/)+/, '')}`;
-  return files.find((p) => p.endsWith(target));
+  let hit: string | undefined;
+  let n = 0;
+  for (const p of files) {
+    if (p.endsWith(target)) {
+      n++;
+      hit = p;
+      if (n > 1) return undefined; // ambiguous — a guessed twin would be a wrong edge
+    }
+  }
+  return n === 1 ? hit : undefined;
 }
 
 /** Candidate targets for an include, in probe order:

@@ -136,6 +136,39 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     }
   });
 
+  it('resolves a subpath whose exports target is dist-flattened (vite: ./module-runner → dist/node/x.js, source src/module-runner/)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-flat-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'packages', 'vite', 'src', 'module-runner'), { recursive: true });
+    mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
+    // dist target not committed (real repos); entry resolves to source, and the entry-dir +
+    // rest heuristic finds the flattened source — the rollup-flatten guess is NOT needed
+    writeFileSync(join(dir, 'packages', 'vite', 'package.json'), JSON.stringify({ name: '@vitejs/test', main: './dist/index.js', exports: { '.': './dist/index.js', './module-runner': './dist/node/module-runner.js' } }));
+    writeFileSync(join(dir, 'packages', 'vite', 'src', 'index.ts'), 'export const vite = 1;\n');
+    writeFileSync(join(dir, 'packages', 'vite', 'src', 'module-runner', 'index.ts'), 'export const mr = 1;\n');
+    writeFileSync(join(dir, 'apps', 'web', 'main.ts'), "import { mr } from '@vitejs/test/module-runner';\n");
+
+    const prev = process.cwd();
+    process.chdir(dir);
+    try {
+      const { edges, unresolved } = await depCruiserImporter.extract({
+        codeDirs: ['.'],
+        files: [
+          { path: 'apps/web/main.ts', content: '' },
+          { path: 'packages/vite/src/index.ts', content: '' },
+          { path: 'packages/vite/src/module-runner/index.ts', content: '' },
+        ],
+        ownership: {},
+      });
+      const sub = edges.find((e) => e.import === '@vitejs/test/module-runner');
+      expect(sub).toBeDefined();
+      expect(sub!.toFile).toContain('packages/vite/src/module-runner/index.ts');
+      expect(unresolved.some((u) => u.import === '@vitejs/test/module-runner')).toBe(false);
+    } finally {
+      process.chdir(prev);
+    }
+  });
+
   it('merges nested per-app tsconfig paths so @/ aliases resolve (wave-3 #3: turborepo)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-merge-'));
     fixtures.add(dir);

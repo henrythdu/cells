@@ -77,13 +77,15 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     expect(edges.find((e) => e.import === 'pandas/portable.h')?.toFile).toBe('pandas/_libs/include/pandas/portable.h');
   });
 
-  it('shortest-path wins on ambiguity (deterministic)', async () => {
-    const { edges } = await extract({
-      'src/a.cpp': '#include "deep.h"\n',
-      'aa/deep.h': '#pragma once\n',
-      'bb/cc/deep.h': '#pragma once\n',
+  it('ambiguous suffix twins → honest unresolved, not a guessed twin (deep roots, e.g. two config.h)', async () => {
+    const { edges, unresolved } = await extract({
+      'src/a.cpp': '#include "config.h"\n',
+      'aa/deep/config.h': '#pragma once\n',
+      'bb/cc/config.h': '#pragma once\n',
     });
-    expect(edges.find((e) => e.import === 'deep.h')?.toFile).toBe('aa/deep.h'); // shortest path
+    // two census files end with /config.h — indistinguishable without -I reads; no guessed edge
+    expect(edges).toEqual([]);
+    expect(unresolved).toEqual([{ fromFile: 'src/a.cpp', import: 'config.h' }]);
   });
 
   it('quoted miss still flagged unresolved when no census file ends with the include', async () => {
