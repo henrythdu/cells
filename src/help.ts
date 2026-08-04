@@ -80,7 +80,10 @@ COMMANDS
                        repos). Output ends with a machine-parseable health: X.Xs timing
                        line.
   crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
-  size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
+  size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates;
+                       cells can declare their own ceiling (ceiling = N in the cell.toml)
+  config [set max-payload-tokens <N>]   read the effective config; set the global ceiling
+                       (edit in place, comments preserved — the per-repo knob)
   structure [--summary]       layers + ADP + Direction + SDP (all warnings); cycle →
                        cheapest edge to cut; --summary = triage view (one line per
                        cycle + counts — for high-cycle repos like kafka/elasticsearch)
@@ -93,8 +96,8 @@ RULES
             stale = info (exit 0)            require one never imported (data dep? future plan?)
   membrane   stale provide = info (exit 0)   provide no owned file references (drift — fix code or membrane)
   integrity  GATE (exit 1)   file in two cells; owned file missing; undeclared ref
-  size       warning         payload over max-payload-tokens (config.toml — the per-repo
-                             knob for cell size; default 16000)
+  size       warning         payload over the ceiling — max-payload-tokens (config.toml,
+                             default 16000) or the cell's own ceiling = N override
   structure  warning         a cycle (ADP), an edge to a higher layer (Direction),
                              or a stable cell depending on a less-stable one (SDP)
   orphans    visibility      unowned files aren't violations; list shows them,

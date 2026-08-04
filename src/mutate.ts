@@ -2,7 +2,7 @@
  *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in commands/
  *  (read.ts + report.ts); cli.ts keeps the dispatcher + main(). These commands write
  *  after reading, so they re-load the stores fresh instead of using a shared bundle. */
-import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { writeOwnership } from './io.js';
@@ -10,9 +10,51 @@ import { checkLeakage } from './crossings.js';
 import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject, readFiles } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
-import { buildConfig } from './config.js';
+import { buildConfig, parseConfig } from './config.js';
 import { importableExts, DEFAULT_IMPORTERS } from './importers.js';
 import { loadCrossings, warnIfNoCodeFiles } from './commands/read.js';
+
+/** `cells config` — show the effective config; `cells config set max-payload-tokens <N>`
+ *  edits that one key in place. Targeted line replace (not a rewrite) so the file's
+ *  comments and other keys survive. Only max-payload-tokens is settable — the one key
+ *  that matters day-to-day; the rest are init-time choices (edit by hand). */
+export function cmdConfig(args: string[]): void {
+  const cfgPath = join(CELLS_DIR, 'config.toml');
+  const existing = existsSync(cfgPath) ? readFileSync(cfgPath, 'utf8') : '';
+  const parsed = parseConfig(existing);
+
+  if (args.length === 0) {
+    // Read side: the effective values (defaults where the file omits them).
+    const lines = [
+      'effective config (.cells/config.toml; defaults where omitted):',
+      `  max-payload-tokens = ${parsed.maxPayloadTokens}`,
+      `  code-dirs = [${parsed.codeDirs.map((d) => `"${d}"`).join(', ')}]`,
+      `  code-exts = [${parsed.codeExts.map((e) => `"${e}"`).join(', ')}]`,
+    ];
+    if (parsed.moduleRoot) lines.push(`  module-root = "${parsed.moduleRoot}"`);
+    if (parsed.ignoreBlindExts.length > 0) lines.push(`  ignore-blind-exts = [${parsed.ignoreBlindExts.map((e) => `"${e}"`).join(', ')}]`);
+    const layerNames = Object.keys(parsed.layers);
+    if (layerNames.length > 0) lines.push(`  layers = { ${layerNames.map((k) => `${k} = "${parsed.layers[Number(k)]}"`).join(', ')} }`);
+    console.log(lines.join('\n'));
+    return;
+  }
+
+  const [verb, key, value, ...rest] = args;
+  if (verb !== 'set' || key !== 'max-payload-tokens' || value === undefined || rest.length > 0) {
+    console.error('usage: cells config [set max-payload-tokens <N>]');
+    process.exit(1);
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    console.error(`cells: max-payload-tokens must be a positive integer (got "${value}")`);
+    process.exit(1);
+  }
+
+  const re = /^max-payload-tokens\s*=\s*\d+\s*$/m;
+  const next = re.test(existing) ? existing.replace(re, `max-payload-tokens = ${n}`) : `${existing.trimEnd()}\nmax-payload-tokens = ${n}\n`;
+  writeFileSync(cfgPath, next);
+  console.log(`max-payload-tokens = ${n} (was ${parsed.maxPayloadTokens}).`);
+}
 
 /** `cells init` — bootstrap a `.cells/` store (idempotent + self-healing). */
 export function cmdInit(dryRun = false): void {

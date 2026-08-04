@@ -167,19 +167,23 @@ export interface PeelCandidate {
   fanIn: number;
 }
 
-export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[] }[], ceiling: number): string {
+export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[]; ceiling?: number }[], globalCeiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
-  const overCount = ranked.filter((e) => e.size.tokens > ceiling).length;
+  const eff = (e: { ceiling?: number }): number => e.ceiling ?? globalCeiling;
+  const overCount = ranked.filter((e) => e.size.tokens > eff(e)).length;
   const cap = 20; // transformers: 502/1103 over ceiling — 500 bar rows drown the signal; the count + top rows carry it
   const shown = ranked.slice(0, cap);
   const width = Math.max(...shown.map((e) => e.name.length), 4);
-  const lines: string[] = [`context-fit — ceiling: ${ceiling} tok (max-payload-tokens)`];
-  for (const { name, size, peel } of shown) {
-    const over = size.tokens > ceiling;
-    const segs = Math.min(10, Math.round((size.tokens / ceiling) * 10));
+  const perCell = ranked.some((e) => e.ceiling !== undefined);
+  const lines: string[] = [`context-fit — ceiling: ${globalCeiling} tok (max-payload-tokens)${perCell ? '; some cells override' : ''}`];
+  for (const { name, size, peel, ceiling } of shown) {
+    const c = ceiling ?? globalCeiling;
+    const over = size.tokens > c;
+    const segs = Math.min(10, Math.round((size.tokens / c) * 10));
     const bar = '█'.repeat(segs).padEnd(10, '░');
     const mark = over ? ' ⚠ over ceiling' : '';
-    lines.push(`  ${name.padEnd(width)}  [${bar}]  ${size.tokens} tok${mark}`);
+    const own = ceiling !== undefined ? ` (ceiling ${ceiling})` : '';
+    lines.push(`  ${name.padEnd(width)}  [${bar}]  ${size.tokens} tok${own}${mark}`);
     if (over && peel && peel.length > 0) {
       const top = peel.slice(0, 2);
       lines.push(`    peel candidates: ${top.map((p) => `${p.file} (${p.tokens} tok, ${p.fanIn} importer${p.fanIn === 1 ? '' : 's'})`).join(', ')}`);

@@ -109,6 +109,44 @@ describe('cells prune-stale', () => {
   });
 });
 
+describe('cells config', () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('reads the effective config', () => {
+    repo = setupRepo();
+    const out = execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' });
+    expect(out).toContain('max-payload-tokens = 16000'); // default where the fixture omits it
+    expect(out).toContain('code-dirs = ["src"]');
+  });
+
+  it('sets max-payload-tokens in place, preserving the rest of the file', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'config.toml'), '# keep me\nmax-payload-tokens = 16000\ncode-dirs = ["src"]\n');
+    const out = execSync(`node ${cellsBin} config set max-payload-tokens 24000`, { cwd: repo, encoding: 'utf8' });
+    expect(out).toContain('24000 (was 16000)');
+    const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    expect(next).toContain('# keep me'); // comment survived
+    expect(next).toContain('max-payload-tokens = 24000');
+    expect(next).toContain('code-dirs = ["src"]'); // other keys survived
+    // and health now reports against the new ceiling
+    expect(execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' })).toContain('max-payload-tokens = 24000');
+  });
+
+  it('appends the key when the file lacks it; validates the value', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\n');
+    execSync(`node ${cellsBin} config set max-payload-tokens 20000`, { cwd: repo, encoding: 'utf8' });
+    expect(readFileSync(join(repo, '.cells', 'config.toml'), 'utf8')).toContain('max-payload-tokens = 20000');
+    const bad = spawnSync(`node`, [cellsBin, 'config', 'set', 'max-payload-tokens', 'lots'], { cwd: repo, encoding: 'utf8' });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain('positive integer');
+  });
+});
+
 describe('cells health --verbose', () => {
   let repo: string;
 

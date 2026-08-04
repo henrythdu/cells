@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { loadContext, requireCells, type CellsContext } from './io.js';
 import { cmdCrossings, cmdList, cmdShow, cmdGraph, cmdOwns, cmdPayload, cmdSurface } from './commands/read.js';
 import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './commands/report.js';
-import { cmdInit, cmdRename, cmdRemove, cmdAssign, cmdUnassign, cmdNew, cmdPruneStale, cmdPlan } from './mutate.js';
+import { cmdInit, cmdRename, cmdRemove, cmdAssign, cmdUnassign, cmdNew, cmdPruneStale, cmdPlan, cmdConfig } from './mutate.js';
 import { HELP } from './help.js';
 
 /** Installed version, read lazily from package.json (works in dev + when npm-installed). */
@@ -29,7 +29,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list [--verbose] | size | structure [--summary] | graph [--mermaid] | show <name> | surface <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list [--verbose] | size | structure [--summary] | config [set max-payload-tokens <N>] | graph [--mermaid] | show <name> | surface <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -47,6 +47,7 @@ const COMMANDS: Record<string, Command> = {
   list: { usage: 'cells list [--verbose]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdList(ctx!, a.includes('--verbose')) },
   size: { usage: 'cells size', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
   structure: { usage: 'cells structure [--summary]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdStructure(ctx!, a.includes('--summary')) },
+  config: { usage: 'cells config [set max-payload-tokens <N>]', minArgs: 0, needsCells: false, run: (a) => cmdConfig(a) },
   graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
   owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
   show: { usage: 'cells show <name> [--verbose]', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')) },

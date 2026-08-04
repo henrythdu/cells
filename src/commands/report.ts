@@ -24,13 +24,14 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read, shared by the size computation and peel candidates
     const size = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations));
+    const ceiling = cell.ceiling; // per-cell override (declared in the cell.toml); undefined = use global
     // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
     // (a big file few others import is the cheapest chunk to carve out).
     let peel: PeelCandidate[] | undefined;
-    if (size.tokens > config.maxPayloadTokens) {
+    if (size.tokens > (ceiling ?? config.maxPayloadTokens)) {
       peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
     }
-    return { name, size, peel };
+    return { name, size, peel, ceiling };
   });
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
 }
@@ -111,7 +112,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read, shared by the size check and the provides-drift check
-    const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations)).tokens / config.maxPayloadTokens;
+    const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations)).tokens / (cell.ceiling ?? config.maxPayloadTokens);
     if (pct > maxPercent) maxPercent = pct;
     staleProvides.push(...staleProvidesOf(cell, owned, contents));
   }

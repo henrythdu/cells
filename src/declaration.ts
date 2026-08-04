@@ -14,6 +14,7 @@ export interface Cell {
   provides: string[]; // declared surface; validated later by crossing-capture
   requires: string[]; // neighbor CELL names (not symbols)
   layer?: number; // tier rank (0 = core/foundation; higher = peripheral; an edge to a higher layer is the violation). Omit = layerless.
+  ceiling?: number; // per-cell payload ceiling (tokens), overriding the global max-payload-tokens for THIS cell. Omit = global. A declared ceiling is still a budget — over it, size/health still flag (inform, never enforce).
   signatures?: string[]; // type-annotated function signatures (free-form, per-language). Included in neighbor membranes in payload — the LLM sees how to call exports without opening the neighbor's code.
   tests?: string[]; // test files that exercise this cell. Included in payload — the LLM sees test code alongside source code.
 }
@@ -30,6 +31,7 @@ export function parseCell(content: string): Cell {
     provides: unknown;
     requires: unknown;
     layer?: unknown;
+    ceiling?: unknown;
     signatures?: unknown;
     tests?: unknown;
   };
@@ -44,6 +46,7 @@ export function parseCell(content: string): Cell {
     return v;
   };
   if (raw.layer !== undefined && typeof raw.layer !== 'number') throw new Error(`invalid .cell.toml: 'layer' must be a number (got ${typeof raw.layer})`);
+  if (raw.ceiling !== undefined && typeof raw.ceiling !== 'number') throw new Error(`invalid .cell.toml: 'ceiling' must be a number (got ${typeof raw.ceiling})`);
 
   return {
     name: str(raw.name, 'name'),
@@ -51,6 +54,7 @@ export function parseCell(content: string): Cell {
     provides: arr(raw.provides, 'provides'),
     requires: arr(raw.requires, 'requires'),
     layer: typeof raw.layer === 'number' ? raw.layer : undefined,
+    ceiling: typeof raw.ceiling === 'number' ? raw.ceiling : undefined,
     signatures: raw.signatures !== undefined ? arr(raw.signatures, 'signatures') : undefined,
     tests: raw.tests !== undefined ? arr(raw.tests, 'tests') : undefined,
   };
@@ -65,5 +69,6 @@ export function serializeCell(cell: Cell): string {
   if (cell.signatures && cell.signatures.length > 0) lines.push(`signatures = ${tomlArray(cell.signatures)}`);
   if (cell.tests && cell.tests.length > 0) lines.push(`tests = ${tomlArray(cell.tests)}`);
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
+  if (cell.ceiling !== undefined) lines.push(`ceiling = ${cell.ceiling}`);
   return lines.join('\n') + '\n';
 }

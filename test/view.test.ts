@@ -250,6 +250,29 @@ describe('formatSizeReport', () => {
     expect(out).not.toContain('⚠');
   });
 
+  it('per-cell ceiling overrides the global for that cell only (flagged if over; value shown)', () => {
+    const entries = [
+      { name: 'big-by-design', size: sz(30000), ceiling: 40000 }, // over global, under own
+      { name: 'drifted', size: sz(45000), ceiling: 40000 }, // over own too
+    ];
+    const out = formatSizeReport(entries, 16000);
+    expect(out).toContain('some cells override');
+    expect(out).toContain('(ceiling 40000)');
+    // big-by-design: under its own ceiling → no ⚠; drifted: over → ⚠
+    const lines = out.split('\n');
+    expect(lines.find((l) => l.includes('big-by-design'))).not.toContain('⚠');
+    expect(lines.find((l) => l.includes('drifted'))).toContain('⚠');
+    expect(out).toContain('1 cell(s) over ceiling');
+  });
+
+  it('flags a cell that exceeds its own declared ceiling (ceiling is a budget, not a mute)', () => {
+    const entries = [{ name: 'x', size: sz(9000), ceiling: 5000 }];
+    const out = formatSizeReport(entries, 16000);
+    expect(out).toContain('x');
+    expect(out).toContain('(ceiling 5000) ⚠ over ceiling');
+    expect(out).toContain('1 cell(s) over ceiling');
+  });
+
   it('lists peel candidates (size↓ + fan-in↑) under an over-ceiling cell', () => {
     const entries = [
       {

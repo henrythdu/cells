@@ -26,6 +26,16 @@ describe('parseCell', () => {
     });
   });
 
+  it('parses an optional per-cell ceiling (token override)', () => {
+    const toml = ['name = "huge"', 'purpose = "big crate"', 'provides = []', 'requires = []', 'ceiling = 50000', ''].join('\n');
+    expect(parseCell(toml).ceiling).toBe(50000);
+  });
+
+  it('rejects a non-number ceiling', () => {
+    const toml = ['name = "huge"', 'purpose = "p"', 'provides = []', 'requires = []', 'ceiling = "lots"', ''].join('\n');
+    expect(() => parseCell(toml)).toThrow(/ceiling/);
+  });
+
   it('throws a clear error on a malformed provides (not a string array)', () => {
     const toml = 'name = "c"\npurpose = "p"\nprovides = "not-an-array"\nrequires = []\n';
     expect(() => parseCell(toml)).toThrow(/provides.*string array/);
@@ -61,6 +71,11 @@ describe('serializeCell', () => {
 
   it('round-trips a layer tag', () => {
     const cell: Cell = { name: 'domain', purpose: 'p', provides: ['decide'], requires: [], layer: 2 };
+    expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
+
+  it('round-trips a per-cell ceiling', () => {
+    const cell: Cell = { name: 'huge', purpose: 'p', provides: [], requires: [], ceiling: 50000 };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
 

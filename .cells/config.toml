@@ -1,5 +1,4 @@
 max-payload-tokens = 16000
-
 # Optional: name your layers for readable `cells structure` output.
 # Convention: 0 = core/foundation (the depended-upon center); higher = more
 # peripheral. Dependencies must point toward 0. Add only if you want labels:

@@ -116,7 +116,8 @@ cells list                          # see the whole partition
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors + the cells that depend on you) — the context to work it |
 | `cells health [--verbose] [--summary]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip); `--summary` collapses unresolved entries into per-file groups (the triage unit for high-unresolved repos). Output ends with a machine-parseable `health: X.Xs` timing line. `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
-| `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
+| `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import. A cell can declare its own ceiling (`ceiling = N` in its `.cell.toml`) — same check, its own number |
+| `cells config [set max-payload-tokens <N>]` | read the effective config (defaults where the file omits); `set` edits the global ceiling in place — comments and other keys preserved |
 | `cells structure [--summary]` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut. `--summary` is the triage view: one line per cycle (size + cheapest edges) + counts — for high-cycle repos (kafka 19, elasticsearch 126) where the full chains dominate |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 | `cells help` | this text (also `--help`, `-h`) — the tool's self-documentation; run it first in any repo |
@@ -156,7 +157,10 @@ files = ["src/cli.ts", "test/cli.test.ts"]
 ### `config.toml` — settings
 
 ```toml
-max-payload-tokens = 16000                                 # context-fit ceiling — the per-repo knob for cell size (default 16000)
+max-payload-tokens = 16000                                 # context-fit ceiling — the per-repo knob for cell size (default 16000); edit in place or `cells config set max-payload-tokens <N>`
+# One cell can declare its own ceiling — add `ceiling = N` to its .cell.toml for a
+# legitimately-big unit (a huge crate) without raising the bar for every cell.
+# It's still a budget: over it, size/health flag it just like any over-ceiling cell.
 # [layers]                              # optional legend (rank → label); 0 = core, higher = peripheral
 # 0 = "domain"
 # 1 = "application"
@@ -208,7 +212,7 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Leakage (undeclared)** | **gate** (exit 1) | a cell imports another it doesn't `require` — a hidden dependency |
 | **Leakage (stale)** | info (exit 0) | a cell `requires` one it never imports — maybe a data dependency or future plan (shown, doesn't fail the gate) |
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
-| **Size** | warning (exit 0) | a cell's payload exceeds `max-payload-tokens` (default 16000 — configurable in `config.toml`) — consider dividing |
+| **Size** | warning (exit 0) | a cell's payload exceeds its ceiling — `max-payload-tokens` (default 16000 — configurable via `cells config set` or `config.toml`), or the cell's own `ceiling = N` — consider dividing |
 | **Structure** | warning (exit 0) | a cycle (ADP), an edge to a higher layer (Direction), or a stable cell depending on a less-stable one (SDP) |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
@@ -231,7 +235,7 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 7. **Check** — `cells health` (the gate — every check at once). Drill in if it fails: `cells crossings` (leakage), `cells size` (context-fit), `cells structure` (cycles / direction).
 8. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
 
-**Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool.
+**Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool. **Merge is the reverse and deliberately manual too** (`assign` the files over, `remove` the empty cell) — there's no `merge` command: the two steps are the moment to reconsider, and the size warning that follows is the honest cost. If a big cell is big *on purpose* (a huge crate), declare `ceiling = N` in its `.cell.toml` instead of raising the global bar for every cell.
 
 ---
 
