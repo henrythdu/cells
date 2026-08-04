@@ -72,9 +72,13 @@ COMMANDS
                            starting point for populating the membrane signatures field
   impact <name>           blast radius: cells that transitively depend on this one
   payload <name>           print a cell's full payload (the context to work it)
-  health [--verbose]       THE GATE: exit 1 on integrity + undeclared leakage + a broken
-                           packaged grammar; size/structure are warnings (--verbose names
-                           failing edges inline)
+  health [--verbose] [--summary]
+                       THE GATE: exit 1 on integrity + undeclared leakage + a broken
+                       packaged grammar; size/structure are warnings (--verbose names
+                       failing edges inline; --summary collapses unresolved entries into
+                       per-FILE groups, sorted desc — the triage unit for high-unresolved
+                       repos). Output ends with a machine-parseable health: X.Xs timing
+                       line.
   crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
   structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
