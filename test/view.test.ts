@@ -32,8 +32,8 @@ describe('formatCellList', () => {
     const out = formatCellList(decls, sizes, listMetrics, []);
     expect(out).toContain('declaration');
     expect(out).toContain('cli');
-    expect(out).toMatch(/cli[\s\S]*2/); // cli owns 2 files
-    expect(out).toMatch(/cli[\s\S]*declaration/); // cli requires declaration
+    expect(out).toMatch(/cli\s+2 files/); // cli owns 2 files (row shape pinned, not a cross-string regex)
+    expect(out).toMatch(/cli[\s\S]*→ declaration/); // the → pins the requires column; can't span into the next row
     expect(out).toContain('1/0'); // declaration: fan-in 1 / fan-out 0
     expect(out).toContain('0/1'); // cli: fan-in 0 / fan-out 1
   });
