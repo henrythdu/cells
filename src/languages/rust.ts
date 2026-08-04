@@ -271,7 +271,26 @@ export function resolveImportPath(imp: string, importerModule: string, moduleToF
     }
     return null;
   };
-  let abs = absoluteModulePath(imp, importerModule, crateNames, moduleToFile) ?? `${importerModule.split('::')[0]}::${imp}`;
+  let abs: string | null = absoluteModulePath(imp, importerModule, crateNames, moduleToFile);
+  // Bare first segment (`use tokenization::foo` inside crate::reading) — Rust resolves it
+  // MODULE-RELATIVE, walking up the importer's module chain (crate::reading::tokenization,
+  // then crate::tokenization, then the root). The crate-root probe alone misses nested
+  // modules. The probe must test that `ancestor::firstSeg` is a real module key — NOT look(),
+  // whose prefix-fallback would match the ancestor itself (a false self-import). No ancestor
+  // matches = external crate (std::…, owo_colors) or broken local — null (the old crate-root
+  // fallback drew a false edge to the root file for 2-segment externals).
+  if (abs === null) {
+    const firstSeg = imp.split('::')[0];
+    const eff = importerModule.split('::');
+    for (let i = eff.length; i >= 1; i--) {
+      const probe = `${eff.slice(0, i).join('::')}::${firstSeg}`;
+      if (moduleToFile.has(probe) || [...moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
+        abs = `${eff.slice(0, i).join('::')}::${imp}`;
+        break;
+      }
+    }
+    if (abs === null) return null;
+  }
   // Bare first segment: Rust resolves `use foo::bar` to a crate-LOCAL module when foo isn't
   // an extern crate (wave-3 #2 target — `pub use service::osv` refers to crate::service::osv).
   // The fallback probes the crate-namespaced path — an external crate never has one, so no
@@ -361,21 +380,31 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
   for (const { imp, modChain, isPub, alias } of uses) {
     if (!isPub || !alias) continue;
     const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
-    const ns = effective.split('::')[0];
     const target = absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile);
     let local: boolean;
     let real: string;
     if (target === null) {
       // Bare first segment — either a crate-LOCAL module (`pub use service::osv;`,
-      // `pub use wheel::metadata;`) or an external crate (`pub use owo_colors;`). The module
-      // map (complete for file keys) tells them apart: the FIRST segment of a local path is
-      // always a module with a file key under the ns-prefixed form; an external crate never
-      // has one. Items after the first segment are irrelevant (a fn named metadata still
-      // lives in a local module).
+      // `pub use tokenization::tokenize_text;`) or an external crate (`pub use owo_colors;`).
+      // Rust 2018 resolves a bare first segment MODULE-RELATIVE, walking up the importer's
+      // module chain (`pub use tokenization::…` inside crate::reading means
+      // crate::reading::tokenization) — probing only the crate root (`crate::tokenization`)
+      // misses nested modules and misclassifies the re-export as EXTERNAL, after which every
+      // import routed through it is silently dropped (no edge, no unresolved — Speedy bug 4).
+      // Walk the effective module chain deepest-first; an external crate matches no ancestor
+      // (its first segment is never a module key under any ancestor).
       const firstSeg = imp.split('::')[0];
-      const localProbe = `${ns}::${firstSeg}`;
-      local = ctx.moduleToFile.has(localProbe) || [...ctx.moduleToFile.keys()].some((k) => k.startsWith(localProbe + '::'));
-      real = `${ns}::${imp}`;
+      const effSegs = effective.split('::');
+      local = false;
+      real = '';
+      for (let i = effSegs.length; i >= 1; i--) {
+        const probe = `${effSegs.slice(0, i).join('::')}::${firstSeg}`;
+        if (ctx.moduleToFile.has(probe) || [...ctx.moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
+          local = true;
+          real = `${effSegs.slice(0, i).join('::')}::${imp}`;
+          break;
+        }
+      }
     } else {
       local = true;
       real = target;

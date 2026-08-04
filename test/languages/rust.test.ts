@@ -438,3 +438,51 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
     }
   });
 });
+
+describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', () => {
+  it('pub use in a NESTED module re-exports locally — imports through it keep their edge (was silently dropped)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod app;\npub mod reading;\n' },
+      { path: 'src/reading/mod.rs', content: 'pub mod tokenization;\npub use tokenization::tokenize_text;\n' },
+      { path: 'src/reading/tokenization.rs', content: 'pub fn tokenize_text() {}\n' },
+      { path: 'src/app/mod.rs', content: 'pub mod app_impl;\n' },
+      { path: 'src/app/app_impl.rs', content: 'use crate::reading::tokenize_text;\n' },
+    ];
+    const ownership: Ownership = { root: ['src/lib.rs'], reading: ['src/reading/mod.rs', 'src/reading/tokenization.rs'], app: ['src/app/mod.rs', 'src/app/app_impl.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    expect(unresolved).toEqual([]);
+    // the re-export is LOCAL (crate::reading::tokenization), so the import is not dropped
+    // as external — it resolves through the re-exporting module (the direct hit wins)
+    expect(edges).toContainEqual({ fromFile: 'src/app/app_impl.rs', toFile: 'src/reading/mod.rs', import: 'crate::reading::tokenize_text' });
+    // the re-export itself resolves module-relative to its defining file
+    expect(edges).toContainEqual({ fromFile: 'src/reading/mod.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' });
+  });
+
+  it('a bare use tokenization::foo in a nested file resolves module-relative (not null, not the crate root)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod reading;\n' },
+      { path: 'src/reading/mod.rs', content: 'pub mod tokenization;\n' },
+      { path: 'src/reading/tokenization.rs', content: 'pub fn tokenize_text() {}\n' },
+      { path: 'src/reading/ovp.rs', content: 'use tokenization::tokenize_text;\npub fn anchor() { tokenize_text() }\n' },
+    ];
+    const ownership: Ownership = { root: ['src/lib.rs'], reading: ['src/reading/mod.rs', 'src/reading/tokenization.rs', 'src/reading/ovp.rs'] };
+    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    // Rust 2018: bare first segment walks up from crate::reading → crate::reading::tokenization
+    expect(edges).toContainEqual({ fromFile: 'src/reading/ovp.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' });
+    // never a false crate-root edge
+    expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
+  });
+
+  it('a pub use of an external crate in a NESTED module stays external (stress #7 still holds)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod ui;\n' },
+      { path: 'src/ui.rs', content: 'pub use owo_colors;\n' },
+      { path: 'src/app.rs', content: 'use crate::ui::owo_colors::OwoColorize;\n' },
+    ];
+    const ownership: Ownership = { root: ['src/lib.rs', 'src/ui.rs', 'src/app.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    // external re-export routed import: no edge, and NOT flagged as broken local
+    expect(edges.filter((e) => e.import.includes('owo_colors'))).toEqual([]);
+    expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toEqual([]);
+  });
+});
