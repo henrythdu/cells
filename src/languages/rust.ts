@@ -245,14 +245,6 @@ function resolveSuper(imp: string, importerModule: string): string | null {
   return rest ? `${base.join('::')}::${rest}` : base.join('::');
 }
 
-/** Resolve a Rust use path to a source file via the module→file map.
- *  Matches the module OR the deepest owned module prefix — a use names a module OR an item
- *  chain in one (`crate::token::TokenKind::Wildcard` = an enum variant inside the module
- *  `crate::token`; stress #5). Trailing segments are dropped until a module in the map is
- *  found, but never below 2 — a path whose only map hit is the crate root has no real
- *  intermediate module (broken import: stays unresolved; a root edge would be a false hit).
- *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
- *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
 /** Bare first segment (`use tokenization::foo` inside crate::reading) — Rust resolves it
  *  MODULE-RELATIVE, walking up the importer's module chain (crate::reading::tokenization,
  *  then crate::tokenization, then the root). Returns the absolute path of the first ancestor
@@ -273,6 +265,14 @@ function resolveBareFirstSegment(effective: string, imp: string, moduleToFile: M
   return null;
 }
 
+/** Resolve a Rust use path to a source file via the module→file map.
+ *  Matches the module OR the deepest owned module prefix — a use names a module OR an item
+ *  chain in one (`crate::token::TokenKind::Wildcard` = an enum variant inside the module
+ *  `crate::token`; stress #5). Trailing segments are dropped until a module in the map is
+ *  found, but never below 2 — a path whose only map hit is the crate root has no real
+ *  intermediate module (broken import: stays unresolved; a root edge would be a false hit).
+ *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
+ *  chains so `pub use service::osv;` + `use crate::osv::Filter` both resolve. Pure. */
 export function resolveImportPath(imp: string, importerModule: string, moduleToFile: Map<string, string>, crateNames: ReadonlySet<string> = new Set(), reexports: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): string | null {
   // The importer's own crate root (the namespace's first segment: 'crate' or the root path).
   // A 2-segment `crate::Item` resolves to it legitimately (the item lives in root lib.rs); a

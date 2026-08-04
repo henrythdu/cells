@@ -129,7 +129,8 @@ export interface ResolveCtx {
 
 /** The key separator of the module→file map: the factory joins module-path segments with it
  *  (`${importerModule}::${path.join('::')}`) and language resolvers split/join on it (go's
- *  candidateKeys, java's KEY_PREFIX). Exporting it keeps the couple honest — a separator
+ *  candidateKeys, rust's look/walk probes). Java is the exception — plain FQN keys with no
+ *  separator (`.` stays inside the key). Exporting it keeps the couple honest — a separator
  *  change breaks the resolvers' key construction loudly (via tests), not silently. */
 export const MODULE_SEP = '::';
 

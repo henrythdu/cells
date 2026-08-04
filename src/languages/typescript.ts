@@ -280,7 +280,6 @@ export const depCruiserImporter: Importer = {
       // guard the shape — a future cruise() default that stops returning the result object
       // would silently fake an empty graph (false green) if unchecked
       const { output } = await cruise(dirs, cruiseOpts);
-      // would silently fake an empty graph (false green) if unchecked
       if (typeof output !== 'object' || output === null || !Array.isArray((output as ICruiseResult).modules)) {
         throw new Error('dependency-cruiser returned a non-JSON result');
       }

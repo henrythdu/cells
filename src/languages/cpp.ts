@@ -118,9 +118,9 @@ const fileToModule = (path: string): string => path;
  *  reads — source-based only (design philosophy).
  *  ponytail: -I roots = top-level code dirs only (census-derived). The suffix fallback covers
  *  DEEPER roots (ggml/include, pandas _libs/include, vendored gtest at test/gtest/…), but a
- *  header whose suffix appears nowhere in the census — or whose every suffix twin lives under
- *  a non-top-level root the probes never reached (ambiguous common names like config.h) —
- *  stays unresolved; shortest-first picks deterministically when several twins exist. */
+ *  header whose suffix appears nowhere in the census — or whose suffix is shared by several
+ *  twins (ambiguous common names like config.h under two deep roots) — stays unresolved
+ *  (a guessed twin would be a wrong edge; the unique-twin gate keeps it honest). */
 export const cppImporter = createTreeSitterImporter<CppInclude[]>({
   name: 'cpp',
   extensions: ['.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.hxx'],
