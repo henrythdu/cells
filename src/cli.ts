@@ -29,7 +29,7 @@ interface Command {
 }
 
 const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list [--verbose] | size | structure | graph [--mermaid] | show <name> | surface <name> | impact <name>}';
+  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | plan [--apply] [--dry-run] | list [--verbose] | size | structure [--summary] | graph [--mermaid] | show <name> | surface <name> | impact <name>}';
 
 /** Declarative command dispatch — add a command by adding one row, not a case. */
 const COMMANDS: Record<string, Command> = {
@@ -46,7 +46,7 @@ const COMMANDS: Record<string, Command> = {
   crossings: { usage: 'cells crossings [--diff] [--verbose] [--json]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json') }) },
   list: { usage: 'cells list [--verbose]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdList(ctx!, a.includes('--verbose')) },
   size: { usage: 'cells size', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
-  structure: { usage: 'cells structure', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdStructure(ctx!) },
+  structure: { usage: 'cells structure [--summary]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdStructure(ctx!, a.includes('--summary')) },
   graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
   owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
   show: { usage: 'cells show <name> [--verbose]', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')) },

@@ -5,7 +5,7 @@ import { listCodeFiles, readFiles, type CellsContext } from '../io.js';
 import { computePayloadSize, neighborsOf, estimateTokens } from '../payload.js';
 import { checkLeakage, computeMetrics } from '../crossings.js';
 import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../view.js';
-import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
+import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatStructureSummary, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
 import { checkGrammars } from '../importers.js';
 import type { UnresolvedImport } from '../imports.js';
 import { validatePartition, staleProvidesOf, type StaleProvide } from '../validate.js';
@@ -35,13 +35,23 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
 }
 
-/** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0). */
-export async function cmdStructure(ctx: CellsContext): Promise<void> {
+/** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0).
+ *  --summary: the triage view — one line per cycle + counts (for high-cycle repos). */
+export async function cmdStructure(ctx: CellsContext, summary = false): Promise<void> {
   const { declarations, ownership, config } = ctx;
   const { crossings } = await loadCrossings(ownership);
   const cycles = detectCycles(crossings);
   const violations = checkDirection(crossings, declarations);
   const anyLayered = Object.values(declarations).some((d) => d.layer !== undefined);
+
+  const metrics = computeMetrics(crossings, Object.keys(declarations));
+  const sdp = checkSDP(crossings, metrics);
+
+  if (summary) {
+    process.stdout.write(formatStructureSummary(cycles, violations, anyLayered, crossings, sdp.length));
+    return;
+  }
+
   const report = formatStructureReport(cycles, violations, anyLayered, config.layers, crossings);
   const overview = formatLayerOverview(declarations, config.layers);
   process.stdout.write(overview ? `${overview}\n${report}` : report);
@@ -49,9 +59,8 @@ export async function cmdStructure(ctx: CellsContext): Promise<void> {
   const suggestions = formatLayerSuggestions(declarations);
   if (suggestions !== null) process.stdout.write(`\n${suggestions}`);
 
-  const metrics = computeMetrics(crossings, Object.keys(declarations));
-  const sdp = formatSdpReport(checkSDP(crossings, metrics));
-  if (sdp !== null) process.stdout.write(`\n${sdp}`);
+  const sdpReport = formatSdpReport(sdp);
+  if (sdpReport !== null) process.stdout.write(`\n${sdpReport}`);
 }
 
 /** `cells impact <name>` — blast radius: who transitively depends on this cell? */

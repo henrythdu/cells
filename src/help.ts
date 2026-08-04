@@ -81,7 +81,9 @@ COMMANDS
                        line.
   crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates
-  structure                layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut
+  structure [--summary]       layers + ADP + Direction + SDP (all warnings); cycle →
+                       cheapest edge to cut; --summary = triage view (one line per
+                       cycle + counts — for high-cycle repos like kafka/elasticsearch)
   graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)

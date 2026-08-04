@@ -251,6 +251,38 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
   return lines.join('\n') + '\n';
 }
 
+/** The triage view of the structure report: one line per cycle (size + cheapest edges),
+ *  a Direction count, and a collapsed SDP count — the overview for high-cycle repos
+ *  (kafka 19, elasticsearch 126) where the full cycle chains dominate the output.
+ *  Cycles sorted by size desc (the mega-cycle is the headline). Pure. */
+export function formatStructureSummary(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, crossings: Crossing[] = [], sdpCount = 0): string {
+  const lines: string[] = [];
+
+  if (cycles.length === 0) {
+    lines.push('ADP: acyclic — no circular dependencies.');
+  } else {
+    const sorted = [...cycles].sort((a, b) => b.cells.length - a.cells.length);
+    const totalCells = cycles.reduce((n, cyc) => n + cyc.cells.length, 0);
+    lines.push(`ADP: ${cycles.length} cycle(s) — ${totalCells} cells total:`);
+    for (const cyc of sorted) {
+      const cuts = cycleCutCandidates(cyc, crossings);
+      const edges = cuts.length > 0 ? ` — cheapest: ${cuts.slice(0, 3).map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`).join(', ')}` : '';
+      lines.push(`  ⚠ ${cyc.cells.length} cell${cyc.cells.length === 1 ? '' : 's'}${edges}`);
+    }
+  }
+
+  if (!layersConfigured) {
+    lines.push('Direction: (skipped — no cells declare a layer).');
+  } else if (violations.length === 0) {
+    lines.push('Direction: OK — no edges point to a higher layer.');
+  } else {
+    lines.push(`Direction: ${violations.length} violation(s).`);
+  }
+
+  lines.push(`SDP: ${sdpCount} violation(s).`);
+  return lines.join('\n') + '\n';
+}
+
 /** A cell's change-impact: who transitively depends on it, by hop distance. */
 export interface Impact {
   cell: string;

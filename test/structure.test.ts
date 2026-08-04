@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing, CellMetrics } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, cycleCutCandidates, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
+import { detectCycles, cycleCutCandidates, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatStructureSummary, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -202,6 +202,34 @@ describe('formatStructureReport', () => {
   it('labels a violation via the legend when provided', () => {
     const out = formatStructureReport([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true, { 0: 'domain', 2: 'ui' });
     expect(out).toContain('core [domain (0)] → periph [ui (2)]');
+  });
+});
+
+describe('formatStructureSummary', () => {
+  it('clean, layers configured', () => {
+    expect(formatStructureSummary([], [], true)).toBe('ADP: acyclic — no circular dependencies.\nDirection: OK — no edges point to a higher layer.\nSDP: 0 violation(s).\n');
+  });
+
+  it('one line per cycle: size + cheapest edges, sorted by size desc', () => {
+    const crossings = [
+      c('a1', 'a2'), c('a2', 'a3'), c('a3', 'a1'), // 3-cycle
+      c('b1', 'b2'), c('b2', 'b1'), // 2-cycle
+    ];
+    const out = formatStructureSummary([{ cells: ['a1', 'a2', 'a3'] }, { cells: ['b1', 'b2'] }], [], true, crossings, 7);
+    const lines = out.split('\n');
+    expect(lines[0]).toBe('ADP: 2 cycle(s) — 5 cells total:');
+    expect(lines[1]).toContain('3 cells'); // biggest first
+    expect(lines[1]).toContain('cheapest: a1→a2 (1)');
+    expect(lines[2]).toContain('2 cells');
+    expect(lines[2]).not.toContain('↔'); // no full chain in summary
+    expect(lines[3]).toBe('Direction: OK — no edges point to a higher layer.');
+    expect(lines[4]).toBe('SDP: 7 violation(s).');
+  });
+
+  it('direction violation collapses to a count', () => {
+    const out = formatStructureSummary([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true);
+    expect(out).toContain('Direction: 1 violation(s).');
+    expect(out).not.toContain('core [0]'); // no detail in summary
   });
 });
 

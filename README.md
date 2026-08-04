@@ -7,32 +7,32 @@
 
 Code organized into **context-bounded cells** — so an LLM (or human) can work **one cell at a time** instead of drowning in the whole codebase.
 
-> **The bet:** mainstream agent tooling computes context by *retrieval* (repo-maps, embeddings, inferred maps). Cells is a contrarian bet on **declared partitions** — the structure is *authored and visible*, not guessed. Coherent membranes + complete ownership beat lossy retrieval.
-
-Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate; the model is the primary consumer.
-
-**Why:** an LLM coding in a repo drifts fast — it forgets the partition between sessions, duplicates a helper that already lives one cell over, drops a new file in the wrong layer, and erodes the architecture. Retrieval (repo-maps, embeddings) *guesses* at structure; the guesses are lossy. Cells makes the structure **authored and visible** — every file has a named home, every cross-cell dependency a declared crossing, every cell its own design intent. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
-
 ---
 
-## The mental model
+## The problem
 
-| term | meaning |
-| --- | --- |
-| **Cell** | a context-bounded unit of code that solves ONE problem and fits a context window. Has a *membrane* (contract) + *owned files* (body). |
-| **Partition** | the complete, non-overlapping assignment of every code file to exactly one cell. (A file is the atomic unit.) |
-| **Membrane** | a cell's declaration — `name`, `purpose`, `provides`, `requires`. What you read first to understand a cell. |
-| **Crossing** | a real dependency from one cell's code into another's (derived from imports). The seams between cells. |
-| **Payload** | what a model consumes to work a cell — its membrane + owned files + its neighbors' membranes. Measured in tokens. |
-| **Metrics** | per-cell **fan-in** / **fan-out** (distinct cells it's depended-on-by / depends-on) and **instability** I = fan-out ÷ (fan-in + fan-out): 0 = stable, 1 = unstable. Shown in `list` and `show`; derived from crossings, free. |
+A real codebase is bigger than any single context — human or model. Anyone working in it has to work in *units*: grab a slice of code, make a change, move on. The question is **what slice, and who decides**.
 
-**Three storage truths:**
+Left to drift, an agent (LLM or human) makes the same mistakes:
 
-- **Ownership is *tracked*** — `ownership.toml`, machine-managed by `assign`.
-- **Declarations are *authored*** — `*.cell.toml`, you write the membrane.
-- **Crossings are *derived*** — computed from real imports, never hand-written.
+- **It forgets the partition between sessions** — the boundaries it respected yesterday are invisible today.
+- **It duplicates a helper that already lives one cell over** — because it never saw that cell.
+- **It drops a new file in the wrong layer** — nothing tells it the codebase has layers.
+- **It erodes the structure it was asked to preserve** — change by change, the seams blur.
 
-**One principle:** *visibility over enforcement.* Cells shows you the structure and its problems; it rarely blocks. (The exception is leakage — see Rules.)
+For an LLM this is acute: the context window is bounded, the repo is not, and the model has no memory of the architecture between sessions. Mainstream agent tooling answers with *retrieval*: repo-maps, embeddings, inferred dependency graphs. The tool guesses at structure and feeds the model a snapshot. Guesses are **lossy** — and worse, they're **invisible**: the model can't tell what's real architecture and what's a guess, and the guess changes run to run.
+
+For a human the cost is slower but real: architecture that lives only in heads (or not at all), reviewed case-by-case, re-derived by every newcomer.
+
+## The bet
+
+Cells bets the other way: **declared partitions**. The structure is *authored and visible*, not guessed.
+
+- Every file has a named home — **a cell**.
+- Every cell has a written contract — **a membrane** (`name`, `purpose`, `provides`, `requires`).
+- Every cross-cell dependency is a **declared crossing** — derived from real imports, never hand-written.
+
+Coherent membranes + complete ownership beat lossy retrieval. Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate — they author the membranes and curate the partition; the model is the primary consumer. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
 
 ---
 
@@ -75,6 +75,27 @@ cells list                          # see the whole partition
 
 ---
 
+## The mental model
+
+| term | meaning |
+| --- | --- |
+| **Cell** | a context-bounded unit of code that solves ONE problem and fits a context window. Has a *membrane* (contract) + *owned files* (body). |
+| **Partition** | the complete, non-overlapping assignment of every code file to exactly one cell. (A file is the atomic unit.) |
+| **Membrane** | a cell's declaration — `name`, `purpose`, `provides`, `requires`. What you read first to understand a cell. |
+| **Crossing** | a real dependency from one cell's code into another's (derived from imports). The seams between cells. |
+| **Payload** | what a model consumes to work a cell — its membrane + owned files + its neighbors' membranes. Measured in tokens. |
+| **Metrics** | per-cell **fan-in** / **fan-out** (distinct cells it's depended-on-by / depends-on) and **instability** I = fan-out ÷ (fan-in + fan-out): 0 = stable, 1 = unstable. Shown in `list` and `show`; derived from crossings, free. |
+
+**Three storage truths:**
+
+- **Ownership is *tracked*** — `ownership.toml`, machine-managed by `assign`.
+- **Declarations are *authored*** — `*.cell.toml`, you write the membrane.
+- **Crossings are *derived*** — computed from real imports, never hand-written.
+
+**One principle:** *visibility over enforcement.* Cells shows you the structure and its problems; it rarely blocks. (The exception is leakage — see Rules.)
+
+---
+
 ## Commands
 
 | command | what it does |
@@ -96,7 +117,7 @@ cells list                          # see the whole partition
 | `cells health [--verbose] [--summary]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip); `--summary` collapses unresolved entries into per-file groups (the triage unit for high-unresolved repos). Output ends with a machine-parseable `health: X.Xs` timing line. `validate` still works (redirects here). |
 | `cells crossings [--diff]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import |
-| `cells structure` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut |
+| `cells structure [--summary]` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut. `--summary` is the triage view: one line per cycle (size + cheapest edges) + counts — for high-cycle repos (kafka 19, elasticsearch 126) where the full chains dominate |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 | `cells help` | this text (also `--help`, `-h`) — the tool's self-documentation; run it first in any repo |
 
@@ -155,7 +176,9 @@ examples/**
 vendor/
 ```
 
-### Language support
+---
+
+## Language support
 
 **Partition, payload, size, validate, and owns** are language-agnostic — set `code-dirs` and `code-exts` in `config.toml` to point Cells at your code (e.g. `["lib", "cmd"]` + `[".go"]`).
 
