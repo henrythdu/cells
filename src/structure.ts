@@ -266,7 +266,13 @@ export function formatStructureSummary(cycles: Cycle[], violations: DirectionVio
     lines.push(`ADP: ${cycles.length} cycle(s) — ${totalCells} cells total:`);
     for (const cyc of sorted) {
       const cuts = cycleCutCandidates(cyc, crossings);
-      const edges = cuts.length > 0 ? ` — cheapest: ${cuts.slice(0, 3).map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`).join(', ')}` : '';
+      const edges =
+        cuts.length > 0
+          ? ` — cheapest: ${cuts
+              .slice(0, 3)
+              .map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`)
+              .join(', ')}`
+          : '';
       lines.push(`  ⚠ ${cyc.cells.length} cell${cyc.cells.length === 1 ? '' : 's'}${edges}`);
     }
   }

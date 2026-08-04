@@ -53,7 +53,7 @@ files = ["src/graph.ts", "test/graph.test.ts"]
 files = ["src/languages/python.ts", "test/languages/python.test.ts"]
 
 [rust]
-files = ["src/languages/rust.ts", "test/languages/rust.test.ts"]
+files = ["src/languages/rust.ts"]
 
 [diff]
 files = ["src/diff.ts", "test/diff.test.ts"]
@@ -75,3 +75,6 @@ files = ["src/languages/cpp.ts", "test/languages/cpp.test.ts"]
 
 [java]
 files = ["src/languages/java.ts", "test/languages/java.test.ts"]
+
+[rust-tests]
+files = ["test/languages/rust.test.ts"]

@@ -1,7 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import type { Crossing, CellMetrics } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
-import { detectCycles, cycleCutCandidates, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatStructureSummary, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../src/structure.js';
+import {
+  detectCycles,
+  cycleCutCandidates,
+  checkDirection,
+  checkSDP,
+  formatSdpReport,
+  formatStructureReport,
+  formatStructureSummary,
+  formatLayerOverview,
+  formatLayerSuggestions,
+  computeImpact,
+  formatImpactReport,
+} from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
 const c = (fromCell: string, toCell: string): Crossing => ({
@@ -212,8 +224,11 @@ describe('formatStructureSummary', () => {
 
   it('one line per cycle: size + cheapest edges, sorted by size desc', () => {
     const crossings = [
-      c('a1', 'a2'), c('a2', 'a3'), c('a3', 'a1'), // 3-cycle
-      c('b1', 'b2'), c('b2', 'b1'), // 2-cycle
+      c('a1', 'a2'),
+      c('a2', 'a3'),
+      c('a3', 'a1'), // 3-cycle
+      c('b1', 'b2'),
+      c('b2', 'b1'), // 2-cycle
     ];
     const out = formatStructureSummary([{ cells: ['a1', 'a2', 'a3'] }, { cells: ['b1', 'b2'] }], [], true, crossings, 7);
     const lines = out.split('\n');
