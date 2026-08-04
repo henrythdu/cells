@@ -31,7 +31,15 @@ export function fileToModule(path: string, _moduleRoot?: string, baseDir = '.'):
   const crateRoot = findCrateRoot(path, baseDir);
   if (!crateRoot) return toModule(path); // no Cargo.toml — legacy: scan root is the crate
   const rel = crateRoot === '.' ? path : path.slice(crateRoot.length + 1);
-  return toModule(rel);
+  const m = toModule(rel);
+  // bin+lib crate: lib.rs is the canonical item root, but both files map to `crate` and the
+  // factory's last-set-wins (sorted order) hands the key to main.rs — root-item imports
+  // (`use crate::Item`) would then edge to the bin, not the lib. Map main.rs to `crate::main`
+  // when a sibling lib.rs exists so `crate` resolves to lib.rs; a bin-only crate keeps `crate`.
+  if (m === 'crate' && basename(path) === 'main.rs' && existsSync(join(baseDir, dirname(path), 'lib.rs'))) {
+    return 'crate::main';
+  }
+  return m;
 }
 
 /** The crate root a file belongs to (or null when the scan root isn't inside a crate).
@@ -87,8 +95,11 @@ function expandClause(node: Node): UseClause[] {
     case 'identifier':
       return [{ imp: node.text }];
     case 'scoped_use_list': {
-      // children: a path (scoped_identifier|identifier) + a use_list
-      const pathNode = node.namedChildren.find((c) => c.type === 'scoped_identifier' || c.type === 'identifier');
+      // children: a path + a use_list. The path is scoped_identifier|identifier for `a::b`, but
+      // the keyword roots `super`/`self`/`crate` are their OWN node types (`use super::{A,B}`) —
+      // matching only identifier/scoped_identifier silently drops the prefix and the items
+      // resolve as bare first segments (false root edges). Accept all three.
+      const pathNode = node.namedChildren.find((c) => c.type === 'scoped_identifier' || c.type === 'identifier' || c.type === 'super' || c.type === 'self' || c.type === 'crate');
       const listNode = node.namedChildren.find((c) => c.type === 'use_list');
       const prefix = pathNode ? pathNode.text : '';
       const items = listNode ? listNode.namedChildren.flatMap(expandClause) : [];
@@ -181,7 +192,11 @@ function crateRootOfModule(importerModule: string, moduleToFile: Map<string, str
         // a lib/main under tests/ is the test crate's root FILE — but `crate::` anchors to
         // the enclosing dir namespace (its modules are siblings of main, not children); at
         // i === 1 there is no enclosing dir — this module IS the crate root
-        return inTestsDir(dir) ? (i > 1 ? parts.slice(0, i - 1).join('::') : key) : key;
+        if (inTestsDir(dir)) return i > 1 ? parts.slice(0, i - 1).join('::') : key;
+        // a normal-crate root file: `crate::` anchors to the crate NAMESPACE (first segment).
+        // key === parts[0] for lib.rs, but a bin alongside a lib maps to `crate::main` —
+        // its own crate:: imports still anchor to `crate` (the shared module files).
+        return parts[0];
       }
       // a file directly in the tests/ boundary is its own crate root (each tests/*.rs is one)
       if (directBoundary(dir)) return key;
@@ -212,7 +227,7 @@ function absoluteModulePath(imp: string, importerModule: string, crateNames: Rea
     const rest = imp === 'self' ? '' : imp.slice('self::'.length);
     return rest ? `${importerModule}::${rest}` : importerModule;
   }
-  if (imp.startsWith('super::')) return resolveSuper(imp, importerModule);
+  if (imp === 'super' || imp.startsWith('super::')) return resolveSuper(imp, importerModule);
   return crateNames.has(imp.split('::')[0]) ? imp : null; // workspace sibling, or external (std, serde, …)
 }
 

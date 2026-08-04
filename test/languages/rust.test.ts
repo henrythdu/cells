@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rustImporter, fileToModule, resolveImportPath } from '../../src/languages/rust.js';
@@ -369,6 +369,69 @@ describe('rust importer', () => {
       expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'serde_json::Value' }));
       // …and the broken mid-chain import is NOT in the unresolved list anymore
       expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'headroom_core::signals::missing::Nope' }));
+    } finally {
+      process.chdir(startCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('rust keyword-module imports (super/self/crate as node types)', () => {
+  it('keeps the super prefix on brace-list imports (use super::{A, B}) — no false root edge', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod foo;\n' },
+      { path: 'src/foo/mod.rs', content: 'pub enum LoadError { X }\npub struct LoadedDocument;\n' },
+      { path: 'src/foo/a.rs', content: 'use super::{LoadError, LoadedDocument};\npub fn f() -> Result<(), LoadError> { Ok(()) }\n' },
+    ];
+    const ownership: Ownership = { root: ['src/lib.rs'], foo: ['src/foo/mod.rs', 'src/foo/a.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    expect(unresolved).toEqual([]);
+    // the brace form must resolve like the dotted form: super = crate::foo → foo/mod.rs,
+    // NOT fall through to the crate root
+    expect(edges).toContainEqual({ fromFile: 'src/foo/a.rs', toFile: 'src/foo/mod.rs', import: 'super::LoadError' });
+    expect(edges.some((e) => e.toFile === 'src/main.rs')).toBe(false);
+  });
+
+  it('resolves use super::* in mod tests to the enclosing file — no crate-root edge (Speedy 34-file case)', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod reading;\n' },
+      { path: 'src/reading/mod.rs', content: 'pub mod ovp;\n' },
+      { path: 'src/reading/ovp.rs', content: 'pub fn anchor() {}\nmod tests {\n  use super::*;\n  #[test]\n  fn t() { anchor(); }\n}\n' },
+    ];
+    const ownership: Ownership = { root: ['src/lib.rs'], reading: ['src/reading/mod.rs', 'src/reading/ovp.rs'] };
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+    expect(unresolved).toEqual([]);
+    // glob re-export of the enclosing module is a SELF-import — no edge at all
+    expect(edges.filter((e) => e.fromFile === 'src/reading/ovp.rs')).toEqual([]);
+    expect(edges.some((e) => e.toFile === 'src/main.rs')).toBe(false);
+  });
+
+  it('bin+lib crate: crate key resolves to lib.rs, main.rs keeps its own crate:: imports working', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cells-libmain-'));
+    const startCwd = process.cwd();
+    try {
+      mkdirSync(join(root, 'src', 'app'), { recursive: true });
+      writeFileSync(join(root, 'Cargo.toml'), '[package]\n');
+      writeFileSync(join(root, 'src', 'lib.rs'), 'pub mod app;\npub struct RootItem;\n');
+      writeFileSync(join(root, 'src', 'main.rs'), 'mod app;\nuse crate::app::App;\nfn main() {}\n');
+      writeFileSync(join(root, 'src', 'app', 'mod.rs'), 'pub struct App;\nuse crate::RootItem;\n');
+      process.chdir(root);
+      // main.rs next to a lib.rs is NOT the canonical crate root
+      expect(fileToModule('src/main.rs')).toBe('crate::main');
+      expect(fileToModule('src/lib.rs')).toBe('crate');
+      const files: SourceFile[] = [
+        { path: 'src/lib.rs', content: readFileSync(join(root, 'src/lib.rs'), 'utf8') },
+        { path: 'src/main.rs', content: readFileSync(join(root, 'src/main.rs'), 'utf8') },
+        { path: 'src/app/mod.rs', content: readFileSync(join(root, 'src/app/mod.rs'), 'utf8') },
+      ];
+      const ownership: Ownership = { root: ['src/lib.rs'], bin: ['src/main.rs'], app: ['src/app/mod.rs'] };
+      const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files, ownership });
+      expect(unresolved).toEqual([]);
+      // root-item import (use crate::RootItem) edges to lib.rs, NOT main.rs
+      expect(edges).toContainEqual({ fromFile: 'src/app/mod.rs', toFile: 'src/lib.rs', import: 'crate::RootItem' });
+      // main.rs's own crate:: imports still resolve through the shared module files
+      expect(edges).toContainEqual({ fromFile: 'src/main.rs', toFile: 'src/app/mod.rs', import: 'crate::app::App' });
+      expect(edges.some((e) => e.toFile === 'src/main.rs' && e.fromFile !== 'src/main.rs')).toBe(false);
     } finally {
       process.chdir(startCwd);
       rmSync(root, { recursive: true, force: true });
