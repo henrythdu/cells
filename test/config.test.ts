@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG, buildConfig } from '../src/config.js';
 
 const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
@@ -39,6 +39,20 @@ describe('parseConfig', () => {
       layers: { 0: 'detail', 10: 'domain' },
       ...DEFAULT_DIRS,
     });
+  });
+
+  it('warns when a bare key lands inside [layers] (the module-root trap) instead of silently ignoring it', () => {
+    // `module-root = "src"` appended AFTER the `[layers]` header parses as a layer entry.
+    // It must not silently vanish — name the trap.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const cfg = parseConfig('[layers]\n0 = "core"\nmodule-root = "src"\n');
+      expect(cfg.layers).toEqual({ 0: 'core' });
+      expect(cfg.moduleRoot).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('module-root'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('reads code-dirs + code-exts (for non-TS repos)', () => {

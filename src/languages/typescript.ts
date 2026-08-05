@@ -322,10 +322,11 @@ export const depCruiserImporter: Importer = {
             const t = resolveRelativeImport(dep.module, norm(mod.source), baseDir ?? '.', norm, probeCache);
             if (t) edges.push({ fromFile: norm(mod.source), toFile: t, import: dep.module });
             else unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          } else if (dep.module.startsWith('@/') || dep.module.startsWith('~/')) {
+          } else if (dep.module.startsWith('@/') || dep.module.startsWith('~/') || dep.module.startsWith('#/')) {
             // Alias prefixes that can't resolve look local — likely a broken import or a
-            // missing tsconfig `paths` mapping. Bare specifiers (e.g. 'react', '@scope/pkg')
-            // are external packages — skip silently.
+            // missing tsconfig `paths` mapping (@/ ~/ are the webpack/vite convention; #/ is
+            // Nuxt/Nitro's). Bare specifiers (e.g. 'react', '@scope/pkg') are external
+            // packages — skip silently.
             unresolved.push({ fromFile: norm(mod.source), import: dep.module });
           }
           continue;

@@ -125,6 +125,13 @@ export interface ResolveCtx {
   crateNameByRoot?: ReadonlyMap<string, string | null>;
   /** Where code lives ('.' = the working repo; a HEAD-tree dir for --diff). */
   baseDir?: string;
+  /** baseDir-joined code directories (already prefixed) — disk probes for module-root
+   *  mismatches resolve against them. */
+  codeDirs: string[];
+  /** Per-extract scratch space for language resolver probes (disk/file-set lookups that
+   *  repeat across resolveEdges calls must memoize here — module-level caches leak between
+   *  extracts in the same process, and different fixtures can share codeDirs). */
+  memo: Map<string, boolean>;
 }
 
 /** The key separator of the module→file map: the factory joins module-path segments with it
@@ -209,7 +216,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
     name: spec.name,
     extensions: spec.extensions,
     needsContent: true,
-    async extract({ files, moduleRoot, baseDir }): Promise<ImportResult> {
+    async extract({ files, moduleRoot, baseDir, codeDirs }): Promise<ImportResult> {
       // Deterministic module-key winners: two files mapping to ONE module key (python's
       // .pxd+.pyx pair) — the last-set file wins, so sorted order picks the same one every
       // run (readdir order is OS-dependent). .pxd sorts before .pyx → the implementation wins.
@@ -306,6 +313,8 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
         externalReexports,
         crateNameByRoot: nameByRoot,
         baseDir,
+        codeDirs,
+        memo: new Map(),
       };
       const analyses = new Map<string, Analysis<U>>();
       for (const f of files) {

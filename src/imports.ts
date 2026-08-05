@@ -51,7 +51,13 @@ export interface ImportResult {
  * a file may use `ownership` (e.g. Python derives a module→file map) rather than
  * filesystem heuristics — landing on a cell via ownership, not by competing with
  * the IDE on file resolution. (TS/JS impl: dep-cruiser; Python: tree-sitter.)
- */
+ *
+ * NEVER silent-zero: an import that can't resolve must end as an edge, an
+ * `unresolved` entry, or a classification backed by evidence (external packages
+ * may be skipped — but a target that PHYSICALLY exists in the repo must surface,
+ * even if a config knob (module-root, aliases) misaligns the maps. Absence is
+ * invisible; a dropped import reads as "this repo has no dependencies" and the
+ * gate stays green. See python's probeModuleRootMismatch for the pattern. */
 export interface Importer {
   /** Human name for error messages (e.g. "python"). */
   name: string;

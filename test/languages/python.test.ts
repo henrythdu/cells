@@ -157,6 +157,52 @@ describe('unresolved local imports', () => {
     expect(unresolved).toEqual([]);
   });
 
+  it('src-layout WITHOUT module-root: imports that physically exist under a code-dir are flagged (module-root mismatch), not silently dropped', async () => {
+    // The griller's hole: fileToModule derives src.util, imports say util → first segment
+    // not a local package → previously classified external → silently dropped → gate shows
+    // "0 edges" on a repo full of imports. Physical existence under a code-dir beats the
+    // map's silence: report unresolved (the view hints module-root) instead of lying.
+    const { edges, unresolved } = await pythonImporter.extract({
+      codeDirs: ['src', 'tests'],
+      ownership: { engine: ['src/core/engine.py'], util: ['src/util.py'], tests: ['tests/test_engine.py'] },
+      files: [
+        { path: 'src/core/engine.py', content: 'from util import setup\n' },
+        { path: 'src/util.py', content: 'def setup(): return 1\n' },
+        { path: 'tests/test_engine.py', content: 'from core.engine import run\n' },
+      ],
+    });
+    expect(edges).toEqual([]); // no false edges — the tool never guesses
+    expect(unresolved.map((u) => u.import)).toEqual(expect.arrayContaining(['util', 'core.engine']));
+  });
+
+  it('same fixture WITH module-root: the imports resolve to real edges', async () => {
+    const { edges, unresolved } = await pythonImporter.extract({
+      codeDirs: ['src', 'tests'],
+      moduleRoot: 'src',
+      ownership: { engine: ['src/core/engine.py'], util: ['src/util.py'], tests: ['tests/test_engine.py'] },
+      files: [
+        { path: 'src/core/engine.py', content: 'from util import setup\n' },
+        { path: 'src/util.py', content: 'def setup(): return 1\n' },
+        { path: 'tests/test_engine.py', content: 'from core.engine import run\n' },
+      ],
+    });
+    expect(unresolved).toEqual([]);
+    const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
+    expect(set).toEqual(new Set(['src/core/engine.py -> src/util.py', 'tests/test_engine.py -> src/core/engine.py']));
+  });
+
+  it('first segment exists as a DIRECTORY under a code-dir → also flagged (package mismatch)', async () => {
+    const { unresolved } = await pythonImporter.extract({
+      codeDirs: ['src'],
+      ownership: { app: ['src/app.py'] },
+      files: [
+        { path: 'src/app.py', content: 'import helpers.norm\n' },
+        { path: 'src/helpers/norm.py', content: 'x = 1\n' },
+      ],
+    });
+    expect(unresolved.map((u) => u.import)).toContain('helpers.norm');
+  });
+
   it('relative imports that do not resolve are flagged', async () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],

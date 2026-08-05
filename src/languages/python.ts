@@ -72,7 +72,38 @@ function collectImports(node: Node, out: ImportDesc[]): void {
 
 // --- resolution: descriptor + source file → candidate module paths → files ---
 
-function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+/** Module-root mismatch probe: `from util.logger import …` in a src-layout WITHOUT
+ *  module-root — the module map knows `src.util`, never `util`, so the first segment
+ *  isn't a local package and the import would be classified external and silently
+ *  dropped (the lie: an LLM payload sees "zero dependencies" on a repo full of them).
+ *  Physical existence in the file census (a path under a code-dir root) beats the
+ *  map's silence — report it as unresolved (the view already hints "check the
+ *  specifier or module-root") instead of dropping. Memoized per extract (ctx.memo) —
+ *  the census is the ground truth, so the probe never needs the disk. */
+function probeModuleRootMismatch(firstSeg: string, codeDirs: string[], files: ReadonlySet<string>, memo: Map<string, boolean>): boolean {
+  const key = `${codeDirs.join('\u0000')}\u0000${firstSeg}`;
+  const hit = memo.get(key);
+  if (hit !== undefined) return hit;
+  let found = false;
+  for (const dir of codeDirs) {
+    const base = `${dir}/${firstSeg}`;
+    if (files.has(`${base}.py`) || files.has(`${base}.pyx`) || files.has(`${base}.pxd`) || files.has(base)) {
+      found = true;
+      break;
+    }
+    for (const f of files) {
+      if (f.startsWith(`${base}/`)) {
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
+  }
+  memo.set(key, found);
+  return found;
+}
+
+function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>, codeDirs: string[], files: ReadonlySet<string>, memo: Map<string, boolean>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   let base: string;
   if (desc.dots === 0) {
     base = desc.module; // absolute
@@ -101,7 +132,7 @@ function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule:
   // If the base module resolved, the name candidates are symbols (functions/classes) within
   // it, not missing submodules — don't false-positive on them.
   const unresolved: UnresolvedImport[] = [];
-  if (edges.length === 0 && base && looksLocal(base, desc.dots, localPackages)) {
+  if (edges.length === 0 && base && (looksLocal(base, desc.dots, localPackages) || probeModuleRootMismatch(base.split('.')[0], codeDirs, files, memo))) {
     // A compiled extension module (pyo3/cython: `headroom._core` → _core.cpython-*.so) is
     // legitimately unresolvable — the file exists but isn't code. Silencing it keeps the
     // unresolved list honest (wave-3 #5: headroom's 73/81 entries were this one specifier).
@@ -181,10 +212,14 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
       const firstSeg = mod.split('.')[0];
       if (firstSeg) localPackages.add(firstSeg);
     }
+    // baseDir-joined code dirs → repo-relative (the file census is always repo-relative,
+    // even for HEAD-tree runs; the probe matches against it).
+    const baseDir = ctx.baseDir;
+    const codeDirs = baseDir ? ctx.codeDirs.map((d) => (d.startsWith(`${baseDir}/`) ? d.slice(baseDir.length + 1) : d)) : ctx.codeDirs;
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {
-      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleToFile, localPackages);
+      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleToFile, localPackages, codeDirs, ctx.files, ctx.memo);
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
     }

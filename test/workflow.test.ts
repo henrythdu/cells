@@ -147,6 +147,53 @@ describe('cells config', () => {
   });
 });
 
+describe('python src-layout cold start (the griller\'s hole)', () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  /** Fresh fixture: src-layout python with real cross-module imports, NO module-root. */
+  function setupPythonRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-pysrc-'));
+    mkdirSync(join(dir, 'src/core'), { recursive: true });
+    mkdirSync(join(dir, 'tests'), { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
+    writeFileSync(join(dir, 'src/core/engine.py'), 'from util import setup\n\ndef run():\n    return setup()\n');
+    writeFileSync(join(dir, 'src/util.py'), 'def setup():\n    return True\n');
+    writeFileSync(join(dir, 'tests/test_engine.py'), 'from core.engine import run\n\ndef test_run():\n    assert run()\n');
+    // init writes the config template; module-root stays commented (the default)
+    execSync(`node ${cellsBin} init`, { cwd: dir, encoding: 'utf8' });
+    execSync(`node ${cellsBin} plan --apply`, { cwd: dir, encoding: 'utf8' });
+    return dir;
+  }
+
+  it('never reports a silent 0-edge green gate: the mismatch shows as unresolved with a module-root hint', () => {
+    repo = setupPythonRepo();
+    // crossings renders unresolved on STDERR (exit 0 — info, like health) — capture both.
+    const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
+    const out = r.stdout + r.stderr;
+    expect(r.status).toBe(0);
+    expect(out).toContain('Unresolved local imports');
+    expect(out).toContain('module-root'); // the hint, not a bare list
+    // The lie is dead: no "0 edges → All checks passed" on a repo full of imports.
+    const health = execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' });
+    expect(health).toContain('unresolved');
+  });
+
+  it('setting module-root turns the unresolved imports into real edges (the intended fix)', () => {
+    repo = setupPythonRepo();
+    const cfg = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    writeFileSync(join(repo, '.cells', 'config.toml'), cfg.replace('# module-root = "src"', 'module-root = "src"'));
+    // Edges exist now — undeclared crossings are a GATE (exit 1): spawnSync, assert on the report.
+    const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
+    const out = r.stdout + r.stderr;
+    expect(out).toContain('src/core/engine.py'); // edges now exist (undeclared-crossings rows)
+    expect(out).not.toContain('Unresolved local imports');
+  });
+});
+
 describe('cells health --verbose', () => {
   let repo: string;
 

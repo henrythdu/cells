@@ -82,6 +82,15 @@ export function parseConfig(content: string): CellsConfig {
   const layers: Record<number, string> = {};
   if (layersRaw && typeof layersRaw === 'object' && !Array.isArray(layersRaw)) {
     for (const [k, v] of Object.entries(layersRaw as Record<string, unknown>)) {
+      // TOML trap: a bare key written AFTER the `[layers]` header (e.g. `module-root = "src"`
+      // appended at the file end) lands INSIDE the layers table, and smol-toml parses it as
+      // a layer entry. Layer keys are always integers, so any other key is a misconfig —
+      // name it instead of silently ignoring it (the value would otherwise vanish, and the
+      // user would debug a config key that "doesn't work").
+      if (!/^\d+$/.test(k)) {
+        console.warn(`cells: config.toml [layers] has a non-numeric key "${k}" — a bare key after the [layers] header belongs to the layers table. Move it ABOVE the header (or fix the typo).`);
+        continue;
+      }
       const n = Number(k);
       if (Number.isInteger(n) && typeof v === 'string') layers[n] = v;
     }
