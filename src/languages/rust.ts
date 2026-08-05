@@ -232,16 +232,17 @@ function absoluteModulePath(imp: string, importerModule: string, crateNames: Rea
 }
 
 /** Resolve one-or-more `super::` relative to the importer module; null if it escapes the crate root.
- *  In namespaced modules the FIRST segment is the crate root — never pop it. */
+ *  The FIRST segment is always the crate root (the `crate` keyword, or the namespaced root in
+ *  workspaces) — never popped: landing exactly ON it is legal (`use super::X` from a module
+ *  directly under the root), only popping past it escapes. So escape iff supers >= depth. */
 function resolveSuper(imp: string, importerModule: string): string | null {
   const parts = imp.split('::');
   let supers = 0;
   while (parts[supers] === 'super') supers++;
   const rest = parts.slice(supers).join('::');
   const base = importerModule.split('::');
-  const min = base[0] === 'crate' ? 0 : 1; // keep the crate-root segment in workspaces
-  for (let i = 0; i < supers && base.length > min; i++) base.pop();
-  if (base.length <= min && supers > base.length - min) return null;
+  if (supers >= base.length) return null;
+  for (let i = 0; i < supers; i++) base.pop();
   return rest ? `${base.join('::')}::${rest}` : base.join('::');
 }
 

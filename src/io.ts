@@ -113,7 +113,13 @@ function listFiles(dir: string, exts: string[], visited = new Set<string>()): st
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out.push(...listFiles(path, exts, visited));
+    let st: Stats;
+    try {
+      st = statSync(path);
+    } catch {
+      continue; // dangling symlink / vanished entry — not code; a crash would sink the census
+    }
+    if (st.isDirectory()) out.push(...listFiles(path, exts, visited));
     else if (exts.some((e) => entry.endsWith(e))) out.push(path);
   }
   return out;

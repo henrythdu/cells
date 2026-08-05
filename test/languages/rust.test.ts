@@ -75,6 +75,19 @@ describe('resolveImportPath', () => {
     expect(resolveImportPath('super::Config', 'crate::config::file', m2f)).toBe('src/config/mod.rs');
   });
 
+  it('resolves super:: landing exactly on the namespaced crate root (multi-crate workspace)', () => {
+    // crates/a/src/lib.rs + mod helper; helper.rs `use super::Thing;` — super = the crate root
+    const ws = new Map<string, string>([
+      ['crates/a', 'crates/a/src/lib.rs'],
+      ['crates/a::helper', 'crates/a/src/helper.rs'],
+    ]);
+    expect(resolveImportPath('super::Thing', 'crates/a::helper', ws)).toBe('crates/a/src/lib.rs');
+    expect(resolveImportPath('super::super::Thing', 'crates/a::b::c', ws)).toBe('crates/a/src/lib.rs');
+    // popping the root itself still escapes
+    expect(resolveImportPath('super::Thing', 'crates/a', ws)).toBe(null);
+    expect(resolveImportPath('super::super::super::Thing', 'crates/a::b::c', ws)).toBe(null);
+  });
+
   it('drops external crates (std/serde/…)', () => {
     expect(resolveImportPath('std::path::PathBuf', 'crate::cli', m2f)).toBe(null);
     expect(resolveImportPath('serde::Deserialize', 'crate::cli', m2f)).toBe(null);

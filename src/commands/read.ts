@@ -173,7 +173,7 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read — reused for size, stale provides, dead files
     sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
-    if (verbose) smells[name] = { pct: sizes[name].tokens / config.maxPayloadTokens, staleProvides: 0, unresolved: 0 };
+    if (verbose) smells[name] = { pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens), staleProvides: 0, unresolved: 0 };
   }
   const { crossings, unresolved } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));

@@ -196,6 +196,26 @@ describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] mus
       process.chdir(prev);
     }
   });
+
+  it('skips a dangling symlink instead of crashing the census', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-census-dangle-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["."]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'x');
+    try {
+      require('node:fs').symlinkSync('/nonexistent/target', join(repo, 'dangling-link'));
+    } catch {
+      return; // no symlink permission (some CI) — skip
+    }
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(listCodeFiles()).toEqual(['src/a.ts']);
+    } finally {
+      process.chdir(prev);
+    }
+  });
 });
 
 describe('malformed TOML attribution (CLI integration)', () => {
