@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative, sep } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
+import { SKIP_DIRS } from './io.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
 
 /**
@@ -31,7 +32,15 @@ interface CrateEntry {
   entry: string;
 }
 
-function walkToml(dir: string, name: string, out: string[]): void {
+interface ManifestWalk {
+  cargo: string[];
+  pyproject: string[];
+}
+
+/** One walk over code-dirs collecting both manifest kinds (the bridge needs cdylib crates
+ *  AND their pyproject module-name overrides — two full walks wasted the scan). Skips
+ *  SKIP_DIRS (io's single source of truth for deps/build/tooling dirs). */
+function walkManifests(dir: string, out: ManifestWalk): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -39,7 +48,7 @@ function walkToml(dir: string, name: string, out: string[]): void {
     return;
   }
   for (const entry of entries) {
-    if (entry === '.cells' || entry === '.git' || entry === 'node_modules' || entry === 'target' || entry === 'vendor') continue;
+    if (SKIP_DIRS.has(entry)) continue;
     const path = join(dir, entry);
     let st: ReturnType<typeof statSync> | null;
     try {
@@ -47,8 +56,9 @@ function walkToml(dir: string, name: string, out: string[]): void {
     } catch {
       continue;
     }
-    if (st.isDirectory()) walkToml(path, name, out);
-    else if (entry === name) out.push(path);
+    if (st.isDirectory()) walkManifests(path, out);
+    else if (entry === 'Cargo.toml') out.cargo.push(path);
+    else if (entry === 'pyproject.toml') out.pyproject.push(path);
   }
 }
 
@@ -60,14 +70,10 @@ function parseTomlFile(path: string): Record<string, unknown> {
   }
 }
 
-/** Scan a repo's Cargo.toml files for cdylib crates ([lib] crate-type) — the crates that
- *  produce importable extension modules. Reads `[lib] name/path`; entry defaults to
- *  src/lib.rs (Cargo's [lib] default) when no path is declared. */
-export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): CrateEntry[] {
-  const files: string[] = [];
-  for (const dir of codeDirs) walkToml(join(baseDir, dir), 'Cargo.toml', files);
+/** Parse the cdylib crates out of a collected Cargo.toml list. */
+function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   const crates: CrateEntry[] = [];
-  for (const file of files) {
+  for (const file of cargoFiles) {
     const toml = parseTomlFile(file);
     const lib = toml['lib'] as { name?: string; 'crate-type'?: string[]; path?: string } | undefined;
     const crateType = lib?.['crate-type'];
@@ -83,15 +89,22 @@ export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): 
   return crates;
 }
 
+/** Scan a repo's Cargo.toml files for cdylib crates ([lib] crate-type) — the crates that
+ *  produce importable extension modules. Reads `[lib] name/path`; entry defaults to
+ *  src/lib.rs (Cargo's [lib] default) when no path is declared. */
+export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): CrateEntry[] {
+  const found: ManifestWalk = { cargo: [], pyproject: [] };
+  for (const dir of codeDirs) walkManifests(join(baseDir, dir), found);
+  return cratesFromCargo(found.cargo, baseDir);
+}
+
 /** The bridge map: pyproject.toml [tool.maturin] module-name ("headroom._core") explicitly
  *  names the produced module. Linked to a crate by its tail (maturin builds the crate whose
  *  lib name is the module's last segment). Declaration-only — a bare-tail convention fallback
  *  false-positived on uv's deptry_reproducer fixture. */
-function readModuleNameOverrides(codeDirs: readonly string[], baseDir: string, crates: CrateEntry[]): Map<string, string> {
-  const files: string[] = [];
-  for (const dir of codeDirs) walkToml(join(baseDir, dir), 'pyproject.toml', files);
+function readModuleNameOverrides(pyprojectFiles: string[], crates: CrateEntry[]): Map<string, string> {
   const overrides = new Map<string, string>();
-  for (const file of files) {
+  for (const file of pyprojectFiles) {
     const toml = parseTomlFile(file);
     const tool = toml['tool'] as Record<string, unknown> | undefined;
     const maturin = tool?.['maturin'] as { 'module-name'?: string } | undefined;
@@ -106,11 +119,13 @@ function readModuleNameOverrides(codeDirs: readonly string[], baseDir: string, c
 
 /** The full bridge map — one key per [tool.maturin] module-name override (see above for
  *  why the bare-tail convention fallback is gone). Empty when no cdylib crate or no
- *  declaration exists: zero behavior change. */
+ *  declaration exists: zero behavior change. One manifest walk, shared by both halves. */
 export function buildBridgeMap(codeDirs: readonly string[], baseDir: string): Map<string, string> {
-  const crates = scanCdylibCrates(codeDirs, baseDir);
+  const found: ManifestWalk = { cargo: [], pyproject: [] };
+  for (const dir of codeDirs) walkManifests(join(baseDir, dir), found);
+  const crates = cratesFromCargo(found.cargo, baseDir);
   if (crates.length === 0) return new Map();
-  return readModuleNameOverrides(codeDirs, baseDir, crates);
+  return readModuleNameOverrides(found.pyproject, crates);
 }
 
 /** Resolve unresolved imports through the bridge map. Returns the new edges + the

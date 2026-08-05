@@ -189,10 +189,11 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
     }
     for (const name of Object.keys(declarations)) {
       const cell = declarations[name];
-      const cellOwned = ownership[name] ?? [];
       const s = smells[name];
       s.unresolved = unresolvedByCell.get(name) ?? 0;
-      s.staleProvides = staleProvidesOf(cell, cellOwned, readFiles(cellOwned)).length;
+      // No provides = nothing to check (staleProvidesOf scans the whole cell's contents) —
+      // skip the re-read for the common provides-less cell.
+      s.staleProvides = cell.provides.length === 0 ? 0 : staleProvidesOf(cell, ownership[name] ?? [], readFiles(ownership[name] ?? [])).length;
     }
   }
   process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined));

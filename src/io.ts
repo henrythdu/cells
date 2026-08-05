@@ -154,7 +154,7 @@ export function readFiles(paths: string[], baseDir = '.'): Record<string, string
 }
 
 /** Directories never scanned for code (deps, build output, tooling caches). */
-const SKIP_DIRS = new Set([
+export const SKIP_DIRS = new Set([
   '.git',
   'node_modules',
   'dist',
