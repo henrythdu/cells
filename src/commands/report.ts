@@ -23,7 +23,7 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read, shared by the size computation and peel candidates
-    const size = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations));
+    const size = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
     const ceiling = cell.ceiling; // per-cell override (declared in the cell.toml); undefined = use global
     // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
     // (a big file few others import is the cheapest chunk to carve out).
@@ -112,7 +112,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read, shared by the size check and the provides-drift check
-    const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations)).tokens / (cell.ceiling ?? config.maxPayloadTokens);
+    const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? [])).tokens / (cell.ceiling ?? config.maxPayloadTokens);
     if (pct > maxPercent) maxPercent = pct;
     staleProvides.push(...staleProvidesOf(cell, owned, contents));
   }

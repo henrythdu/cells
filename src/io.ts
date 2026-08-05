@@ -100,7 +100,10 @@ export function loadContext(): CellsContext {
 
 /** Recursively list files under a directory whose extension is in `exts` (relative paths).
  *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
- *  can't grow the result, only re-walk forever. */
+ *  can't grow the result, only re-walk forever. SKIP_DIRS (deps/build/tooling) never
+ *  enter the census — a code-dirs ["."] config (flat repo) must not sweep node_modules/
+ *  dist/ into ownership, plan and size (detectProject already excludes them at init;
+ *  this closes the same hole for hand-edited configs). */
 function listFiles(dir: string, exts: string[], visited = new Set<string>()): string[] {
   if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
   const real = realpathSync(dir);
@@ -108,6 +111,7 @@ function listFiles(dir: string, exts: string[], visited = new Set<string>()): st
   visited.add(real);
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
+    if (SKIP_DIRS.has(entry)) continue;
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) out.push(...listFiles(path, exts, visited));
     else if (exts.some((e) => entry.endsWith(e))) out.push(path);
@@ -183,13 +187,22 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   const extCounts = new Map<string, number>();
   const dirHasCode = new Set<string>();
 
-  const scan = (dir: string, topDir: string): void => {
+  const scan = (dir: string, topDir: string, visited: Set<string>): void => {
     let entries: string[];
     try {
       entries = readdirSync(dir);
     } catch {
       return;
     }
+    // Symlink-cycle guard (listFiles precedent): a loop must not re-walk forever.
+    let real: string;
+    try {
+      real = realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (visited.has(real)) return;
+    visited.add(real);
     for (const entry of entries) {
       const path = join(dir, entry);
       let st: Stats;
@@ -200,7 +213,7 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
       }
       if (st.isDirectory()) {
         if (SKIP_DIRS.has(entry)) continue;
-        scan(path, topDir);
+        scan(path, topDir, visited);
       } else {
         const ext = extname(entry).toLowerCase();
         if (CODE_EXTS.has(ext)) {
@@ -217,6 +230,7 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   } catch {
     return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
   }
+  const visited = new Set<string>(); // one cycle-guard span across all top-level scans
   for (const entry of rootEntries) {
     if (SKIP_DIRS.has(entry)) continue;
     const path = join(root, entry);
@@ -227,7 +241,7 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
       continue;
     }
     if (st.isDirectory()) {
-      scan(path, entry);
+      scan(path, entry, visited);
     } else if (CODE_EXTS.has(extname(entry).toLowerCase())) {
       extCounts.set(extname(entry).toLowerCase(), (extCounts.get(extname(entry).toLowerCase()) ?? 0) + 1);
       dirHasCode.add('.');

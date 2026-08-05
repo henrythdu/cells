@@ -136,6 +136,39 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     }
   });
 
+  it('resolves a no-exports workspace subpath the Node way — pkgdir + rest (stress #16: @turbo/utils/src/get-turbo-configs)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ws-subpath-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'packages', 'turbo-utils', 'src'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils'), { recursive: true });
+    // NO exports field — the old entry-dir probe looked in src/src/ and flagged this
+    // resolvable import as unresolved (the stress agent's #16)
+    writeFileSync(join(dir, 'packages', 'turbo-utils', 'package.json'), JSON.stringify({ name: '@turbo/utils', main: 'src/index.ts' }));
+    writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'index.ts'), 'export const a = 1;\n');
+    writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'get-turbo-configs.ts'), 'export const b = 2;\n');
+    writeFileSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils', 'calculate-inputs.ts'), "import { b } from '@turbo/utils/src/get-turbo-configs';\nexport const c = b;\n");
+
+    const prev = process.cwd();
+    process.chdir(dir);
+    try {
+      const { edges, unresolved } = await depCruiserImporter.extract({
+        codeDirs: ['packages'],
+        files: [
+          { path: 'packages/eslint-plugin-turbo/lib/utils/calculate-inputs.ts', content: '' },
+          { path: 'packages/turbo-utils/src/index.ts', content: '' },
+          { path: 'packages/turbo-utils/src/get-turbo-configs.ts', content: '' },
+        ],
+        ownership: {},
+      });
+      const hit = edges.find((e) => e.import === '@turbo/utils/src/get-turbo-configs');
+      expect(hit).toBeDefined();
+      expect(hit!.toFile).toContain('packages/turbo-utils/src/get-turbo-configs.ts');
+      expect(unresolved.some((u) => u.import === '@turbo/utils/src/get-turbo-configs')).toBe(false);
+    } finally {
+      process.chdir(prev);
+    }
+  });
+
   it('resolves a subpath whose exports target is dist-flattened (vite: ./module-runner → dist/node/x.js, source src/module-runner/)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-flat-'));
     fixtures.add(dir);

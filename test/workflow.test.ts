@@ -147,7 +147,7 @@ describe('cells config', () => {
   });
 });
 
-describe('python src-layout cold start (the griller\'s hole)', () => {
+describe("python src-layout cold start (the griller's hole)", () => {
   let repo: string;
 
   afterEach(() => {

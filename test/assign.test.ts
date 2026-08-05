@@ -145,7 +145,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['crates/headroom-py', 'headroom/transforms']);
   });
 
-  it('root Cargo.toml WITH [package] stays a unit root (ripgrep — root crate + workspace)', () => {
+  it('root Cargo.toml WITH [package] is a real unit — keyed by package name (stress #17: was recognized then dropped → 126 orphans on cxx)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('Cargo.toml', '[package]\nname = "ripgrep"\n\n[workspace]\n');
     touch('src/main.rs');
@@ -153,7 +153,28 @@ describe('planGroups', () => {
     touch('crates/extra/Cargo.toml', '[package]\n');
     const g = planGroups(['src/main.rs', 'crates/extra/src/lib.rs'], repo);
     expect(g.has('crates/extra')).toBe(true); // the sub-crate is its own unit
-    expect(g.has('.')).toBe(false); // root package folds into dir groups — never the catch-all
+    expect(g.get('ripgrep')).toEqual(['src/main.rs']); // root crate = its own cell, named by package
+    expect(g.has('.')).toBe(false); // never the catch-all
+  });
+
+  it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion (stress #17 cousin)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('Cargo.toml', '[package]\nname = "cxx"\n');
+    touch('src/lib.rs');
+    touch('src/bridge/ffi.rs');
+    touch('syntax/tokens.rs');
+    const g = planGroups(['src/lib.rs', 'src/bridge/ffi.rs', 'syntax/tokens.rs'], repo);
+    expect([...g.keys()].sort()).toEqual(['cxx']);
+    expect(g.get('cxx')).toHaveLength(3);
+  });
+
+  it('root Cargo.toml with unparseable [package] name falls back to the old drop (name.workspace = true)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
+    touch('Cargo.toml', '[package]\nname.workspace = true\n');
+    touch('src/lib.rs');
+    const g = planGroups(['src/lib.rs'], repo);
+    expect(g.has('cxx')).toBe(false);
+    expect([...g.keys()].sort()).toEqual(['src']); // dir-keyed, honest fallback
   });
 
   it('collapses TS monorepo packages (vite packages/*)', () => {

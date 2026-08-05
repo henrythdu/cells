@@ -74,10 +74,21 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
   // a crate owns its subtree, so a root workspace manifest would swallow every file outside
   // crates/ into '.', which plan drops (key === '.') — headroom's 1333 python files vanished
   // from the plan. Only a root Cargo.toml WITH a [package] section (ripgrep: root crate +
-  // workspace) is a real unit root. Mirrors the root-package.json rule below.
+  // workspace; cxx: single crate) is a real unit root. It gets its OWN cell named after the
+  // package (stress #17: the old behavior recognized the root crate and then dropped it —
+  // 126 orphans, 1 edge, main crate invisible to crossings). Mirrors the root-package.json
+  // rule below. `name.workspace = true` → unparseable name → null → root falls back to the
+  // '.' drop (pre-fix behavior; rust.ts's crateNameOf has the same documented limitation).
   let rootCargoIsPackage = false;
+  let rootCrateName: string | null = null;
   try {
-    rootCargoIsPackage = /^\s*\[package\]/m.test(readFileSync(join(baseDir, 'Cargo.toml'), 'utf8'));
+    const cargoToml = readFileSync(join(baseDir, 'Cargo.toml'), 'utf8');
+    rootCargoIsPackage = /^\s*\[package\]/m.test(cargoToml);
+    if (rootCargoIsPackage) {
+      const section = cargoToml.match(/^\[package\][^[]*/m);
+      const name = section?.[0].match(/^\s*name\s*=\s*["']([^"']+)["']/m);
+      rootCrateName = name ? name[1] : null;
+    }
   } catch {
     rootCargoIsPackage = false;
   }
@@ -101,8 +112,13 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
   const unitRoot = (dir: string): string | null => {
     const ancestors = manifestAncestors(dir);
     if (ancestors.length === 0) return null;
-    // a crate owns its whole subtree — bundled python/ dirs stay in the crate (uv embeds one)
-    for (const a of ancestors) if (a.kind === 'cargo') return a.dir;
+    // a crate owns its whole subtree — bundled python/ dirs stay in the crate (uv embeds one).
+    // The root crate (' . ' ancestor) is keyed by its package NAME, not '.', so the
+    // `key === '.'` drop below never sees it (stress #17: the root crate was recognized,
+    // then orphaned).
+    for (const a of ancestors) {
+      if (a.kind === 'cargo') return a.dir === '.' && rootCrateName ? rootCrateName : a.dir;
+    }
     const deepest = ancestors[0];
     if (deepest.kind === 'pyinit') return deepest.dir; // python package = hard boundary
     // package: fold a nested package into its parent package (root manifest is the workspace)

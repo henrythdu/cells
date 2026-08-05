@@ -218,9 +218,14 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: st
       const t = probeFile(baseDir, norm, join(pkg.dir, wild.replace(/^\.\//, '')), cache);
       if (t) return { matched: true, toFile: t };
     }
-    // 3) heuristic: entry dir + rest (extension/index probes)
+    // 3) heuristic: no exports field → Node semantics — `name/rest` resolves to
+    //    <pkgdir>/rest (stress #16: @turbo/utils/src/get-turbo-configs →
+    //    packages/turbo-utils/src/get-turbo-configs.ts; the old entry-dir probe
+    //    looked in src/src/ and flagged a resolvable import as broken). With
+    //    exports, subpaths live under the entry's dir (the ./subpath shape).
     const entryDir = pkg.entry ? pkg.entry.slice(0, pkg.entry.lastIndexOf('/')) : pkg.dir;
-    const t = probeFile(baseDir, norm, join(entryDir, rest), cache);
+    const base = pkg.exports ? entryDir : pkg.dir;
+    const t = probeFile(baseDir, norm, join(base, rest), cache);
     if (t) return { matched: true, toFile: t };
     // Known package with an entry whose subpath is absent → broken local import (flag).
     // No entry at all (dist-only, no source) → can't judge — stay silent like an external.

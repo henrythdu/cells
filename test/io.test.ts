@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { detectProject, loadOwnership, writeOwnership } from '../src/io.js';
+import { detectProject, loadOwnership, writeOwnership, listCodeFiles } from '../src/io.js';
 import { execSync } from 'node:child_process';
 
 let dir: string;
@@ -137,6 +137,64 @@ describe('detectProject', () => {
     const { codeExts, codeDirs } = detectProject(dir);
     expect(codeExts).toEqual(['.ts']);
     expect(codeDirs).toEqual(['src', 'test']);
+  });
+
+  it('survives a symlink cycle instead of recursing forever (listFiles precedent)', () => {
+    mkdirSync(join(dir, 'src', 'real'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'real', 'a.ts'), 'x');
+    // a loop: src/loop -> src/real, and real/back -> src
+    try {
+      require('node:fs').symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
+      require('node:fs').symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
+    } catch {
+      return; // no symlink permission (some CI) — skip
+    }
+    const { codeExts, codeDirs } = detectProject(dir);
+    expect(codeExts).toContain('.ts');
+    expect(codeDirs).toContain('src');
+  });
+});
+
+describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] must not sweep deps)', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('excludes node_modules/dist/build under a root-wide code-dirs ["."] config', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-census-skip-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(join(repo, 'dist'), { recursive: true });
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["."]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'x');
+    writeFileSync(join(repo, 'node_modules', 'pkg', 'dep.ts'), 'x');
+    writeFileSync(join(repo, 'dist', 'bundle.ts'), 'x');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(listCodeFiles()).toEqual(['src/a.ts']);
+    } finally {
+      process.chdir(prev);
+    }
+  });
+
+  it('still walks a dir that LOOKS like build output when it is explicitly configured (code-dirs ["src","dist"])', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-census-skip-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    mkdirSync(join(repo, 'dist'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src", "dist"]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(repo, 'dist', 'b.ts'), 'x');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      // dist is a top-level scan root — never skipped (a hand-configured code dir is
+      // explicit intent; SKIP_DIRS only prunes dirs NESTED under a scan root)
+      expect(listCodeFiles()).toEqual(['dist/b.ts']);
+    } finally {
+      process.chdir(prev);
+    }
   });
 });
 

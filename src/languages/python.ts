@@ -103,7 +103,16 @@ function probeModuleRootMismatch(firstSeg: string, codeDirs: string[], files: Re
   return found;
 }
 
-function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, moduleToFile: Map<string, string>, localPackages: Set<string>, codeDirs: string[], files: ReadonlySet<string>, memo: Map<string, boolean>): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+function resolveImportDesc(
+  desc: ImportDesc,
+  sourcePath: string,
+  importerModule: string,
+  moduleToFile: Map<string, string>,
+  localPackages: Set<string>,
+  codeDirs: string[],
+  files: ReadonlySet<string>,
+  memo: Map<string, boolean>,
+): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   let base: string;
   if (desc.dots === 0) {
     base = desc.module; // absolute
