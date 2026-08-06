@@ -49,6 +49,28 @@ describe('fileToModule', () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it('a [[bin]] path dir without its own Cargo.toml is its own crate root (ripgrep layout)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cells-bin-'));
+    const startCwd = process.cwd();
+    try {
+      mkdirSync(join(repo, 'core', 'flags'), { recursive: true });
+      // workspace root: [package] + [[bin]] gluing a bin at core/main.rs — core/ has NO manifest
+      writeFileSync(join(repo, 'Cargo.toml'), '[package]\nname = "rg"\n\n[[bin]]\nname = "rg"\npath = "core/main.rs"\n');
+      writeFileSync(join(repo, 'core', 'main.rs'), 'mod flags;\n');
+      writeFileSync(join(repo, 'core', 'flags', 'mod.rs'), 'pub mod defs;\n');
+      writeFileSync(join(repo, 'core', 'flags', 'defs.rs'), 'pub struct Flags;\n');
+      process.chdir(repo);
+      // the bin dir is the crate root: modules derive from core/, not core flags of the repo
+      expect(fileToModule('core/main.rs')).toBe('crate');
+      expect(fileToModule('core/flags/defs.rs')).toBe('crate::flags::defs');
+      // files at the root still belong to the root package
+      expect(fileToModule('build.rs')).toBe('crate::build');
+    } finally {
+      process.chdir(startCwd);
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('resolveImportPath', () => {

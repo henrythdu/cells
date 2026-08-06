@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join, basename, resolve } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter, type ResolveCtx, type Reexport } from './tree-sitter.js';
@@ -10,10 +10,39 @@ import { createTreeSitterImporter, type ResolveCtx, type Reexport } from './tree
  *  not inside a crate). The walk starts at the file's dir and probes `baseDir`-relative
  *  (repo-relative paths; baseDir may point at an extracted HEAD tree for --diff).
  *  No cache — files-per-run is small and a cache would leak across baseDirs. */
+/** Directories the ROOT manifest's [[bin]] targets live in ([[bin]] path = "crates/core/main.rs"
+ *  → "crates/core"). A workspace root may glue a bin at a directory WITHOUT its own Cargo.toml
+ *  (ripgrep): the bin dir is the crate root for its module tree — `mod flags;` from main.rs
+ *  resolves to crates/core/flags/mod.rs, and `use crate::flags::defs::…` inside it works.
+ *  Without this, those files fall to the workspace root crate and derive bogus modules like
+ *  crate::crates::core::flags::defs. Memoized per baseDir (--diff extracts a different tree). */
+const binCrateDirsMemo = new Map<string, Set<string> | null>();
+function binCrateDirs(baseDir: string): Set<string> | null {
+  const key = resolve(baseDir); // absolute — baseDir '.' shifts when tests chdir
+  if (binCrateDirsMemo.has(key)) return binCrateDirsMemo.get(key)!;
+  let dirs: Set<string> | null = null;
+  try {
+    const content = readFileSync(join(key, 'Cargo.toml'), 'utf8');
+    const matches = [...content.matchAll(/^\[\[bin\]\]\s*[\s\S]*?^\s*path\s*=\s*["']([^"']+)["']/gm)];
+    if (matches.length > 0) {
+      dirs = new Set(matches.map((m) => dirname(m[1]).replace(/^\.\//, '') || '.'));
+    }
+  } catch {
+    /* no root manifest */
+  }
+  binCrateDirsMemo.set(key, dirs);
+  return dirs;
+}
+
 function findCrateRoot(filePath: string, baseDir: string): string | null {
   let dir = dirname(filePath);
+  const bins = binCrateDirs(baseDir);
   for (;;) {
     if (existsSync(join(baseDir, dir, 'Cargo.toml'))) return dir;
+    // A [[bin]] dir (no own manifest) is a crate root too. Harmless for normal layouts:
+    // a [[bin]] path of "src/main.rs" makes src/ the root, which derives IDENTICAL modules
+    // (toModule strips src/ and maps main.rs → crate the same way the repo root would).
+    if (bins?.has(dir)) return dir;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
