@@ -38,7 +38,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve, sep, posix } from 'node:path';
+import { dirname, join, relative, resolve, sep, posix } from 'node:path';
 
 const [, , repoArg, langArg, ...rest] = process.argv;
 const args = new Map();
@@ -78,7 +78,7 @@ const raBin = findBin('RUST_ANALYZER', 'rust-analyzer').bin;
 const scipGoBin = findBin('SCIP_GO', 'scip-go').bin;
 const javaBin = findBin('SCIP_JAVA', 'scip-java').bin;
 const cppBin = findBin('SCIP_CLANG', 'scip-clang').bin;
-const pyBin = findBin('SCIP_PYTHON', 'scip-python').bin;
+const pyrightBin = findBin('PYRIGHT', 'pyright').bin;
 
 /** ------------------------------------------------------------------ */
 /** Oracle cache — oracles are minutes on big repos; reruns must skip.   */
@@ -204,9 +204,18 @@ function run(cmd, argsArr, cwd, env = {}) {
 }
 
 /** ------------------------------------------------------------------ */
-/** SCIP → file→file edges (shared by the rust + go oracles).           */
+/** SCIP → file→file edges (shared by the rust/go/java/cpp/python oracles). */
+/** Each indexer's symbol vocabulary decides which refs are IMPORTS:        */
+/**   go:     package/module symbols (trailing '/') — a file can name a      */
+/**           package only via an import statement; value refs are uses.    */
+/**   python: module symbols (trailing '/__init__:') — pyright-scip emits    */
+/**           EVERY symbol reference (e.g. `self.json.dumps` refs the        */
+/**           DefaultJSONProvider class); imports are the only module-symbol */
+/**           refs.                                                          */
+/**   rust/cpp/java: all non-local refs (no distinguishing convention).      */
 /** ------------------------------------------------------------------ */
-function edgesFromIndex(index, goModuleSymbolsOnly = false) {
+function edgesFromIndex(index, symbolKeep) {
+  const keepRef = symbolKeep ?? (() => true);
   // symbol → defining file (role 1 = definition). RA uses file-scoped `local N`
   // symbols (same name in every file) — they must never cross files. Go package
   // symbols are defined in EVERY file of the package — prefer the non-test def
@@ -234,15 +243,74 @@ function edgesFromIndex(index, goModuleSymbolsOnly = false) {
       if (o.symbol.startsWith('local ')) continue;
       const role = o.symbol_roles ?? o.symbolRoles ?? 0;
       if (role === 1) continue; // definitions are not edges
-      // Go: only package/module symbols (trailing '/') are import edges — a file can
-      // name a package only via an import statement. Value/type refs (e.g. a method
-      // reached through a return type) are uses, not imports.
-      if (goModuleSymbolsOnly && !o.symbol.endsWith('/')) continue;
+      if (!keepRef(o.symbol)) continue; // only import-carrying refs for this indexer
       const to = symbolFile.get(o.symbol);
       if (to && to !== from) edges.add(`${from}\0${to}`);
     }
   }
   return edges;
+}
+
+/** ------------------------------------------------------------------ */
+/** Java oracle — import statements × the compiler's definition map.      */
+/** scip-java emits refs for EVERY symbol use; Java has no symbol-shape   */
+/** convention separating imports from uses (same-package access,          */
+/** inheritance chains, return-type refs all reference class symbols).    */
+/** The verifiable oracle: the file's own `import` statements, resolved   */
+/** through scip-java's symbol→file map (the same derivation cells makes  */
+/** from the census — divergences here are real def-map bugs). Symbols    */
+/** are path-style: `scip-java maven <artifact> <version> <path>…` where   */
+/** <path> ends at the first descriptor char (# . ( ) — class/field/      */
+/** method). Build output (target/) is skipped — src defs are the truth.  */
+/** ------------------------------------------------------------------ */
+function edgesFromJava(index) {
+  // slashed FQN path → defining file (non-test, non-target preference).
+  const symbolFile = new Map();
+  const fqnOf = (sym) => {
+    const m = sym.match(/^scip-java maven [^ ]+ [^ ]+ ([^#.()]+)/);
+    return m ? m[1].replace(/\//g, '.') : null; // com/google/x → com.google.x
+  };
+  for (const doc of index.documents ?? []) {
+    const p = rel(doc.relative_path);
+    if (p.startsWith('..') || p.includes('/target/')) continue;
+    for (const o of doc.occurrences ?? []) {
+      if ((o.symbol_roles ?? o.symbolRoles ?? 0) !== 1) continue; // definitions only
+      const fqn = fqnOf(o.symbol);
+      if (!fqn) continue;
+      const existing = symbolFile.get(fqn);
+      if (existing === undefined || (existing.includes('_test.') && !p.includes('_test.'))) symbolFile.set(fqn, p);
+    }
+  }
+  const edges = new Set();
+  const fromFiles = new Set();
+  for (const doc of index.documents ?? []) {
+    const from = rel(doc.relative_path);
+    if (from.startsWith('..') || from.includes('/target/')) continue;
+    fromFiles.add(from);
+    let src;
+    try {
+      src = readFileSync(join(repo, from), 'utf8');
+    } catch {
+      continue;
+    }
+    const imports = [...src.matchAll(/^\s*import\s+(?:static\s+)?([\w.$]+)\s*;/gm)].map((m) => m[1]);
+    for (const imp of imports) {
+      // exact FQN, then progressively shorter prefixes (inner-class imports address
+      // the OUTER class file — same walk as cells' resolver).
+      let f = imp;
+      for (;;) {
+        const to = symbolFile.get(f);
+        if (to && to !== from) {
+          edges.add(`${from}\0${to}`);
+          break;
+        }
+        const i = f.lastIndexOf('.');
+        if (i <= 0) break;
+        f = f.slice(0, i);
+      }
+    }
+  }
+  return { edges, resolvedSpecs: undefined, fromFiles };
 }
 
 /** ------------------------------------------------------------------ */
@@ -359,9 +427,13 @@ function oracleScipRaw(probe, buildArgs) {
 const oracleRust = () => oracleScipRaw(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
 const oracleGo = () => oracleScipRaw(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
 
-/** RAW java oracle: scip-java runs mvn/gradle internally and writes repo/index.scip. */
+/** RAW java oracle: scip-java runs mvn/gradle internally and writes repo/index.scip.
+ *  --java-args appends extra build-tool args (e.g. "-Pandroid" for guava's android
+ *  module, which the default maven reactor skips — the oracle's blind zone). */
 function oracleJavaRaw() {
-  const r = run(javaBin, ['index'], repo);
+  const extra = (get('--java-args', '') ?? '').trim().split(/\s+/).filter(Boolean);
+  const args = extra.length > 0 ? ['index', '--', '--batch-mode', 'clean', 'verify', '-DskipTests', ...extra] : ['index'];
+  const r = run(javaBin, args, repo);
   if (!r.ok) throw new Error(`scip-java failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
   const idx = join(repo, 'index.scip');
   const index = decodeScipIndex(idx);
@@ -383,16 +455,65 @@ function oracleCppRaw() {
   return decodeScipIndex(idx);
 }
 
-/** RAW python oracle: scip-python needs an explicit version when no pyproject.toml
- *  (its normalizeNameOrVersion crashes on undefined), writes repo/index.scip. */
+/** RAW python oracle: pyright --dependencies --verbose prints the TRUE import graph
+ *  (per file: " Imports N files" + file:// URIs, only with --verbose). scip-python was
+ *  tried first — it emits every symbol reference (usage refs like `self.json.dumps`),
+ *  and its import refs carry shortened module symbols that can't be matched to defs
+ *  in src-layouts. pyright's deps output IS the import graph. Cached as raw text. */
 function oraclePythonRaw() {
-  const name = basename(repo);
-  const r = run(pyBin, ['index', '.', '--project-name', name, '--project-version', '1.0.0'], repo);
-  if (!r.ok) throw new Error(`scip-python failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
-  const idx = join(repo, 'index.scip');
-  const index = decodeScipIndex(idx);
-  rmSync(idx, { force: true }); // scip-python writes into the repo — don't leave artifacts (mtime fingerprint)
-  return index;
+  let dirs = ['src', 'test'];
+  try {
+    const cfg = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    const m = cfg.match(/^code-dirs\s*=\s*\[([^\]]*)\]/m);
+    if (m) {
+      const parsed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+      if (parsed.length > 0) dirs = parsed;
+    }
+  } catch {
+    /* default code-dirs */
+  }
+  const r = run(pyrightBin, ['--verbose', '--dependencies', ...dirs], repo);
+  // pyright exits nonzero when it finds type errors — the deps output is still complete.
+  if (!r.stdout.includes(' Imports ')) throw new Error(`pyright --dependencies failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
+  return r.stdout;
+}
+
+/** Parse pyright --dependencies --verbose output into file→file edges. Sections:
+ *  <relpath> / " Imports N files" (file:// URIs, verbose) / " Imported by N files"
+ *  (file:// URIs — the REVERSE graph, must not be collected). Noise lines
+ *  (config, "Found N source files", diagnostics) match none of the patterns. */
+function oraclePythonFromRaw(stdout) {
+  const edges = new Set();
+  const fromFiles = new Set();
+  let cur = null;
+  let inImports = false;
+  for (const line of stdout.split('\n')) {
+    if (/^ Imports\s+\d+ file/.test(line)) {
+      inImports = true;
+      continue;
+    }
+    if (/^ Imported by/.test(line)) {
+      inImports = false; // reverse-graph section — stop collecting
+      continue;
+    }
+    if (/^\S.*\.pyi?$/.test(line) && !line.startsWith('file://')) {
+      const h = rel(line); // headers are repo-relative when pyright gets a config, absolute with positional dirs
+      if (h.startsWith('..')) {
+        cur = null; // outside the repo (e.g. the pip-installed copy in site-packages)
+        inImports = false;
+        continue;
+      }
+      cur = h; // section header
+      fromFiles.add(h);
+      inImports = false;
+      continue;
+    }
+    if (cur && inImports && /^ {4}file:\/\//.test(line)) {
+      const to = rel(line.trim().slice('file://'.length));
+      if (!to.startsWith('..') && to !== cur) edges.add(`${cur}\0${to}`);
+    }
+  }
+  return { edges, resolvedSpecs: undefined, fromFiles };
 }
 
 /** Run the scip CLI to decode an index file into JSON (the shared RAW artifact). */
@@ -443,10 +564,10 @@ function main() {
         : lang === 'go'
           ? { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() }
           : lang === 'java'
-            ? { name: 'scip-java', version: run(javaBin, ['--version'], repo).stdout.trim() }
+            ? { name: 'scip-java', version: `${run(javaBin, ['--version'], repo).stdout.trim()} ${(get('--java-args', '') ?? '').trim()}` }
             : lang === 'cpp'
               ? { name: 'scip-clang', version: run(cppBin, ['--version'], repo).stdout.trim() }
-              : { name: 'scip-python', version: run(pyBin, ['--version'], repo).stdout.trim() };
+              : { name: 'pyright', version: run(pyrightBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
   const oracle =
     loadRawCache('oracle', oracleVersion) ??
@@ -467,7 +588,15 @@ function main() {
       return raw;
     })();
   // RAW artifacts are cached; extraction re-runs with CURRENT logic every load.
-  const oracleParsed = lang === 'ts' ? oracleTsFromRaw(oracle) : { edges: edgesFromIndex(oracle, lang === 'go'), resolvedSpecs: undefined };
+  const symbolKeep = lang === 'go' ? (s) => s.endsWith('/') : undefined;
+  const oracleParsed =
+    lang === 'ts'
+      ? oracleTsFromRaw(oracle)
+      : lang === 'python'
+        ? oraclePythonFromRaw(oracle)
+        : lang === 'java'
+          ? edgesFromJava(oracle)
+          : { edges: edgesFromIndex(oracle, symbolKeep), resolvedSpecs: undefined };
 
   let cellsVersion = 'cells ?';
   try {
@@ -484,18 +613,44 @@ function main() {
     })();
   if (ours.unresolved) ours.unresolved = new Map(ours.unresolved); // cache round-trip
 
+  // Files the oracle never indexed (alternate-source trees like GWT's src-super,
+  // SDK-gated modules like guava's android/failureaccess) are oracle BLIND ZONES —
+  // cells' edges touching them can't be verified. Drop both sides' edges that touch
+  // blind files and report the count: honest, and it replaces per-repo hardcoding.
+  const oracleFromFiles = oracleParsed.fromFiles;
+  const blindFiles = oracleFromFiles
+    ? [...new Set([...ours.edges].flatMap((k) => k.split('\0')))].filter((f) => !oracleFromFiles.has(f))
+    : [];
+  const notBlind = (k) => {
+    const [f, t] = k.split('\0');
+    return !blindFiles.includes(f) && !blindFiles.includes(t);
+  };
+
   // Go imports are package-level, but both sides pin them to a representative file —
   // and they pick DIFFERENT representatives. Compare Go at package granularity
   // (dirname of the target); the representative-file choice becomes irrelevant.
+  // Java: the mirror image — same-package classes need NO import statement, so
+  // scip-java's usage refs inside a package are not import edges; cross-package
+  // refs are impossible without an import. Drop same-dir oracle edges.
   const normalize = (set) => {
-    if (lang !== 'go') return set;
-    const out = new Set();
-    for (const k of set) {
-      const [f, t] = k.split('\0');
-      const tdir = posix.dirname(t);
-      if (tdir !== posix.dirname(f)) out.add(`${f}\0${tdir}`); // same-dir = same package = not an import
+    if (lang === 'go') {
+      const out = new Set();
+      for (const k of set) {
+        const [f, t] = k.split('\0');
+        const tdir = posix.dirname(t);
+        if (tdir !== posix.dirname(f)) out.add(`${f}\0${tdir}`); // same-dir = same package = not an import
+      }
+      return out;
     }
-    return out;
+    if (lang === 'java') {
+      const out = new Set();
+      for (const k of set) {
+        const [f, t] = k.split('\0');
+        if (posix.dirname(f) !== posix.dirname(t)) out.add(k); // same-package use needs no import
+      }
+      return out;
+    }
+    return set;
   };
   // Scope the comparison to the audited language: our side keeps only edges
   // FROM ts/js files; the oracle side drops node_modules (type-dep internals the
@@ -514,6 +669,7 @@ function main() {
       const [f, t] = k.split('\0');
       if (f.startsWith('node_modules/') || t.startsWith('node_modules/')) continue;
       if (f.includes('/dist/') || t.includes('/dist/')) continue; // built output — the census skips dist
+      if (f.includes('/target/') || t.includes('/target/')) continue; // maven build output (guava's GWT source copies)
       if (lang === 'ts') {
         if (side === 'oracle' && !tsExt.test(t)) continue;
         if (side === 'ours' && !tsExt.test(f)) continue;
@@ -527,8 +683,8 @@ function main() {
     }
     return out;
   };
-  const oracleEdges = scoped(normalize(oracleParsed.edges), 'oracle');
-  const ourEdges = scoped(normalize(ours.edges), 'ours');
+  const oracleEdges = new Set([...scoped(normalize(oracleParsed.edges), 'oracle')].filter(notBlind));
+  const ourEdges = new Set([...scoped(normalize(ours.edges), 'ours')].filter(notBlind));
 
   const oracleOnly = [...oracleEdges].filter((k) => !ourEdges.has(k));
   const oursOnly = [...ourEdges].filter((k) => !oracleEdges.has(k));
@@ -547,6 +703,7 @@ function main() {
   const lines = [];
   lines.push(`# crossing validation — ${lang} on ${repo}`);
   lines.push(`  our edges: ${ourEdges.size}   oracle edges: ${oracleEdges.size}${lang === 'go' ? '  (package-granular: target = package dir)' : ''}`);
+  if (blindFiles.length > 0) lines.push(`  ${blindFiles.length} file(s) oracle-blind (not indexed by the oracle — e.g. alternate-source trees, SDK-gated modules) — their edges unverifiable, dropped from both sides`);
   lines.push('');
   lines.push(`## under-flag (oracle resolved, cells missed): ${oracleOnly.length}`);
   if (oracleOnly.length > 0) lines.push(...sampleLines(oracleOnly, top, (k) => k.replace('\0', ' → ')));
