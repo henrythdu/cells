@@ -24,6 +24,18 @@ jobs:
       # are linked, so tsc fails. The build happens explicitly below, with the
       # full tree present.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Diagnose node_modules state
+        if: always()
+        run: |
+          echo "-- node_modules/@types --"
+          ls -la node_modules/@types 2>&1 | head -6
+          echo "-- .pnpm @types/node --"
+          ls node_modules/.pnpm/@types+node@26.1.1/\
+            node_modules/@types/node/package.json 2>&1
+          echo "-- tsc --"
+          ls -la node_modules/.bin/tsc 2>&1 | head -2
+          echo "-- tsconfig types --"
+          grep -E '"types"' tsconfig.json || echo '(no types field)'
       - run: pnpm run build && chmod +x dist/cli.js
       - name: Check if version already published
         id: check
