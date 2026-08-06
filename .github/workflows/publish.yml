@@ -19,7 +19,12 @@ jobs:
         with:
           node-version: latest
           registry-url: https://registry.npmjs.org
-      - run: pnpm install --frozen-lockfile
+      # --ignore-scripts: the runner's supply-chain install wrapper changed
+      # behavior — it now runs the project's prepare before devDeps (node types)
+      # are linked, so tsc fails. The build happens explicitly below, with the
+      # full tree present.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build && chmod +x dist/cli.js
       - name: Check if version already published
         id: check
         run: |
@@ -33,7 +38,7 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.check.outputs.exists != 'true'
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
