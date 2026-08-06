@@ -34,6 +34,19 @@ describe('scanCdylibCrates', () => {
     writeFileSync(join(dir, 'crates', 'plain', 'Cargo.toml'), '[package]\nname = "plain"\n\n[lib]\nname = "plain"\ncrate-type = ["lib"]\n');
     expect(scanCdylibCrates(['.'], dir)).toEqual([]);
   });
+
+  it('survives a symlink cycle instead of recursing forever (listFiles precedent)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
+    tmp = dir;
+    mkdirSync(join(dir, 'src', 'real'), { recursive: true });
+    try {
+      require('node:fs').symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
+      require('node:fs').symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
+    } catch {
+      return; // no symlink permission (some CI) — skip
+    }
+    expect(scanCdylibCrates(['src'], dir)).toEqual([]);
+  });
 });
 
 describe('buildBridgeMap', () => {

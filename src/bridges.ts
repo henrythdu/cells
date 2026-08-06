@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, relative, sep } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { SKIP_DIRS } from './io.js';
@@ -39,8 +39,17 @@ interface ManifestWalk {
 
 /** One walk over code-dirs collecting both manifest kinds (the bridge needs cdylib crates
  *  AND their pyproject module-name overrides — two full walks wasted the scan). Skips
- *  SKIP_DIRS (io's single source of truth for deps/build/tooling dirs). */
-function walkManifests(dir: string, out: ManifestWalk): void {
+ *  SKIP_DIRS (io's single source of truth for deps/build/tooling dirs). Symlink-cycle
+ *  guard: realpath-visited set, same as io.listFiles (a loop must not re-walk forever). */
+function walkManifests(dir: string, out: ManifestWalk, visited = new Set<string>()): void {
+  let real: string;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    return; // vanished dir — nothing to walk
+  }
+  if (visited.has(real)) return; // symlink cycle — stop
+  visited.add(real);
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -56,7 +65,7 @@ function walkManifests(dir: string, out: ManifestWalk): void {
     } catch {
       continue;
     }
-    if (st.isDirectory()) walkManifests(path, out);
+    if (st.isDirectory()) walkManifests(path, out, visited);
     else if (entry === 'Cargo.toml') out.cargo.push(path);
     else if (entry === 'pyproject.toml') out.pyproject.push(path);
   }

@@ -1,12 +1,13 @@
 name = "importers"
-purpose = "The language-coupled seam: collect file→file import edges by dispatching to a per-language importer selected by file extension. TS/JS via dep-cruiser (source-based, handles aliases/.js→.ts); Python, Rust, Go, C/C++, Java via tree-sitter (bundled WASM grammars). This is the ONLY place that knows about specific languages — everything downstream consumes generic ImportEdge[]. Resolution of an import to a file uses ownership (e.g. a module→file map derived from owned files), not filesystem heuristics."
+purpose = "The language-coupled seam: collect file→file import edges by dispatching to a per-language importer selected by file extension. TS/JS/TSX, Python, Rust, Go, C/C++, Java all via tree-sitter (bundled WASM grammars — no native deps). This is the ONLY place that knows about specific languages — everything downstream consumes generic ImportEdge[]. Resolution derives module→file maps from owned files; the TS importer additionally probes package.json/tsconfig.json on disk for aliases. Bridges (ADR 0001): pyo3/napi FFI extension-module imports resolve to their binding crate's entry file via pyproject/Cargo declarations — declaration-derived, no per-repo config."
 provides = [
   "checkGrammars() — the grammar-bundle integrity check (re-exported for health)",
   "collectImportEdges() — the single entry point cli/crossings/structure/graph call",
-  "DEFAULT_IMPORTERS registry (typescript + python + rust + go + cpp + java)",
+  "DEFAULT_IMPORTERS registry (typescript/tsx/javascript + python + rust + go + cpp + java)",
   "selectImporters(exts, importers) — pure dispatch by extension",
   "uncoveredImporterExts(exts, importers) — exts with no importer (BLIND detection for warnIfBlind)",
   "importableExts(exts, importers) — the inverse of uncoveredImporterExts (init drops blind exts)",
+  "buildBridgeMap()/applyBridges() — FFI bridge crossings (extension-module imports → binding crate entry, ADR 0001)",
   "ImporterFailure — a failed extraction (name + error), surfaced by collectImportEdges",
 ]
 requires = [

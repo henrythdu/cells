@@ -80,6 +80,7 @@ COMMANDS
                        repos). Output ends with a machine-parseable health: X.Xs timing
                        line.
   crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
+  imports [--json]           raw file→file import graph (resolved edges + unresolved specifiers) — machine surface for scripts/validate-crossings
   size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates;
                        cells can declare their own ceiling (ceiling = N in the cell.toml)
   config [set max-payload-tokens <N>]   read the effective config; set the global ceiling
@@ -124,10 +125,11 @@ FILES (.cells/)
                      (a trailing / matches the whole dir tree, like gitignore's dir/)
 
 LANGUAGES: partition/payload/size/owns (and health's integrity check) are language-agnostic — set code-dirs + code-exts
-in config.toml. crossings/structure analyze real imports: TS/JS via dependency-cruiser; Python, Rust, Go, C/C++, and
-Java via tree-sitter. Other languages need an importer (one per language, picked by extension). Resolution
-uses ownership (a module->file map from owned files), not the filesystem — runs on source you're
-just reading, nothing to build or install.
+in config.toml. crossings/structure analyze real imports via tree-sitter (bundled WASM grammars):
+TypeScript/JS/TSX (tsconfig paths aliases + workspace package.json resolution), Python, Rust, Go, C/C++, and
+Java. Other languages need an importer (one per language, picked by extension). Resolution derives
+module->file maps from owned files; the TS importer also probes package.json/tsconfig.json on disk —
+runs on source you're just reading, nothing to build or install.
 
 Drop into any repo with a .cells/ dir and follow the loop above.
 `;

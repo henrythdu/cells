@@ -1,7 +1,8 @@
 name = "commands"
-purpose = "Read/analysis command handlers (crossings, list, show, size, structure, impact, graph, owns, payload, health, surface) — the payload-shaped half of the CLI."
+purpose = "Read/analysis command handlers (crossings, imports, list, show, size, structure, impact, graph, owns, payload, health, surface) — the payload-shaped half of the CLI."
 provides = [
   "cmdCrossings",
+  "cmdImports",
   "cmdList",
   "cmdShow",
   "cmdSize",
@@ -13,6 +14,7 @@ provides = [
   "cmdSurface",
   "cmdHealth",
   "loadCrossings",
+  "requireCell",
   "warnIfNoCodeFiles",
   "groupUnresolved",
 ]

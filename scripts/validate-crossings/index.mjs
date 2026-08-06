@@ -17,6 +17,9 @@
  *   ts    tsc --traceResolution   (the TypeScript compiler itself)
  *   rust  rust-analyzer scip      (semantic resolution, SCIP references)
  *   go    scip-go                 (semantic resolution, SCIP references)
+ *   java  scip-java               (import statements × compiler definition map)
+ *   cpp   gcc -H                  (the compiler's own include tree)
+ *   python pyright --dependencies (the interpreter's true import graph)
  *
  * SCIP→edges extraction is shared: symbol→file map from role-1 (definition)
  * occurrences; every non-definition occurrence in file F whose symbol is

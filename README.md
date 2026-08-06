@@ -55,7 +55,7 @@ pnpm install      # installs deps + builds dist/ via prepare
 npm link          # live symlink into dist/ for local edits
 ```
 
-Runtime dependencies (`dependency-cruiser`, `smol-toml`, `minimatch`, `web-tree-sitter`; Python + Rust grammar WASMs bundled in `grammars/`) are installed automatically.
+Runtime dependencies (`smol-toml`, `minimatch`, `web-tree-sitter`; grammar WASMs bundled in `grammars/`) are installed automatically.
 
 ---
 
@@ -188,7 +188,7 @@ vendor/
 
 **Crossings and structure** (leakage, ADP, direction, metrics) analyze *real imports*:
 
-- **TypeScript/JavaScript** via `dependency-cruiser` (source-based; handles path aliases, `.js`→`.ts`).
+- **TypeScript/JavaScript/TSX** via `tree-sitter` (WASM; tsconfig `paths` aliases, workspace `package.json` resolution, `.js`→`.ts` remaps).
 - **Python** via `tree-sitter` (WASM; bundled grammar, no native build).
 - **Rust** via `tree-sitter` (WASM; handles `use`/`super`/`self`, groups, re-exports).
 - **Go** via `tree-sitter` (WASM; package→directory resolution, nested `go.mod` sub-modules).
