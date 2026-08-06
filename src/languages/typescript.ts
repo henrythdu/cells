@@ -30,13 +30,16 @@ interface PkgInfo {
   entry: string | null;
 }
 
-/** Per-extract resolution facts: the workspace package map + merged tsconfig alias map.
- *  Both are pure over (census files, baseDir) and expensive to build — computed once per
- *  extract, keyed on the factory's ResolveCtx (per-extract object; GC-safe, no cross-run
- *  staleness). */
+/** Per-extract resolution facts: the workspace package map + per-directory tsconfig
+ *  alias maps (chain-resolved). Both are pure over (census files, baseDir) and expensive to
+ *  build — computed once per extract, keyed on the factory's ResolveCtx (per-extract object;
+ *  GC-safe, no cross-run staleness). */
 interface TsFacts {
   packages: Map<string, PkgInfo>;
-  aliases: Map<string, string[]>;
+  /** config dir → chain-resolved alias map (root-relative targets); null = no config there */
+  configs: Map<string, Map<string, string[]> | null>;
+  /** file → its nearest config's aliases (null = none on the ancestor chain) */
+  fileConfigs: Map<string, Map<string, string[]> | null>;
 }
 
 const factsByCtx = new WeakMap<ResolveCtx, TsFacts>();
@@ -44,7 +47,7 @@ function factsOf(ctx: ResolveCtx): TsFacts {
   let f = factsByCtx.get(ctx);
   if (!f) {
     const base = ctx.baseDir ?? '.';
-    f = { packages: workspacePackages(ctx.files, base, ctx), aliases: collectTsconfigPaths(ctx.files, base) };
+    f = { packages: workspacePackages(ctx.files, base, ctx, rootWorkspaceGlobs(base)), configs: new Map(), fileConfigs: new Map() };
     factsByCtx.set(ctx, f);
   }
   return f;
@@ -105,56 +108,55 @@ function readTsconfig(filePath: string): Record<string, unknown> | null {
 }
 
 /**
- * Collect `paths` aliases from every tsconfig.json found along the code-file ancestor walk
- * (root + nested per-app configs), rewritten to repo-root-relative targets (a nested
- * tsconfig's paths are relative to its own dir). Alias → root-relative targets. Reads the
- * files once per unique dir; malformed configs skipped. Pure wrt inputs (FS reads).
+ * One tsconfig's `paths`, chain-resolved: its own keys + its `extends` chain's keys
+ * (child overrides per alias; parent aliases persist — tsc's shallow merge). Targets are
+ * rewritten repo-root-relative (each config's targets are relative to ITS dir/baseUrl).
+ * Package-name extends (`@tsconfig/...`) are skipped — source-based only, no node_modules
+ * reads; those configs rarely carry the paths that matter. Memoized per config dir. Pure.
  */
-function collectTsconfigPaths(files: ReadonlySet<string>, baseDir: string): Map<string, string[]> {
-  const merged = new Map<string, string[]>();
-  /** Merge one alias' root-relative targets, deduping across configs. */
-  const mergeAlias = (alias: string, targets: string[]): void => {
-    const existing = merged.get(alias);
-    if (existing) {
-      for (const t of targets) if (!existing.includes(t)) existing.push(t);
-    } else {
-      merged.set(alias, targets);
-    }
-  };
-  const seen = new Set<string>();
-  for (const f of files) {
-    let dir = dirname(f);
-    while (dir !== '.' && !seen.has(dir)) {
-      seen.add(dir);
-      const tsPath = join(baseDir, dir, 'tsconfig.json');
-      if (existsSync(tsPath)) {
-        const cfg = readTsconfig(tsPath) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } } | null;
-        const paths = cfg?.compilerOptions?.paths;
-        if (paths) {
-          const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
-          for (const [alias, targets] of Object.entries(paths)) {
-            mergeAlias(
-              alias,
-              targets.map((t) => posix.normalize(`${base}/${t}`)),
-            );
-          }
+function configAliases(dir: string, baseDir: string, cache: Map<string, Map<string, string[]> | null>): Map<string, string[]> | null {
+  const hit = cache.get(dir);
+  if (hit !== undefined) return hit;
+  const tsPath = join(baseDir, dir, 'tsconfig.json');
+  let merged: Map<string, string[]> | null = null;
+  if (existsSync(tsPath)) {
+    const cfg = readTsconfig(tsPath) as { extends?: string; compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } } | null;
+    if (cfg) {
+      if (typeof cfg.extends === 'string' && !cfg.extends.startsWith('@')) {
+        const parentDir = posix.normalize(posix.join(dir, posix.dirname(cfg.extends)));
+        const parent = configAliases(parentDir === '.' ? '.' : parentDir, baseDir, cache);
+        if (parent) merged = new Map(parent);
+      }
+      const paths = cfg.compilerOptions?.paths;
+      if (paths) {
+        merged ??= new Map();
+        const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
+        for (const [alias, targets] of Object.entries(paths)) {
+          merged.set(alias, targets.map((t) => posix.normalize(`${base}/${t}`)));
         }
       }
-      dir = dirname(dir);
     }
   }
-  // the root tsconfig itself: read its paths too (files at the repo root never enter the loop)
-  const rootPath = join(baseDir, 'tsconfig.json');
-  if (existsSync(rootPath)) {
-    const cfg = readTsconfig(rootPath) as { compilerOptions?: { paths?: Record<string, string[]> } } | null;
-    for (const [alias, targets] of Object.entries(cfg?.compilerOptions?.paths ?? {})) {
-      mergeAlias(
-        alias,
-        targets.map((t) => posix.normalize(t)),
-      );
-    }
-  }
+  cache.set(dir, merged);
   return merged;
+}
+
+/** A file's aliases = the nearest tsconfig on its ancestor chain (tsc's owning-program model:
+ *  a nested project's config shadows the root's; a merged map would cross-contaminate
+ *  independent projects — e.g. one fixture's `@/` aliases applied to another's files). */
+function aliasesForFile(file: string, facts: TsFacts, baseDir: string): Map<string, string[]> | null {
+  const cached = facts.fileConfigs.get(file);
+  if (cached !== undefined) return cached;
+  let dir = dirname(file);
+  let cfg = null;
+  while (dir !== '.' || cfg === null) {
+    cfg = configAliases(dir, baseDir, facts.configs);
+    if (cfg !== null) break;
+    if (dir === '.') break;
+    dir = dirname(dir);
+  }
+  facts.fileConfigs.set(file, cfg);
+  return cfg;
 }
 
 // --- workspace package map ---
@@ -196,17 +198,74 @@ function wildcardTarget(exports: Record<string, unknown> | null, rest: string): 
 }
 
 /**
+ * Root workspace globs: package.json `workspaces` (npm array | yarn {packages}) or
+ * pnpm-workspace.yaml `packages:`. Null = no workspace config (single-package repo —
+ * nested package.jsons are NOT local packages: without a workspace root there is no
+ * node_modules link and tsc can't resolve them as bare specifiers).
+ */
+function rootWorkspaceGlobs(baseDir: string): string[] | null {
+  const pj = join(baseDir, 'package.json');
+  try {
+    const pkg = JSON.parse(readFileSync(pj, 'utf8')) as { workspaces?: unknown };
+    const w = pkg.workspaces;
+    if (Array.isArray(w)) return w.filter((x): x is string => typeof x === 'string');
+    if (w && typeof w === 'object' && !Array.isArray(w)) {
+      const p = (w as Record<string, unknown>).packages;
+      if (Array.isArray(p)) return p.filter((x): x is string => typeof x === 'string');
+    }
+  } catch {
+    /* no root package.json */
+  }
+  const yml = join(baseDir, 'pnpm-workspace.yaml');
+  try {
+    const lines = readFileSync(yml, 'utf8').split('\n');
+    const idx = lines.findIndex((l) => /^packages\s*:/.test(l));
+    if (idx !== -1) {
+      const out: string[] = [];
+      for (const l of lines.slice(idx + 1)) {
+        if (!/^\s*-\s+/.test(l)) break;
+        out.push(l.trim().replace(/^[-\s]+/, '').replace(/#.*$/, '').trim());
+      }
+      if (out.length > 0) return out;
+    }
+  } catch {
+    /* no pnpm-workspace.yaml */
+  }
+  return null;
+}
+
+/** Workspace glob → dir match (exact-directory semantics — pnpm/npm globs don't recurse:
+ *  'packages/*' matches packages/ui but not packages/ui/sub; bare 'examples' matches only
+ *  the examples dir itself). `!`-prefixed patterns exclude. */
+function isWorkspaceMember(dir: string, globs: string[]): boolean {
+  const match = (pattern: string) => {
+    const re = new RegExp(`^${pattern.split('**').join('.*').split('*').join('[^/]*')}$`);
+    return re.test(dir);
+  };
+  const positives = globs.filter((g) => !g.startsWith('!'));
+  const negatives = globs.filter((g) => g.startsWith('!')).map((g) => g.slice(1));
+  return positives.some(match) && !negatives.some(match);
+}
+
+/**
  * Workspace package map: package.json `name` → PkgInfo. Built from the ancestor chain of
  * every code file (a file's nearest package.json owns it) — so packages with no code in
  * code-dirs never enter the map, and the root repo package.json (dir '.') is never read.
+ * Gated on the root workspace globs: only true workspace members are local packages — a
+ * standalone example's package.json (turbo's examples/*) is not resolvable by tsc (no
+ * node_modules link), so it must not resolve as a bare specifier.
  */
-function workspacePackages(files: ReadonlySet<string>, baseDir: string, ctx: ResolveCtx): Map<string, PkgInfo> {
+function workspacePackages(files: ReadonlySet<string>, baseDir: string, ctx: ResolveCtx, globs: string[] | null): Map<string, PkgInfo> {
   const map = new Map<string, PkgInfo>();
   const seen = new Set<string>();
   for (const f of files) {
     let dir = dirname(f);
     while (dir !== '.' && !seen.has(dir)) {
       seen.add(dir);
+      if (globs && !isWorkspaceMember(dir, globs)) {
+        dir = dirname(dir);
+        continue; // not a workspace member — its package.json is not a local package
+      }
       const pj = join(baseDir, dir, 'package.json');
       if (existsSync(pj)) {
         try {
@@ -309,7 +368,12 @@ function existsOnDisk(ctx: ResolveCtx, rel: string): boolean {
 /** First existing candidate for a repo-relative target, or null. */
 function probeCandidates(rel: string, ctx: ResolveCtx): string | null {
   for (const c of candidatesFor(rel)) {
-    if (existsOnDisk(ctx, c)) return c;
+    if (existsOnDisk(ctx, c)) {
+      // normalize: candidates can carry './' prefixes or '..' segments (dir imports) —
+      // the returned path must match the census's exact-path shape or the edge silently
+      // dies at the ctx.files.has() check in resolveEdges.
+      return posix.normalize(c);
+    }
   }
   return null;
 }
@@ -383,14 +447,17 @@ function resolveOne(spec: string, sourcePath: string, ctx: ResolveCtx, facts: Ts
   if (q !== -1) spec = spec.slice(0, q);
   if (spec.startsWith('.')) return { toFile: resolveRelative(spec, sourcePath, ctx), local: true };
 
-  // tsconfig `paths` aliases — longest alias prefix wins; a mapped-but-missing target is a
-  // broken local import (flag). Star-less aliases match exactly (TS semantics). A degenerate
-  // catch-all like `@*` (prefix `@`, matches EVERY @-specifier — some example configs carry
-  // one) that misses is NOT evidence the import is local: '@icons-pack/x' is an external
-  // package whose '@*' alias in an unrelated app's tsconfig can't make it broken — fall
-  // through to workspace/external classification instead of flagging.
-  if (facts.aliases.size > 0) {
-    for (const [alias, targets] of [...facts.aliases].sort((a, b) => b[0].length - a[0].length)) {
+  // tsconfig `paths` aliases — the FILE's OWN tsconfig chain (nearest config walking up;
+  // a merged map would apply one project's aliases to unrelated files). Longest alias
+  // prefix wins; a mapped-but-missing target is a broken local import (flag). Star-less
+  // aliases match exactly (TS semantics). A degenerate catch-all like `@*` (prefix `@`,
+  // matches EVERY @-specifier — some example configs carry one) that misses is NOT
+  // evidence the import is local: '@icons-pack/x' is an external package whose '@*'
+  // alias in an unrelated app's tsconfig can't make it broken — fall through to
+  // workspace/external classification instead of flagging.
+  const aliases = aliasesForFile(sourcePath, facts, ctx.baseDir ?? '.');
+  if (aliases && aliases.size > 0) {
+    for (const [alias, targets] of [...aliases].sort((a, b) => b[0].length - a[0].length)) {
       const star = alias.indexOf('*');
       const prefix = star === -1 ? alias : alias.slice(0, star);
       if (star === -1 ? spec !== alias : !spec.startsWith(prefix)) continue;
@@ -398,7 +465,9 @@ function resolveOne(spec: string, sourcePath: string, ctx: ResolveCtx, facts: Ts
       for (const t of targets) {
         const rel = t.includes('*') ? t.replace('*', rest) : t;
         const hit = probeCandidates(rel, ctx);
-        if (hit) return { toFile: hit, local: true };
+        // normalize: the probe returns the raw rel — '..' segments must collapse
+        // before the edge meets the census (a literal-path membership check)
+        if (hit) return { toFile: posix.normalize(hit), local: true };
       }
       if (star === -1 || prefix.length >= 2) return { toFile: null, local: true }; // specific alias → broken local
       break; // catch-all alias missed — not local evidence; try workspace/external

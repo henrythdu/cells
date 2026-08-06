@@ -103,15 +103,37 @@ function fingerprint() {
   return `${g.ok ? g.stdout.trim() : 'no-git'}:${n}:${Math.round(max)}`;
 }
 
-const cacheKey = (kind) => {
-  const h = createHash('sha1').update(`${repo}\0${lang}\0${kind}\0${fingerprint()}`).digest('hex').slice(0, 16);
+/** cells-side fingerprint: the repo fingerprint + cells' own src/dist state —
+ *  importer edits must invalidate the cells cache even when the version
+ *  string is unchanged (dev loop: fix importer → re-audit). */
+function cellsFingerprint() {
+  let max = 0;
+  for (const root of [join(here, '..', '..', 'src'), join(here, '..', '..', 'dist')]) {
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else {
+          const st = statSync(p);
+          if (st.mtimeMs > max) max = st.mtimeMs;
+        }
+      }
+    };
+    walk(root);
+  }
+  return `${fingerprint()}:cells:${Math.round(max)}`;
+}
+
+const cacheKey = (kind, fp) => {
+  // 'v3': harness-extraction changes must invalidate caches even when tool versions don't
+  const h = createHash('sha1').update(`${repo}\0${lang}\0${kind}\0v6\0${fp ?? fingerprint()}`).digest('hex').slice(0, 16);
   return join(CACHE_DIR, `${h}.json`);
 };
 
 function loadCache(kind, toolVersion) {
   if (get('--no-cache', '') === '--no-cache') return undefined;
   try {
-    const c = JSON.parse(readFileSync(cacheKey(kind), 'utf8'));
+    const c = JSON.parse(readFileSync(cacheKey(kind, kind === 'cells' ? cellsFingerprint() : undefined), 'utf8'));
     if (c.toolVersion === toolVersion) return c;
   } catch {
     /* cold cache */
@@ -122,9 +144,10 @@ function loadCache(kind, toolVersion) {
 function saveCache(kind, toolVersion, data) {
   try {
     mkdirSync(CACHE_DIR, { recursive: true });
-    const tmp = `${cacheKey(kind)}.tmp`;
+    const key = cacheKey(kind, kind === 'cells' ? cellsFingerprint() : undefined);
+    const tmp = `${key}.tmp`;
     writeFileSync(tmp, JSON.stringify({ toolVersion, ...data }));
-    renameSync(tmp, cacheKey(kind));
+    renameSync(tmp, key);
   } catch {
     /* cache is a convenience — never fail the audit on it */
   }
@@ -248,7 +271,7 @@ function oracleTs() {
     // files the project config never sees (tests, unlisted dirs) aren't in the
     // program → their imports untraced. Trace them with plain flags so every
     // repo file's imports are covered.
-    const listed = run(tscBin, ['--listFiles', '-p', tc], repo)
+    const listed = run(tscBin, ['--noEmit', '--listFiles', '-p', tc], repo) // noEmit: --listFiles alone EMITS .js next to sources
       .stdout.split('\n')
       .map((f) => f.trim())
       .filter(inRepo)
@@ -262,6 +285,12 @@ function oracleTs() {
   return { edges, resolvedSpecs };
 }
 
+/** Oracle targets land on the package's BUILT types (dist/index.d.ts via node_modules
+ *  exports) where cells resolves source — that divergence is a REPORTED over-flag
+ *  (oracle-resolved-to-dist is dropped by the dist scope filter), NOT something to
+ *  map away: we validate our derivation, we don't force agreement.
+ */
+
 /** Parse a --traceResolution transcript into file→file edges + resolved specifiers. */
 function traceEdges(stdout, edges, resolvedSpecs) {
   let cur = null;
@@ -271,7 +300,9 @@ function traceEdges(stdout, edges, resolvedSpecs) {
       cur = { spec: m[1], from: m[2] };
       continue;
     }
-    m = line.match(/^======== Module name '[^']+' was successfully resolved to '([^']+)'\. ========$/);
+    // NodeNext lines end with " with Package ID 'x@y'. ========" — anchor on the
+    // opening quote only (a path can't contain one); the trailer varies by mode.
+    m = line.match(/^======== Module name '[^']+' was successfully resolved to '([^']+)'/);
     if (m && cur && inRepo(m[1])) {
       const from = rel(cur.from);
       const to = rel(m[1]);
@@ -327,14 +358,21 @@ function sampleLines(set, n, fmt) {
 }
 
 function main() {
-  const oracleTool = lang === 'ts' ? { name: 'tsc', version: run(tscBin, ['--version'], repo).stdout.trim() } : lang === 'rust' ? { name: 'rust-analyzer', version: run(raBin, ['--version'], repo).stdout.trim() } : { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() };
+  const oracleTool =
+    lang === 'ts'
+      ? { name: 'tsc', version: run(tscBin, ['--version'], repo).stdout.trim() }
+      : lang === 'rust'
+        ? { name: 'rust-analyzer', version: run(raBin, ['--version'], repo).stdout.trim() }
+        : { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
-  const oracle = loadCache('oracle', oracleVersion) ?? (() => {
-    const o = lang === 'ts' ? oracleTs() : lang === 'rust' ? oracleRust() : oracleGo();
-    saveCache('oracle', oracleVersion, { edges: [...o.edges], resolvedSpecs: o.resolvedSpecs ? [...o.resolvedSpecs].map(([k, v]) => [k, [...v]]) : undefined });
-    return o;
-  })();
-  if (oracle.resolvedSpecs) oracle.resolvedSpecs = new Map(oracle.resolvedSpecs); // cache round-trip
+  const oracle =
+    loadCache('oracle', oracleVersion) ??
+    (() => {
+      const o = lang === 'ts' ? oracleTs() : lang === 'rust' ? oracleRust() : oracleGo();
+      saveCache('oracle', oracleVersion, { edges: [...o.edges], resolvedSpecs: o.resolvedSpecs ? [...o.resolvedSpecs].map(([k, v]) => [k, [...v]]) : undefined });
+      return o;
+    })();
+  if (oracle.resolvedSpecs) oracle.resolvedSpecs = new Map([...oracle.resolvedSpecs].map(([k, v]) => [k, new Set(v)])); // cache round-trip
 
   let cellsVersion = 'cells ?';
   try {
@@ -342,11 +380,13 @@ function main() {
   } catch {
     /* version read is a cache-key nicety — fall back to a fixed key */
   }
-  const ours = loadCache('cells', cellsVersion) ?? (() => {
-    const o = cellsEdges();
-    saveCache('cells', cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
-    return o;
-  })();
+  const ours =
+    loadCache('cells', cellsVersion) ??
+    (() => {
+      const o = cellsEdges();
+      saveCache('cells', cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
+      return o;
+    })();
   if (ours.unresolved) ours.unresolved = new Map(ours.unresolved); // cache round-trip
 
   // Go imports are package-level, but both sides pin them to a representative file —
