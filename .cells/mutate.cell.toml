@@ -1,0 +1,25 @@
+name = "mutate"
+purpose = "Mutation command bodies: init/rename/remove/assign/unassign/new/prune-stale/plan/config — the write side of the workflow (partition + declarations). Read/analysis commands stay in commands; cli only dispatches."
+provides = [
+  "cmdConfig",
+  "cmdInit",
+  "cmdRename",
+  "cmdRemove",
+  "cmdAssign",
+  "cmdUnassign",
+  "cmdNew",
+  "cmdPruneStale",
+  "cmdPlan",
+]
+requires = [
+  "io",
+  "commands",
+  "config",
+  "declaration",
+  "crossings",
+  "payload",
+  "assign",
+  "importers",
+]
+
+layer = 6

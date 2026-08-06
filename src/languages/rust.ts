@@ -23,9 +23,11 @@ function binCrateDirs(baseDir: string): Set<string> | null {
   let dirs: Set<string> | null = null;
   try {
     const content = readFileSync(join(key, 'Cargo.toml'), 'utf8');
-    const matches = [...content.matchAll(/^\[\[bin\]\]\s*[\s\S]*?^\s*path\s*=\s*["']([^"']+)["']/gm)];
+    // (?:(?!^\[\[)[\s\S])*? — never let the span cross into the next [[bin]] block
+    // (a [[bin]] without path is legal and defaults to src/main.rs).
+    const matches = [...content.matchAll(/^\[\[bin\]\]((?:(?!^\[\[)[\s\S])*?)^\s*path\s*=\s*["']([^"']+)["']/gm)];
     if (matches.length > 0) {
-      dirs = new Set(matches.map((m) => dirname(m[1]).replace(/^\.\//, '') || '.'));
+      dirs = new Set(matches.map((m) => dirname(m[2]).replace(/^\.\//, '') || '.'));
     }
   } catch {
     /* no root manifest */

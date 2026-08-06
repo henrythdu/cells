@@ -248,7 +248,10 @@ function rootWorkspaceGlobs(baseDir: string): string[] | null {
  *  the examples dir itself). `!`-prefixed patterns exclude. */
 function isWorkspaceMember(dir: string, globs: string[]): boolean {
   const match = (pattern: string) => {
-    const re = new RegExp(`^${pattern.split('**').join('.*').split('*').join('[^/]*')}$`);
+    // Escape glob metachars that are regex metachars (dots, parens, brackets…)
+    // BEFORE the wildcard translation: 'packages/foo.bar' must not match 'fooXbar'.
+    const escaped = pattern.replace(/[.+(){}[\]|\\]/g, '\\$&');
+    const re = new RegExp(`^${escaped.split('**').join('.*').split('*').join('[^/]*')}$`);
     return re.test(dir);
   };
   const positives = globs.filter((g) => !g.startsWith('!'));

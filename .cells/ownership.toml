@@ -28,8 +28,10 @@ files = [
   "test/health.test.ts",
   "test/remove.test.ts",
   "test/workflow.test.ts",
-  "src/mutate.ts",
 ]
+
+[mutate]
+files = ["src/mutate.ts"]
 
 [io]
 files = ["src/io.ts", "test/io.test.ts"]
