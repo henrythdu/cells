@@ -28,6 +28,27 @@ function setupRepo(): string {
   return dir;
 }
 
+describe('cells imports', () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('dumps the raw import graph as JSON (edges + unresolved, same-cell included)', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, 'src', 'b.ts'), `import { x } from './a';
+import { nope } from './nope';
+export const y = x + nope;
+`);
+    const out = execSync(`node ${cellsBin} imports --json`, { cwd: repo, encoding: 'utf8' });
+    const { edges, unresolved } = JSON.parse(out);
+    // same-cell edge present (a.ts → b.ts is one cell) — the validation surface, not crossings
+    expect(edges).toContainEqual({ fromFile: 'src/b.ts', toFile: 'src/a.ts', import: './a' });
+    expect(unresolved).toContainEqual({ fromFile: 'src/b.ts', import: './nope' });
+  });
+});
+
 describe('cells new', () => {
   let repo: string;
 

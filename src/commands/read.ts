@@ -50,19 +50,33 @@ export function requireCell(declarations: Record<string, Cell>, name: string): C
 
 export async function loadCrossings(ownership: Ownership, warn = true): Promise<{ edges: ImportEdge[]; crossings: Crossing[]; uncoveredExts: string[]; unresolved: UnresolvedImport[] }> {
   const { edges, uncoveredExts, unresolved, failures, ignoreBlindExts } = await collectImportEdges();
-  if (failures.length > 0) {
-    // Importer failed → its language's edges are missing → the graph is blind → any
-    // crossing verdict (incl. the gate) is unreliable. Fail loudly: a false green is
-    // worse than a false red. Mandatory confrontation, same as a gate failure.
-    const detail = failures.map((f) => `importer "${f.importer}" failed: ${f.error}`).join('; ');
-    throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);
-  }
+  assertNoImporterFailures(failures);
   if (warn) warnIfBlind(uncoveredExts, ignoreBlindExts);
   // Unresolved imports only matter for the partition: an unowned file's broken specifier
   // affects nothing until the file is owned. Filtering here keeps health/crossings info
   // sections actionable (stress test: 280 noise entries from unowned files).
   const ownedUnresolved = unresolved.filter((u) => owningCell(ownership, u.fromFile) !== undefined);
   return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved: ownedUnresolved };
+}
+
+/** Importer failure → blind graph → any crossing verdict is unreliable. Fail loudly (see loadCrossings). */
+function assertNoImporterFailures(failures: { importer: string; error: string }[]): void {
+  if (failures.length === 0) return;
+  const detail = failures.map((f) => `importer "${f.importer}" failed: ${f.error}`).join('; ');
+  throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);
+}
+
+/** `cells imports [--json]` — the raw file→file import graph: every resolved edge (same-cell
+ *  included, unowned files included) + every unresolved specifier. Machine surface for the
+ *  crossing-validation harness (scripts/validate-crossings); the gate never reads it. */
+export async function cmdImports(opts: { json?: boolean } = {}): Promise<void> {
+  const { edges, unresolved, uncoveredExts, failures } = await collectImportEdges();
+  assertNoImporterFailures(failures);
+  if (!opts.json) {
+    console.log(`${edges.length} import edge(s), ${unresolved.length} unresolved specifier(s)`);
+    return;
+  }
+  process.stdout.write(JSON.stringify({ edges, unresolved, uncoveredExts }, null, 2) + '\n');
 }
 
 /** `cells crossings [--diff] [--verbose] [--json]` — real cross-cell imports + leakage.
