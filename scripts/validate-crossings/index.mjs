@@ -444,13 +444,15 @@ function oracleJavaRaw() {
  *  first — its refs are symbol USES (calls reach declarations through transitively-
  *  included headers), not imports. `-H` prints the include tree: depth-1 entries =
  *  the TU's DIRECT includes — exactly the import model. compile_commands.json comes
- *  from an out-of-tree cmake configure (repo stays pristine). Raw = per-TU stderr,
- *  wrapped with the TU path; parsed on load. */
+ *  from an out-of-tree cmake configure (repo stays pristine; --cmake-args restricts
+ *  the target set — llama.cpp defaults to every example/tool, hundreds of TUs).
+ *  Raw = per-TU stderr, wrapped with the TU path; parsed on load. */
 function oracleCppRaw() {
   if (!existsSync(join(repo, 'CMakeLists.txt'))) throw new Error(`no CMakeLists.txt in ${repo} — compile_commands.json needs a cmake configure`);
   const tmp = mkdtempSync(join(tmpdir(), 'vc-cpp-'));
   const build = join(tmp, 'build');
-  const cfg = run('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', repo], repo);
+  const extra = (get('--cmake-args', '') ?? '').trim().split(/\s+/).filter(Boolean);
+  const cfg = run('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', ...extra, repo], repo);
   if (!cfg.ok) throw new Error(`cmake configure failed: ${(cfg.stderr || cfg.stdout).slice(0, 600)}`);
   let db;
   try {
@@ -466,21 +468,21 @@ function oracleCppRaw() {
       .replace(/\s+-o\s+\S+/g, '') // drop -o (would name an output — with -fsyntax-only none is written, but -MD would name a .d)
       .replace(/\s+-M(?:D|MD|F|T)(?:\s+\S+)?/g, '') // depfile flags only — NOT -D defines (macros affect includes)
       .replace(/\s+-c(?=\s)/, ' -fsyntax-only -H ');
-    const r = run('/bin/bash', ['-c', `${cmd} 2>&1`], repo);
-    out.push(`# TU ${rel(entry.file)}\n${r.stdout}`);
+    const r = run('/bin/bash', ['-c', `${cmd} 2>&1`], entry.directory ?? repo); // compdb -I flags are relative to the entry's directory (the build dir)
+    out.push(`# TU ${rel(entry.file)} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`); // FAIL = disabled/dead targets (cmake lists them, the build never compiles them) — unverifiable, treated blind
     // Headers the build reached ARE importers in the cells model (attr.h → cast.h).
     // Recompile each with -H so their direct includes become oracle edges too.
     for (const m of r.stdout.matchAll(/^\.+ (\/\S+\.(?:h|hpp|hh|hxx))$/gm)) {
       const h = rel(m[1]);
-      if (!h.startsWith('..') && !reachedHeaders.has(h)) reachedHeaders.set(h, cmd);
+      if (!h.startsWith('..') && !reachedHeaders.has(h)) reachedHeaders.set(h, { cmd, dir: entry.directory ?? repo });
     }
   }
-  for (const [h, cmd] of reachedHeaders) {
+  for (const [h, { cmd, dir }] of reachedHeaders) {
     const hc = cmd
       .replace(/\s+-fsyntax-only -H /, ' -fsyntax-only -H ') // keep flags, swap the TU for the header
       .replace(/(?:^|\s)(\S+\.(?:c|cc|cpp|cxx|m|mm))(?:\s|$)/, (mm, src) => mm.replace(src, join(repo, h)));
-    const r = run('/bin/bash', ['-c', `${hc} 2>&1`], repo);
-    out.push(`# TU ${h}\n${r.stdout}`);
+    const r = run('/bin/bash', ['-c', `${hc} 2>&1`], dir); // same dir as the TU that reached it — its -I flags are dir-relative
+    out.push(`# TU ${h} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`);
   }
   return out.join('\n');
 }
@@ -495,10 +497,15 @@ function oracleCppFromRaw(raw) {
   const fromFiles = new Set();
   let cur = null;
   for (const line of raw.split('\n')) {
-    const m = line.match(/^# TU (.+)$/);
+    const m = line.match(/^# TU (.+?) (OK|FAIL)$/);
     if (m) {
-      cur = m[1];
-      fromFiles.add(cur);
+      // Failed compiles = dead/disabled targets (cmake lists every target in the compdb,
+      // the build never compiles the disabled ones) — their imports are unverifiable, so
+      // the section is blind. Out-of-repo TUs (cmake-generated files in the build dir)
+      // aren't importers either.
+      const h = m[1];
+      cur = m[2] === 'OK' && !h.startsWith('..') ? h : null;
+      if (cur) fromFiles.add(cur);
       continue;
     }
     if (cur && /^\.+ /.test(line)) {
@@ -622,7 +629,7 @@ function main() {
           : lang === 'java'
             ? { name: 'scip-java', version: `${run(javaBin, ['--version'], repo).stdout.trim()} ${(get('--java-args', '') ?? '').trim()}` }
             : lang === 'cpp'
-              ? { name: 'gcc -H', version: run('gcc', ['--version'], repo).stdout.trim().split('\n')[0] }
+              ? { name: 'gcc -H', version: `${run('gcc', ['--version'], repo).stdout.trim().split('\n')[0]} ${(get('--cmake-args', '') ?? '').trim()} oracle-v3` }
               : { name: 'pyright', version: run(pyrightBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
   const oracle =
