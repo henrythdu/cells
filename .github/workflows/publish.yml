@@ -23,19 +23,19 @@ jobs:
       # behavior — it now runs the project's prepare before devDeps (node types)
       # are linked, so tsc fails. The build happens explicitly below, with the
       # full tree present.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # --force: re-extract from the registry — the runner's supply-chain store
+      # left a half-linked tree (dangling .bin/tsc, types not resolvable)
+      - run: pnpm install --frozen-lockfile --ignore-scripts --force
       - name: Diagnose node_modules state
         if: always()
         run: |
-          echo "-- node_modules/@types --"
-          ls -la node_modules/@types 2>&1 | head -6
-          echo "-- .pnpm @types/node --"
-          ls node_modules/.pnpm/@types+node@26.1.1/\
-            node_modules/@types/node/package.json 2>&1
-          echo "-- tsc --"
+          echo "-- runner npmrc --"
+          cat "$NPM_CONFIG_USERCONFIG" 2>&1 | head -10
+          echo "-- @types/node target --"
+          readlink -f node_modules/@types/node 2>&1
+          ls "$(readlink -f node_modules/@types/node)" 2>&1 | head -8
+          echo "-- .bin --"
           ls -la node_modules/.bin/tsc 2>&1 | head -2
-          echo "-- tsconfig types --"
-          grep -E '"types"' tsconfig.json || echo '(no types field)'
       - run: pnpm run build && chmod +x dist/cli.js
       - name: Check if version already published
         id: check
