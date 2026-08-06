@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { depCruiserImporter } from '../../src/languages/typescript.js';
+import { typescriptImporter, javascriptImporter, tsxImporter } from '../../src/languages/typescript.js';
+import type { SourceFile } from '../../src/imports.js';
 
 const TSCONFIG_PATHS = JSON.stringify({
   compilerOptions: {
@@ -33,18 +34,24 @@ afterEach(() => {
   fixtures.clear();
 });
 
-describe('depCruiserImporter (tsconfig paths aliases)', () => {
-  /** Real usage: cells runs with cwd = repo root, codeDirs relative. Mirror that. */
-  async function extractAt(dir: string) {
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      return await depCruiserImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
-    } finally {
-      process.chdir(prev);
-    }
-  }
+/** Extract with the census files read from the fixture (tree-sitter importers parse `files`,
+ *  unlike dep-cruiser which cruised the FS). */
+async function extractAt(dir: string, importer = typescriptImporter, files?: SourceFile[]) {
+  const known: SourceFile[] =
+    files ??
+    (await (async () => {
+      const src = ['a.ts', 'b.ts'];
+      const out: SourceFile[] = [];
+      for (const f of src) {
+        const p = `src/${f}`;
+        out.push({ path: p, content: require('node:fs').readFileSync(join(dir, p), 'utf8') });
+      }
+      return out;
+    })());
+  return importer.extract({ codeDirs: ['src'], files: known, ownership: {}, baseDir: dir });
+}
 
+describe('typescriptImporter (tree-sitter)', () => {
   it('resolves `@/` aliases when the repo tsconfig is present (edge to the real file)', async () => {
     const dir = makeFixture(true);
     const { edges, unresolved } = await extractAt(dir);
@@ -82,7 +89,11 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     writeFileSync(join(dir, 'src', 'a.ts'), "import { b } from '@/b';\nimport { s } from '~/s';\n");
     writeFileSync(join(dir, 'src', 'b.ts'), 'export const b = 1;\n');
     writeFileSync(join(dir, 'server', 's.ts'), 'export const s = 1;\n');
-    const { edges, unresolved } = await extractAt(dir);
+    const { edges, unresolved } = await extractAt(dir, typescriptImporter, [
+      { path: 'src/a.ts', content: "import { b } from '@/b';\nimport { s } from '~/s';\n" },
+      { path: 'src/b.ts', content: 'export const b = 1;\n' },
+      { path: 'server/s.ts', content: 'export const s = 1;\n' },
+    ]);
     expect(edges.some((e) => e.import === '@/b')).toBe(true); // aliases resolve despite the trailing comma
     expect(edges.some((e) => e.import === '~/s')).toBe(true);
     expect(unresolved.some((u) => u.import === '@/b' || u.import === '~/s')).toBe(false);
@@ -106,34 +117,28 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
       join(dir, 'packages', 'create-turbo', 'src', 'cli.ts'),
       "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n",
     );
-
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      const { edges, unresolved } = await depCruiserImporter.extract({
-        codeDirs: ['packages'],
-        files: [
-          { path: 'packages/create-turbo/src/cli.ts', content: '' },
-          { path: 'packages/utils/src/index.ts', content: '' },
-          { path: 'packages/utils/src/deep.ts', content: '' },
-          { path: 'packages/utils/src/dir/index.default.js', content: '' },
-        ],
-        ownership: {},
-      });
-      const exact = edges.find((e) => e.import === '@turbo/utils');
-      expect(exact).toBeDefined();
-      expect(exact!.toFile).toContain('packages/utils/src/index.ts'); // dist-only main → source via probes
-      const sub = edges.find((e) => e.import === '@turbo/utils/deep');
-      expect(sub).toBeDefined();
-      expect(sub!.toFile).toContain('packages/utils/src/deep.ts'); // heuristic: entry dir + rest
-      const mod = edges.find((e) => e.import === '@turbo/utils/with-module');
-      expect(mod).toBeDefined();
-      expect(mod!.toFile).toContain('packages/utils/src/dir/index.default.js'); // exports subpath key
-      expect(edges.some((e) => e.import === '@turbo/nope')).toBe(false); // unknown name → external, silent
-      expect(unresolved.some((u) => u.import === '@turbo/nope')).toBe(false);
-    } finally {
-      process.chdir(prev);
-    }
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['packages'],
+      files: [
+        { path: 'packages/create-turbo/src/cli.ts', content: "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n" },
+        { path: 'packages/utils/src/index.ts', content: '' },
+        { path: 'packages/utils/src/deep.ts', content: '' },
+        { path: 'packages/utils/src/dir/index.default.js', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    const exact = edges.find((e) => e.import === '@turbo/utils');
+    expect(exact).toBeDefined();
+    expect(exact!.toFile).toContain('packages/utils/src/index.ts'); // dist-only main → source via probes
+    const sub = edges.find((e) => e.import === '@turbo/utils/deep');
+    expect(sub).toBeDefined();
+    expect(sub!.toFile).toContain('packages/utils/src/deep.ts'); // heuristic: entry dir + rest
+    const mod = edges.find((e) => e.import === '@turbo/utils/with-module');
+    expect(mod).toBeDefined();
+    expect(mod!.toFile).toContain('packages/utils/src/dir/index.default.js'); // exports subpath key
+    expect(edges.some((e) => e.import === '@turbo/nope')).toBe(false); // unknown name → external, silent
+    expect(unresolved.some((u) => u.import === '@turbo/nope')).toBe(false);
   });
 
   it('resolves a no-exports workspace subpath the Node way — pkgdir + rest (stress #16: @turbo/utils/src/get-turbo-configs)', async () => {
@@ -147,26 +152,20 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'index.ts'), 'export const a = 1;\n');
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'get-turbo-configs.ts'), 'export const b = 2;\n');
     writeFileSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils', 'calculate-inputs.ts'), "import { b } from '@turbo/utils/src/get-turbo-configs';\nexport const c = b;\n");
-
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      const { edges, unresolved } = await depCruiserImporter.extract({
-        codeDirs: ['packages'],
-        files: [
-          { path: 'packages/eslint-plugin-turbo/lib/utils/calculate-inputs.ts', content: '' },
-          { path: 'packages/turbo-utils/src/index.ts', content: '' },
-          { path: 'packages/turbo-utils/src/get-turbo-configs.ts', content: '' },
-        ],
-        ownership: {},
-      });
-      const hit = edges.find((e) => e.import === '@turbo/utils/src/get-turbo-configs');
-      expect(hit).toBeDefined();
-      expect(hit!.toFile).toContain('packages/turbo-utils/src/get-turbo-configs.ts');
-      expect(unresolved.some((u) => u.import === '@turbo/utils/src/get-turbo-configs')).toBe(false);
-    } finally {
-      process.chdir(prev);
-    }
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['packages'],
+      files: [
+        { path: 'packages/eslint-plugin-turbo/lib/utils/calculate-inputs.ts', content: "import { b } from '@turbo/utils/src/get-turbo-configs';\nexport const c = b;\n" },
+        { path: 'packages/turbo-utils/src/index.ts', content: '' },
+        { path: 'packages/turbo-utils/src/get-turbo-configs.ts', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    const hit = edges.find((e) => e.import === '@turbo/utils/src/get-turbo-configs');
+    expect(hit).toBeDefined();
+    expect(hit!.toFile).toContain('packages/turbo-utils/src/get-turbo-configs.ts');
+    expect(unresolved.some((u) => u.import === '@turbo/utils/src/get-turbo-configs')).toBe(false);
   });
 
   it('resolves a subpath whose exports target is dist-flattened (vite: ./module-runner → dist/node/x.js, source src/module-runner/)', async () => {
@@ -180,26 +179,20 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     writeFileSync(join(dir, 'packages', 'vite', 'src', 'index.ts'), 'export const vite = 1;\n');
     writeFileSync(join(dir, 'packages', 'vite', 'src', 'module-runner', 'index.ts'), 'export const mr = 1;\n');
     writeFileSync(join(dir, 'apps', 'web', 'main.ts'), "import { mr } from '@vitejs/test/module-runner';\n");
-
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      const { edges, unresolved } = await depCruiserImporter.extract({
-        codeDirs: ['.'],
-        files: [
-          { path: 'apps/web/main.ts', content: '' },
-          { path: 'packages/vite/src/index.ts', content: '' },
-          { path: 'packages/vite/src/module-runner/index.ts', content: '' },
-        ],
-        ownership: {},
-      });
-      const sub = edges.find((e) => e.import === '@vitejs/test/module-runner');
-      expect(sub).toBeDefined();
-      expect(sub!.toFile).toContain('packages/vite/src/module-runner/index.ts');
-      expect(unresolved.some((u) => u.import === '@vitejs/test/module-runner')).toBe(false);
-    } finally {
-      process.chdir(prev);
-    }
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['.'],
+      files: [
+        { path: 'apps/web/main.ts', content: "import { mr } from '@vitejs/test/module-runner';\n" },
+        { path: 'packages/vite/src/index.ts', content: '' },
+        { path: 'packages/vite/src/module-runner/index.ts', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    const sub = edges.find((e) => e.import === '@vitejs/test/module-runner');
+    expect(sub).toBeDefined();
+    expect(sub!.toFile).toContain('packages/vite/src/module-runner/index.ts');
+    expect(unresolved.some((u) => u.import === '@vitejs/test/module-runner')).toBe(false);
   });
 
   it('merges nested per-app tsconfig paths so @/ aliases resolve (wave-3 #3: turborepo)', async () => {
@@ -211,25 +204,19 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     writeFileSync(join(dir, 'apps', 'docs', 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: { '@/*': ['./*'] } } }));
     writeFileSync(join(dir, 'apps', 'docs', 'lib', 'create-metadata.ts'), 'export const m = 1;\n');
     writeFileSync(join(dir, 'apps', 'docs', 'app', 'page.tsx'), "import { m } from '@/lib/create-metadata';\nexport const p = m;\n");
-
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      const { edges, unresolved } = await depCruiserImporter.extract({
-        codeDirs: ['.'],
-        files: [
-          { path: 'apps/docs/app/page.tsx', content: '' },
-          { path: 'apps/docs/lib/create-metadata.ts', content: '' },
-        ],
-        ownership: {},
-      });
-      const viaAlias = edges.find((e) => e.import === '@/lib/create-metadata');
-      expect(viaAlias).toBeDefined();
-      expect(viaAlias!.toFile).toContain('apps/docs/lib/create-metadata.ts');
-      expect(unresolved.some((u) => u.import === '@/lib/create-metadata')).toBe(false);
-    } finally {
-      process.chdir(prev);
-    }
+    const { edges, unresolved } = await tsxImporter.extract({
+      codeDirs: ['.'],
+      files: [
+        { path: 'apps/docs/app/page.tsx', content: "import { m } from '@/lib/create-metadata';\nexport const p = m;\n" },
+        { path: 'apps/docs/lib/create-metadata.ts', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    const viaAlias = edges.find((e) => e.import === '@/lib/create-metadata');
+    expect(viaAlias).toBeDefined();
+    expect(viaAlias!.toFile).toContain('apps/docs/lib/create-metadata.ts');
+    expect(unresolved.some((u) => u.import === '@/lib/create-metadata')).toBe(false);
   });
 
   it('resolves directory + dist-artifact relative imports (stress #6/#8: require(..), dist→src)', async () => {
@@ -246,30 +233,92 @@ describe('depCruiserImporter (tsconfig paths aliases)', () => {
     // probe's dist→src variants land on the source file
     writeFileSync(join(dir, 'pkg', 'src', 'node', 'cli.ts'), 'export const cli = 1;\n');
     writeFileSync(join(dir, 'pkg', 'index.js'), 'require("./dist/node/cli");\n');
+    const { edges, unresolved } = await javascriptImporter.extract({
+      codeDirs: ['.'],
+      files: [
+        { path: 'lib/util/test/arrays.js', content: 'const _ = require("..");\n' },
+        { path: 'lib/util/index.js', content: 'module.exports = {};\n' },
+        { path: 'pkg/index.js', content: 'require("./dist/node/cli");\n' },
+        { path: 'pkg/src/node/cli.ts', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    const dirImport = edges.find((e) => e.import === '..');
+    expect(dirImport).toBeDefined();
+    expect(dirImport!.toFile).toContain('lib/util/index.js'); // require('..') → dir index
+    const distImport = edges.find((e) => e.import === './dist/node/cli');
+    expect(distImport).toBeDefined();
+    expect(distImport!.toFile).toContain('pkg/src/node/cli.ts'); // dist artifact → source
+    expect(unresolved.some((u) => u.import === '..')).toBe(false);
+    expect(unresolved.some((u) => u.import === './dist/node/cli')).toBe(false);
+  });
 
-    const prev = process.cwd();
-    process.chdir(dir);
-    try {
-      const { edges, unresolved } = await depCruiserImporter.extract({
-        codeDirs: ['.'],
-        files: [
-          { path: 'lib/util/test/arrays.js', content: '' },
-          { path: 'lib/util/index.js', content: '' },
-          { path: 'pkg/index.js', content: '' },
-          { path: 'pkg/src/node/cli.ts', content: '' },
-        ],
-        ownership: {},
-      });
-      const dirImport = edges.find((e) => e.import === '..');
-      expect(dirImport).toBeDefined();
-      expect(dirImport!.toFile).toContain('lib/util/index.js'); // require('..') → dir index
-      const distImport = edges.find((e) => e.import === './dist/node/cli');
-      expect(distImport).toBeDefined();
-      expect(distImport!.toFile).toContain('pkg/src/node/cli.ts'); // dist artifact → source
-      expect(unresolved.some((u) => u.import === '..')).toBe(false);
-      expect(unresolved.some((u) => u.import === './dist/node/cli')).toBe(false);
-    } finally {
-      process.chdir(prev);
-    }
+  it('extracts ESM, CJS, dynamic import, import-equals and triple-slash reference (all TS import forms)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-forms-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import { b } from './b';\nimport './side.css';\nexport * from './reex';\nimport('dynamic/m').then(() => {});\nconst c = require('./cjs');\nimport z = require('./eq');\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const b = 1;\n');
+    writeFileSync(join(dir, 'src', 'reex.ts'), 'export const r = 1;\n');
+    writeFileSync(join(dir, 'src', 'cjs.js'), 'module.exports = 1;\n');
+    writeFileSync(join(dir, 'src', 'eq.ts'), 'export const e = 1;\n');
+    writeFileSync(join(dir, 'src', 'side.css'), 'body { color: red; }\n');
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['src'],
+      files: [
+        { path: 'src/a.ts', content: "import { b } from './b';\nimport './side.css';\nexport * from './reex';\nimport('dynamic/m').then(() => {});\nconst c = require('./cjs');\nimport z = require('./eq');\n" },
+        { path: 'src/b.ts', content: 'export const b = 1;\n' },
+        { path: 'src/reex.ts', content: 'export const r = 1;\n' },
+        { path: 'src/cjs.js', content: 'module.exports = 1;\n' },
+        { path: 'src/eq.ts', content: 'export const e = 1;\n' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    expect(edges.some((e) => e.import === './b')).toBe(true); // named import
+    expect(edges.some((e) => e.import === './reex')).toBe(true); // export * from
+    expect(edges.some((e) => e.import === './cjs')).toBe(true); // require()
+    expect(edges.some((e) => e.import === './eq')).toBe(true); // import x = require()
+    expect(edges.some((e) => e.import === 'dynamic/m')).toBe(false); // dynamic → external, silent
+    expect(unresolved.some((u) => u.import === 'dynamic/m')).toBe(false);
+    expect(unresolved.some((u) => u.import === './side.css')).toBe(false); // existing non-code → silent, NOT flagged
+    expect(edges.some((e) => e.import === './side.css')).toBe(false); // …and not in the census → no edge
+  });
+
+  it('flags a broken relative import but stays silent on node builtins', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-builtin-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import fs from 'node:fs';\nimport path from 'path';\nimport { x } from './nope';\n");
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['src'],
+      files: [{ path: 'src/a.ts', content: "import fs from 'node:fs';\nimport path from 'path';\nimport { x } from './nope';\n" }],
+      ownership: {},
+      baseDir: dir,
+    });
+    expect(edges.length).toBe(0);
+    expect(unresolved.some((u) => u.import === 'node:fs')).toBe(false); // builtins silent
+    expect(unresolved.some((u) => u.import === 'path')).toBe(false);
+    expect(unresolved.some((u) => u.import === './nope')).toBe(true); // broken relative flagged
+  });
+
+  it('drops self-imports and dedupes repeated specifiers', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-self-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import './b';\nimport './b';\nimport './a';\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const b = 1;\n');
+    const { edges, unresolved } = await typescriptImporter.extract({
+      codeDirs: ['src'],
+      files: [
+        { path: 'src/a.ts', content: "import './b';\nimport './b';\nimport './a';\n" },
+        { path: 'src/b.ts', content: '' },
+      ],
+      ownership: {},
+      baseDir: dir,
+    });
+    expect(edges.filter((e) => e.import === './b').length).toBe(1); // deduped
+    expect(edges.some((e) => e.import === './a')).toBe(false); // self-loop dropped
   });
 });

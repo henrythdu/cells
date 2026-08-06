@@ -1,5 +1,5 @@
 name = "typescript"
-purpose = "TS/JS importer (dep-cruiser)"
-provides = ["depCruiserImporter"]
-requires = ["imports"]
+purpose = "TS/JS/TSX importers (tree-sitter — the other languages' shared machinery)"
+provides = ["typescriptImporter", "tsxImporter", "javascriptImporter"]
+requires = ["imports", "tree-sitter"]
 layer = 4

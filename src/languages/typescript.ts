@@ -1,9 +1,26 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, posix, resolve, relative } from 'node:path';
-import { tmpdir } from 'node:os';
-import { cruise, type ICruiseOptions, type ICruiseResult } from 'dependency-cruiser';
-import ts from 'typescript';
-import type { ImportEdge, ImportResult, UnresolvedImport, Importer, SourceFile } from '../imports.js';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
+import type { Node } from 'web-tree-sitter';
+import type { ImportEdge, UnresolvedImport, Importer } from '../imports.js';
+import { createTreeSitterImporter, type ResolveCtx } from './tree-sitter.js';
+
+/**
+ * TypeScript/JavaScript importers — tree-sitter, consistent with the other languages.
+ * Three specs share one resolution machinery: `typescript` (.ts/.d.ts), `tsx` (.tsx),
+ * `javascript` (.js/.jsx/.mjs/.cjs — the TS grammar can't parse JSX, hence the tsx wasm).
+ *
+ * Resolution semantics (ported from the dep-cruiser importer, kept behavior-identical):
+ *  - relative specifiers (`./x`, `..`) probe extension/index/dist→src candidates, then draw
+ *    an edge when the target is a census file; an existing non-code target (css/json) is
+ *    real but silent; nothing on disk = unresolved (honest).
+ *  - `@/`, `~/`, `#/` and any tsconfig `paths` alias resolve through the merged per-repo
+ *    tsconfig map (jsonc-tolerant); a mapped-but-missing target = unresolved.
+ *  - bare specifiers resolve through the workspace package map (package.json name → dir,
+ *    `exports` exact/wildcard subpaths, then Node pkgdir+rest) — a known package with a
+ *    broken subpath = unresolved; an unknown name (external dep, node builtin) = silent.
+ * Source-based only: reads package.json/tsconfig.json, never executes. Resolution facts
+ * (package map + alias map) build once per extract (WeakMap keyed on the factory's ctx).
+ */
 
 /** A workspace package: its dir (repo-relative), parsed `exports` (for subpath keys), and the
  *  resolved `.` entry source file (or null). */
@@ -13,133 +30,78 @@ interface PkgInfo {
   entry: string | null;
 }
 
-/** First string in a conditional-exports object, recursing into nested conditionals
- *  (types/import/module/default priority). Pure. */
-function firstString(obj: Record<string, unknown>): string | undefined {
-  for (const k of ['types', 'import', 'module', 'default']) {
-    const v = obj[k];
-    if (typeof v === 'string') return v;
-    if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>);
-  }
-  return undefined;
+/** Per-extract resolution facts: the workspace package map + merged tsconfig alias map.
+ *  Both are pure over (census files, baseDir) and expensive to build — computed once per
+ *  extract, keyed on the factory's ResolveCtx (per-extract object; GC-safe, no cross-run
+ *  staleness). */
+interface TsFacts {
+  packages: Map<string, PkgInfo>;
+  aliases: Map<string, string[]>;
 }
 
-/** Probe a repo-relative target with extension/index + dist→src variants (so a dist-only `main`
- *  lands on the source file). Returns the first existing file (repo-relative), else null.
- *  Probe results are memoized per extract — monorepos without node_modules issue hundreds of
- *  bare-specifier lookups and re-stat the same candidate paths repeatedly. Pure wrt inputs. */
-function probeFile(baseDir: string, norm: (p: string) => string, rel: string, cache: Map<string, string | null>): string | null {
-  const key = `${baseDir}\u0000${rel}`;
-  const hit = cache.get(key);
-  if (hit !== undefined) return hit;
-  const toPosix = rel.replace(/\\/g, '/'); // win32: join/relative emit backslashes; string ops below need /
-  // `dist/` at any depth → `src/` (a package's dist entry maps to its source tree)
-  const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
-  const candidates = [
-    toPosix,
-    `${toPosix}.d.ts`, // types-only exports resolve to declaration files (vite/types/*)
-    `${toPosix}.ts`,
-    `${toPosix}.tsx`,
-    `${toPosix}/index.ts`,
-    `${toPosix}/index.tsx`,
-    toPosix.replace(/\.js$/, '.ts'),
-    srcRel,
-    `${srcRel}.ts`,
-    `${srcRel}.tsx`,
-    `${srcRel}/index.ts`,
-    `${srcRel}/index.tsx`,
-    srcRel.replace(/\.js$/, '.ts'),
-    // directory targets (`require('..')` → the dir's index): plain JS-family index files
-    `${toPosix}/index.js`,
-    `${toPosix}/index.jsx`,
-    `${toPosix}/index.mjs`,
-    `${toPosix}/index.cjs`,
-  ];
-  for (const c of candidates) {
-    const full = join(baseDir, c);
-    try {
-      if (statSync(full).isFile()) {
-        cache.set(key, norm(full));
-        return norm(full);
+const factsByCtx = new WeakMap<ResolveCtx, TsFacts>();
+function factsOf(ctx: ResolveCtx): TsFacts {
+  let f = factsByCtx.get(ctx);
+  if (!f) {
+    const base = ctx.baseDir ?? '.';
+    f = { packages: workspacePackages(ctx.files, base, ctx), aliases: collectTsconfigPaths(ctx.files, base) };
+    factsByCtx.set(ctx, f);
+  }
+  return f;
+}
+
+// --- tsconfig parsing (jsonc) ---
+
+/** Strip JSONC down to strict JSON: // and /* *\/ comments + trailing commas. Careful with
+ *  strings (a URL `https://x` or `//` inside a string must survive). The `typescript` package
+ *  used to do this via readConfigFile — a ~20-line stripper replaces the 60MB dependency. */
+function stripJsonc(s: string): string {
+  let out = '';
+  let inString = false;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (inString) {
+      out += c;
+      if (c === '\\') {
+        out += s[i + 1] ?? '';
+        i += 2;
+        continue;
       }
-    } catch {
-      /* not found or not a file — try the next candidate */
+      if (c === '"') inString = false;
+      i++;
+      continue;
     }
-  }
-  cache.set(key, null);
-  return null;
-}
-
-/** A package.json's exports/subpath target as a source file, or null. Pure. */
-function exportsTarget(exports: Record<string, unknown> | null, key: string): string | null {
-  if (!exports) return null;
-  const v = exports[key];
-  if (typeof v === 'string') return v;
-  if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>) ?? null;
-  return null;
-}
-
-/**
- * Workspace package map: package.json `name` → PkgInfo. Built from the ancestor chain of
- * every code file (a file's nearest package.json owns it) — so packages with no code in
- * code-dirs never enter the map, and the root repo package.json (dir '.') is never read.
- */
-function workspacePackages(files: SourceFile[], baseDir: string, norm: (p: string) => string, cache: Map<string, string | null>): Map<string, PkgInfo> {
-  const map = new Map<string, PkgInfo>();
-  const seen = new Set<string>();
-  for (const f of files) {
-    let dir = dirname(f.path);
-    while (dir !== '.' && !seen.has(dir)) {
-      seen.add(dir);
-      const pj = join(baseDir, dir, 'package.json');
-      if (existsSync(pj)) {
-        try {
-          const pkg = JSON.parse(readFileSync(pj, 'utf8')) as Record<string, unknown>;
-          const name = typeof pkg.name === 'string' ? pkg.name : undefined;
-          if (name && !map.has(name)) {
-            const exports = pkg.exports && typeof pkg.exports === 'object' && !Array.isArray(pkg.exports) ? (pkg.exports as Record<string, unknown>) : null;
-            const dot = exportsTarget(exports, '.');
-            let main: string | undefined;
-            if (typeof pkg.main === 'string') main = pkg.main;
-            else if (typeof pkg.types === 'string') main = pkg.types;
-            const entry = probeFile(baseDir, norm, join(dir, (dot ?? main ?? 'src/index.ts').replace(/^\.\//, '')), cache);
-            map.set(name, { dir, exports, entry });
-          }
-        } catch {
-          /* malformed package.json — skip; the package's imports stay external */
-        }
-        break; // nearest package owns the file; don't walk past it
-      }
-      dir = dirname(dir);
+    if (c === '"') {
+      inString = true;
+      out += c;
+      i++;
+      continue;
     }
+    if (c === '/' && s[i + 1] === '/') {
+      while (i < s.length && s[i] !== '\n') i++;
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '*') {
+      i += 2;
+      while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i++;
   }
-  return map;
+  return out.replace(/,\s*([}\]])/g, '$1');
 }
 
-/** An exports wildcard key matching the subpath (e.g. `./features/*` matches `features/x`,
- *  `./*` matches anything) with `*` substituted by the subpath — or null. Pure. */
-function wildcardTarget(exports: Record<string, unknown> | null, rest: string): string | null {
-  if (!exports) return null;
-  for (const [key, value] of Object.entries(exports)) {
-    const star = key.indexOf('*');
-    if (star === -1) continue;
-    const prefix = key.slice(0, star); // './features/' (keys carry the leading './')
-    if (prefix.length < 2 || !rest.startsWith(prefix.slice(2))) continue;
-    const target = typeof value === 'string' ? value : value && typeof value === 'object' && !Array.isArray(value) ? firstString(value as Record<string, unknown>) : undefined;
-    if (typeof target !== 'string' || !target.includes('*')) continue;
-    return target.replace('*', rest.slice(prefix.length - 2));
-  }
-  return null;
-}
-
-/** Parse a tsconfig.json. TS config files are jsonc by spec — comments and trailing commas
- *  are legal (turborepo's apps/web/tsconfig.json has a trailing comma in `paths`); strict
- *  JSON.parse would throw and silently drop the config, losing its `paths` aliases.
- *  ts.readConfigFile handles comments/trailing commas/BOM natively. Returns null on
- *  read/parse failure (same contract as the old try/catch JSON.parse). */
+/** Parse a tsconfig.json (jsonc: comments + trailing commas are legal). Null on failure —
+ *  same contract as the old typescript.readConfigFile wrapper. */
 function readTsconfig(filePath: string): Record<string, unknown> | null {
-  const result = ts.readConfigFile(filePath, ts.sys.readFile);
-  return result.error ? null : ((result.config as Record<string, unknown> | undefined) ?? null);
+  try {
+    return JSON.parse(stripJsonc(readFileSync(filePath, 'utf8'))) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -148,7 +110,7 @@ function readTsconfig(filePath: string): Record<string, unknown> | null {
  * tsconfig's paths are relative to its own dir). Alias → root-relative targets. Reads the
  * files once per unique dir; malformed configs skipped. Pure wrt inputs (FS reads).
  */
-function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string, string[]> {
+function collectTsconfigPaths(files: ReadonlySet<string>, baseDir: string): Map<string, string[]> {
   const merged = new Map<string, string[]>();
   /** Merge one alias' root-relative targets, deduping across configs. */
   const mergeAlias = (alias: string, targets: string[]): void => {
@@ -161,7 +123,7 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
   };
   const seen = new Set<string>();
   for (const f of files) {
-    let dir = dirname(f.path);
+    let dir = dirname(f);
     while (dir !== '.' && !seen.has(dir)) {
       seen.add(dir);
       const tsPath = join(baseDir, dir, 'tsconfig.json');
@@ -195,10 +157,169 @@ function collectTsconfigPaths(files: SourceFile[], baseDir: string): Map<string,
   return merged;
 }
 
+// --- workspace package map ---
+
+/** First string in a conditional-exports object, recursing into nested conditionals
+ *  (types/import/module/default priority). Pure. */
+function firstString(obj: Record<string, unknown>): string | undefined {
+  for (const k of ['types', 'import', 'module', 'default']) {
+    const v = obj[k];
+    if (typeof v === 'string') return v;
+    if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>);
+  }
+  return undefined;
+}
+
+/** A package.json's exports/subpath target as a source file, or null. Pure. */
+function exportsTarget(exports: Record<string, unknown> | null, key: string): string | null {
+  if (!exports) return null;
+  const v = exports[key];
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>) ?? null;
+  return null;
+}
+
+/** An exports wildcard key matching the subpath (e.g. `./features/*` matches `features/x`,
+ *  `./*` matches anything) with `*` substituted by the subpath — or null. Pure. */
+function wildcardTarget(exports: Record<string, unknown> | null, rest: string): string | null {
+  if (!exports) return null;
+  for (const [key, value] of Object.entries(exports)) {
+    const star = key.indexOf('*');
+    if (star === -1) continue;
+    const prefix = key.slice(0, star); // './features/' (keys carry the leading './')
+    if (prefix.length < 2 || !rest.startsWith(prefix.slice(2))) continue;
+    const target = typeof value === 'string' ? value : value && typeof value === 'object' && !Array.isArray(value) ? firstString(value as Record<string, unknown>) : undefined;
+    if (typeof target !== 'string' || !target.includes('*')) continue;
+    return target.replace('*', rest.slice(prefix.length - 2));
+  }
+  return null;
+}
+
+/**
+ * Workspace package map: package.json `name` → PkgInfo. Built from the ancestor chain of
+ * every code file (a file's nearest package.json owns it) — so packages with no code in
+ * code-dirs never enter the map, and the root repo package.json (dir '.') is never read.
+ */
+function workspacePackages(files: ReadonlySet<string>, baseDir: string, ctx: ResolveCtx): Map<string, PkgInfo> {
+  const map = new Map<string, PkgInfo>();
+  const seen = new Set<string>();
+  for (const f of files) {
+    let dir = dirname(f);
+    while (dir !== '.' && !seen.has(dir)) {
+      seen.add(dir);
+      const pj = join(baseDir, dir, 'package.json');
+      if (existsSync(pj)) {
+        try {
+          const pkg = JSON.parse(readFileSync(pj, 'utf8')) as Record<string, unknown>;
+          const name = typeof pkg.name === 'string' ? pkg.name : undefined;
+          if (name && !map.has(name)) {
+            const exports = pkg.exports && typeof pkg.exports === 'object' && !Array.isArray(pkg.exports) ? (pkg.exports as Record<string, unknown>) : null;
+            const dot = exportsTarget(exports, '.');
+            let main: string | undefined;
+            if (typeof pkg.main === 'string') main = pkg.main;
+            else if (typeof pkg.types === 'string') main = pkg.types;
+            const entry = probeCandidates(join(dir, (dot ?? main ?? 'src/index.ts').replace(/^\.\//, '')), ctx);
+            map.set(name, { dir, exports, entry });
+          }
+        } catch {
+          /* malformed package.json — skip; the package's imports stay external */
+        }
+        break; // nearest package owns the file; don't walk past it
+      }
+      dir = dirname(dir);
+    }
+  }
+  return map;
+}
+
+// --- disk probing (memoized per extract) ---
+
+/** The probe candidate list for a repo-relative target: extension variants (`.d.ts` before
+ *  `.ts` — types-only exports resolve to declaration files), index files, `.js`→`.ts`, and
+ *  `dist/` → `src/` (a package's dist entry maps to its source tree). Order = TS resolution
+ *  semantics: TS extensions first, then plain JS-family variants (CJS `require('./x')` must
+ *  land on x.js), directory indexes, then the NodeNext `.js`→`.ts` remap. First existing
+ *  candidate wins. Pure. */
+function candidatesFor(rel: string): string[] {
+  const toPosix = rel.replace(/\\/g, '/'); // win32: join emits backslashes; string ops below need /
+  const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
+  return [
+    toPosix,
+    `${toPosix}.d.ts`,
+    `${toPosix}.ts`,
+    `${toPosix}.tsx`,
+    `${toPosix}.js`,
+    `${toPosix}.jsx`,
+    `${toPosix}.mjs`,
+    `${toPosix}.cjs`,
+    `${toPosix}.json`,
+    `${toPosix}/index.ts`,
+    `${toPosix}/index.tsx`,
+    `${toPosix}/index.js`,
+    `${toPosix}/index.jsx`,
+    `${toPosix}/index.mjs`,
+    `${toPosix}/index.cjs`,
+    toPosix.replace(/\.js$/, '.ts'), // NodeNext: './x.js' → x.ts source
+    toPosix.replace(/\.js$/, '.d.ts'), // …or the declaration file
+    toPosix.replace(/\.js$/, '.tsx'), // vite-style: './x.js' → x.tsx
+    toPosix.replace(/\.jsx$/, '.tsx'),
+    toPosix.replace(/\.mjs$/, '.ts'),
+    toPosix.replace(/\.mjs$/, '.mts'), // NodeNext: .mjs ↔ .mts
+    toPosix.replace(/\.cjs$/, '.ts'),
+    toPosix.replace(/\.cjs$/, '.cts'), // NodeNext: .cjs ↔ .cts
+    srcRel,
+    `${srcRel}.d.ts`,
+    `${srcRel}.ts`,
+    `${srcRel}.tsx`,
+    `${srcRel}.js`,
+    `${srcRel}.jsx`,
+    `${srcRel}/index.ts`,
+    `${srcRel}/index.tsx`,
+    `${srcRel}/index.js`,
+    `${srcRel}/index.jsx`,
+    `${srcRel}/index.mjs`,
+    `${srcRel}/index.cjs`,
+    srcRel.replace(/\.js$/, '.ts'),
+    srcRel.replace(/\.js$/, '.d.ts'),
+    srcRel.replace(/\.js$/, '.tsx'),
+    srcRel.replace(/\.jsx$/, '.tsx'),
+    srcRel.replace(/\.mjs$/, '.ts'),
+    srcRel.replace(/\.mjs$/, '.mts'),
+    srcRel.replace(/\.cjs$/, '.ts'),
+    srcRel.replace(/\.cjs$/, '.cts'),
+  ];
+}
+
+/** Does a repo-relative path exist as a FILE on disk? Memoized in the extract's scratch map
+ *  (monorepos issue hundreds of bare-specifier lookups and re-stat the same paths). */
+function existsOnDisk(ctx: ResolveCtx, rel: string): boolean {
+  const key = `${ctx.baseDir ?? '.'}\u0000${rel}`;
+  const hit = ctx.memo.get(key);
+  if (hit !== undefined) return hit;
+  let ok = false;
+  try {
+    ok = statSync(join(ctx.baseDir ?? '.', rel)).isFile();
+  } catch {
+    ok = false;
+  }
+  ctx.memo.set(key, ok);
+  return ok;
+}
+
+/** First existing candidate for a repo-relative target, or null. */
+function probeCandidates(rel: string, ctx: ResolveCtx): string | null {
+  for (const c of candidatesFor(rel)) {
+    if (existsOnDisk(ctx, c)) return c;
+  }
+  return null;
+}
+
+// --- resolution ---
+
 /** Resolve a bare specifier against the workspace map: exact name → entry; `name/rest` via
  *  exports subpath keys, wildcard keys, then entry-dir + rest probes. `matched` distinguishes
  *  a broken local subpath (flag) from a genuinely external package (silent). Pure. */
-function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: string, norm: (p: string) => string, cache: Map<string, string | null>): { matched: boolean; toFile: string | null } {
+function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, ctx: ResolveCtx): { matched: boolean; toFile: string | null } {
   const parts = spec.split('/');
   for (let i = parts.length; i >= 1; i--) {
     const name = parts.slice(0, i).join('/');
@@ -209,13 +330,13 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: st
     // 1) exact exports subpath key (e.g. exports["./with-module"])
     const exact = exportsTarget(pkg.exports, `./${rest}`);
     if (exact) {
-      const t = probeFile(baseDir, norm, join(pkg.dir, exact.replace(/^\.\//, '')), cache);
+      const t = probeCandidates(join(pkg.dir, exact.replace(/^\.\//, '')), ctx);
       if (t) return { matched: true, toFile: t };
     }
     // 2) wildcard exports key (e.g. exports["./*"] = "./src/*" or "./features/*")
     const wild = wildcardTarget(pkg.exports, rest);
     if (wild) {
-      const t = probeFile(baseDir, norm, join(pkg.dir, wild.replace(/^\.\//, '')), cache);
+      const t = probeCandidates(join(pkg.dir, wild.replace(/^\.\//, '')), ctx);
       if (t) return { matched: true, toFile: t };
     }
     // 3) heuristic: no exports field → Node semantics — `name/rest` resolves to
@@ -225,7 +346,7 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: st
     //    exports, subpaths live under the entry's dir (the ./subpath shape).
     const entryDir = pkg.entry ? pkg.entry.slice(0, pkg.entry.lastIndexOf('/')) : pkg.dir;
     const base = pkg.exports ? entryDir : pkg.dir;
-    const t = probeFile(baseDir, norm, join(base, rest), cache);
+    const t = probeCandidates(join(base, rest), ctx);
     if (t) return { matched: true, toFile: t };
     // Known package with an entry whose subpath is absent → broken local import (flag).
     // No entry at all (dist-only, no source) → can't judge — stay silent like an external.
@@ -234,118 +355,160 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, baseDir: st
   return { matched: false, toFile: null };
 }
 
-/** Probe a relative specifier (./x, ../x, '.', '..') that dep-cruiser couldn't resolve.
- *  Two common misses: directory imports (`require('..')` → the dir's index.*) and imports of
- *  dist artifacts (source importing its own build output — the probe's dist→src variants land
- *  on the source file). Resolves against the importing file's dir, then shares the standard
- *  probe (ext/index/dist→src variants). Returns the probed source file or null. Pure. */
-function resolveRelativeImport(spec: string, source: string, baseDir: string, norm: (p: string) => string, cache: Map<string, string | null>): string | null {
-  const target = posix.normalize(posix.join(posix.dirname(source), spec)).replace(/\/$/, '');
-  return probeFile(baseDir, norm, target, cache);
+/** Resolve a relative specifier (`./x`, `../x`, '.', '..') against the importing file's dir —
+ *  shared probe (ext/index/dist→src variants), then the dir's package.json `main` (Node
+ *  semantics: `import './'` or a dir with a main field resolves to it). Returns the probed
+ *  file or null. Pure. */
+function resolveRelative(spec: string, sourcePath: string, ctx: ResolveCtx): string | null {
+  const target = posix.normalize(posix.join(posix.dirname(sourcePath), spec)).replace(/\/$/, '');
+  const hit = probeCandidates(target, ctx);
+  if (hit) return hit;
+  // Directory import with a package.json main (vite's dep-relative-to-main fixture).
+  try {
+    const pkg = JSON.parse(readFileSync(join(ctx.baseDir ?? '.', target, 'package.json'), 'utf8')) as { main?: unknown };
+    if (typeof pkg.main === 'string') return probeCandidates(join(target, pkg.main.replace(/^\.\//, '')), ctx);
+  } catch {
+    /* no package.json or malformed — nothing more to try */
+  }
+  return null;
 }
 
-/** dep-cruiser importer — TS/JS. Source-based; handles aliases and `.js`→`.ts`. */
-export const depCruiserImporter: Importer = {
-  name: 'typescript',
-  extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'],
-  async extract({ codeDirs, baseDir, files }): Promise<ImportResult> {
-    const dirs = codeDirs.map((d) => (d.endsWith('/') ? d : `${d}/`));
-    const cruiseOpts: ICruiseOptions = {
-      tsPreCompilationDeps: true,
-      doNotFollow: { path: 'node_modules' },
-    };
-    // Point dep-cruiser at the repo tsconfig explicitly — its auto-discovery misses it when
-    // cruising a subdir (src/), which silently drops `paths` alias imports (`@/x`) as unresolved.
-    const root = baseDir && baseDir !== '.' ? baseDir : process.cwd();
-    const tsConfigPath = join(root, 'tsconfig.json');
-    // wave-3 #3: nested per-app tsconfigs (turborepo's apps/*/tsconfig.json, Next.js `@/*`
-    // aliases) are invisible to dep-cruiser's single-config view. Merge every tsconfig found
-    // along the code-file ancestor walk into one synthesized config with root-relative paths.
-    const mergedPaths = collectTsconfigPaths(files ?? [], baseDir ?? '.');
-    let tempDir: string | null = null;
-    if (mergedPaths.size > 0) {
-      const cfg: Record<string, unknown> = { compilerOptions: {} };
-      if (existsSync(tsConfigPath)) Object.assign(cfg, readTsconfig(tsConfigPath) ?? {});
-      const co = (cfg.compilerOptions ?? {}) as Record<string, unknown>;
-      co.paths = { ...((co.paths as Record<string, unknown>) ?? {}), ...Object.fromEntries(mergedPaths) };
-      cfg.compilerOptions = co;
-      tempDir = mkdtempSync(join(tmpdir(), 'cells-tsc-'));
-      const mergedPath = join(tempDir, 'tsconfig.json');
-      // The temp config lives in tmpdir, but paths targets are repo-root-relative — point
-      // baseUrl back at the repo root or TS resolves them against the temp dir (missing).
-      // Platform-aware relative: posix.relative on Windows treats \ as a literal char.
-      co.baseUrl = relative(tempDir, root);
-      writeFileSync(mergedPath, JSON.stringify(cfg));
-      cruiseOpts.tsConfig = { fileName: mergedPath };
-    } else if (existsSync(tsConfigPath)) {
-      cruiseOpts.tsConfig = { fileName: tsConfigPath };
-    }
-    let result: ICruiseResult;
-    try {
-      // guard the shape — a future cruise() default that stops returning the result object
-      // would silently fake an empty graph (false green) if unchecked
-      const { output } = await cruise(dirs, cruiseOpts);
-      if (typeof output !== 'object' || output === null || !Array.isArray((output as ICruiseResult).modules)) {
-        throw new Error('dependency-cruiser returned a non-JSON result');
+/** Resolve one specifier → a file + whether a miss must be flagged as broken-local.
+ *  `local=false` = external package/builtin — silent skip. Pure over ctx + facts. */
+function resolveOne(spec: string, sourcePath: string, ctx: ResolveCtx, facts: TsFacts): { toFile: string | null; local: boolean } {
+  // Vite/rollup query suffixes (`./x.css?url`, `./worker?worker&url`): the target file is
+  // the pre-`?` path; the suffix is a load-mode directive. Strip for resolution only — the
+  // edge/unresolved record keeps the specifier as written.
+  const q = spec.indexOf('?');
+  if (q !== -1) spec = spec.slice(0, q);
+  if (spec.startsWith('.')) return { toFile: resolveRelative(spec, sourcePath, ctx), local: true };
+
+  // tsconfig `paths` aliases — longest alias prefix wins; a mapped-but-missing target is a
+  // broken local import (flag). Star-less aliases match exactly (TS semantics). A degenerate
+  // catch-all like `@*` (prefix `@`, matches EVERY @-specifier — some example configs carry
+  // one) that misses is NOT evidence the import is local: '@icons-pack/x' is an external
+  // package whose '@*' alias in an unrelated app's tsconfig can't make it broken — fall
+  // through to workspace/external classification instead of flagging.
+  if (facts.aliases.size > 0) {
+    for (const [alias, targets] of [...facts.aliases].sort((a, b) => b[0].length - a[0].length)) {
+      const star = alias.indexOf('*');
+      const prefix = star === -1 ? alias : alias.slice(0, star);
+      if (star === -1 ? spec !== alias : !spec.startsWith(prefix)) continue;
+      const rest = spec.slice(prefix.length);
+      for (const t of targets) {
+        const rel = t.includes('*') ? t.replace('*', rest) : t;
+        const hit = probeCandidates(rel, ctx);
+        if (hit) return { toFile: hit, local: true };
       }
-      result = output as ICruiseResult;
-    } catch (err) {
-      // dep-cruiser couldn't handle the paths/language — surface it; silent zero-edges
-      // would fake a green gate on a blind graph. (collectImportEdges turns this into
-      // a gate failure.)
-      throw new Error(`dependency-cruiser failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      // the synthesized tsconfig lives in a throwaway temp dir — never leak one per run
-      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      if (star === -1 || prefix.length >= 2) return { toFile: null, local: true }; // specific alias → broken local
+      break; // catch-all alias missed — not local evidence; try workspace/external
     }
-    // dep-cruiser emits paths relative to cwd; when cruising a HEAD tree (baseDir) remap them
-    // to repo-relative so they match ownership. (Tree-sitter importers already emit repo-relative.)
-    const cwd = process.cwd();
-    const norm = (p: string): string => {
-      const n = p.replace(/^\.\//, '');
-      return baseDir && baseDir !== '.' ? relative(baseDir, resolve(cwd, n)) : n;
-    };
-    const probeCache = new Map<string, string | null>();
-    const pkgEntries = workspacePackages(files ?? [], baseDir ?? '.', norm, probeCache);
-    const edges: ImportEdge[] = [];
-    const unresolved: UnresolvedImport[] = [];
-    for (const mod of result.modules ?? []) {
-      for (const dep of mod.dependencies ?? []) {
-        if (dep.couldNotResolve) {
-          // Workspace package-name imports (`@turbo/utils`) — the TS analog of Rust crate
-          // names: unresolvable without node_modules, so dep-cruiser reports them; we map
-          // them to the package entry source. A known name with an unknown subpath is a
-          // broken local import (flag); a name no package owns is external — silent.
-          const pkg = resolvePackageSpec(dep.module, pkgEntries, baseDir ?? '.', norm, probeCache);
-          if (pkg.matched) {
-            if (pkg.toFile) edges.push({ fromFile: norm(mod.source), toFile: pkg.toFile, import: dep.module });
-            else unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          } else if (dep.module.startsWith('.')) {
-            // Relative specifier dep-cruiser couldn't resolve — probe the target ourselves
-            // (dir-index + dist→src variants): `require('..')` and source→dist imports don't
-            // resolve through dep-cruiser's default module resolution.
-            const t = resolveRelativeImport(dep.module, norm(mod.source), baseDir ?? '.', norm, probeCache);
-            if (t) edges.push({ fromFile: norm(mod.source), toFile: t, import: dep.module });
-            else unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          } else if (dep.module.startsWith('@/') || dep.module.startsWith('~/') || dep.module.startsWith('#/')) {
-            // Alias prefixes that can't resolve look local — likely a broken import or a
-            // missing tsconfig `paths` mapping (@/ ~/ are the webpack/vite convention; #/ is
-            // Nuxt/Nitro's). Bare specifiers (e.g. 'react', '@scope/pkg') are external
-            // packages — skip silently.
-            unresolved.push({ fromFile: norm(mod.source), import: dep.module });
-          }
-          continue;
+  }
+  // Alias-style prefixes with no mapping look local — likely a broken import or a missing
+  // tsconfig `paths` entry (@/ ~/ are the webpack/vite convention; #/ is Nuxt/Nitro's).
+  if (spec.startsWith('@/') || spec.startsWith('~/') || spec.startsWith('#/')) return { toFile: null, local: true };
+
+  // Bare specifier: workspace package (edge/unresolved) or external/builtin (silent).
+  const pkg = resolvePackageSpec(spec, facts.packages, ctx);
+  return { toFile: pkg.toFile, local: pkg.matched };
+}
+
+// --- AST → specifiers ---
+
+/** First string node in a statement subtree, or null. */
+function findString(n: Node): Node | null {
+  for (const c of n.namedChildren) {
+    if (c.type === 'string') return c;
+    const inner = findString(c);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+/** Extract every import specifier from a parsed TS/JS tree: import/export statements (incl.
+ *  `export * from` and `import x = require(...)` — the source is always the statement's string
+ *  child), dynamic `import('x')` (call_expression on the `import` keyword — chained forms nest
+ *  the same shape), CommonJS `require('x')`, and `/// <reference path="..." />` directives.
+ *  Deduped per file. */
+function collectSpecifiers(root: Node): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (s: string): void => {
+    if (!seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  };
+  const visit = (n: Node): void => {
+    const t = n.type;
+    if (t === 'import_statement') {
+      // The source string is a direct child (`import x from 'y'`, `import 'y'`) — but
+      // `import z = require('y')` nests it inside an import_require_clause. Recursive search
+      // within the statement (its subtree holds nothing but the clause + the source).
+      const src = findString(n);
+      if (src && src.text.length >= 2) add(src.text.slice(1, -1));
+    } else if (t === 'export_statement') {
+      // Source string only when a from-clause is present: `export { x } from 'y'`
+      // (export_clause), `export * as ns from 'y'` (namespace_export), or `export * from 'y'`
+      // (the string is the ONLY named child — `*` is anonymous; matched by text).
+      // `export default 'x'` and `export const x = '.'` also carry strings but are not imports.
+      if (n.namedChildren.some((c) => c.type === 'export_clause' || c.type === 'namespace_export') || n.text.startsWith('export *')) {
+        const src = n.namedChildren.find((c) => c.type === 'string');
+        if (src && src.text.length >= 2) add(src.text.slice(1, -1));
+      }
+    } else if (t === 'call_expression') {
+      const fn = n.namedChildren[0];
+      if (fn && (fn.type === 'import' || (fn.type === 'identifier' && fn.text === 'require'))) {
+        const lit = n.namedChildren[1]?.namedChildren.find((c) => c.type === 'string');
+        if (lit && lit.text.length >= 2) add(lit.text.slice(1, -1));
+      }
+    } else if (t === 'comment') {
+      const m = n.text.match(/^\/\/\/\s*<reference\s+path="([^"]+)"\s*\/>/);
+      if (m) add(m[1]);
+    }
+    for (const c of n.namedChildren) visit(c);
+  };
+  visit(root);
+  return out;
+}
+
+// --- the importers ---
+
+/** Shared spec for the three TS-family importers: module key = the repo-relative path itself
+ *  (identity), resolution probes disk + census as above. */
+function makeTsImporter(name: string, extensions: readonly string[], wasmBasename: string): Importer {
+  return createTreeSitterImporter<string[]>({
+    name,
+    extensions,
+    wasmBasename,
+    fileToModule: (path) => path,
+    analyze: (root) => ({ mods: [], reexports: [], uses: collectSpecifiers(root) }),
+    resolveEdges: (specs, sourcePath, _importerModule, ctx) => {
+      const facts = factsOf(ctx);
+      const edges: ImportEdge[] = [];
+      const unresolved: UnresolvedImport[] = [];
+      const flagged = new Set<string>();
+      for (const spec of specs) {
+        const { toFile, local } = resolveOne(spec, sourcePath, ctx, facts);
+        if (toFile) {
+          // Edge only when the target is a census file; an existing non-code target (css,
+          // json, out-of-census) is a real import with no owned file — silent, like the
+          // old pipeline dropping unowned edges downstream.
+          if (ctx.files.has(toFile)) edges.push({ fromFile: sourcePath, toFile, import: spec });
+        } else if (local && !flagged.has(spec)) {
+          flagged.add(spec); // one flag per distinct broken specifier
+          unresolved.push({ fromFile: sourcePath, import: spec });
         }
-        if (dep.coreModule) continue; // node built-in
-        if (dep.matchesDoNotFollow) continue; // external package (node_modules) — keep the graph to repo files
-        if (!dep.resolved) continue;
-        edges.push({
-          fromFile: norm(mod.source),
-          toFile: norm(dep.resolved),
-          import: dep.module,
-        });
       }
-    }
-    return { edges, unresolved };
-  },
-};
+      return { edges, unresolved };
+    },
+  });
+}
+
+/** TS importer — .ts/.d.ts (the typescript grammar can't parse JSX; .tsx gets its own spec). */
+export const typescriptImporter = makeTsImporter('typescript', ['.ts', '.d.ts'], 'tree-sitter-typescript.wasm');
+/** TSX importer — .tsx (tree-sitter-typescript ships a dedicated tsx grammar). */
+export const tsxImporter = makeTsImporter('tsx', ['.tsx'], 'tree-sitter-tsx.wasm');
+/** JS importer — .js/.jsx/.mjs/.cjs (the javascript grammar; the TS grammar would also parse
+ *  most JS, but JSX in .jsx and CJS idioms are its grammar's home turf). */
+export const javascriptImporter = makeTsImporter('javascript', ['.js', '.jsx', '.mjs', '.cjs'], 'tree-sitter-javascript.wasm');

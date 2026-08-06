@@ -3,6 +3,8 @@ allowBuilds:
   esbuild: true
   # postinstall downloads the native binary (grammar builds)
   tree-sitter-cli: true
+  tree-sitter-javascript: set this to true or false
+  tree-sitter-typescript: set this to true or false
 # pnpm's pre-run deps-check errors on the ignored esbuild build script;
 # vitest runs fine regardless, so skip the check.
 verifyDepsBeforeRun: false

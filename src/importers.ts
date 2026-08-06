@@ -6,7 +6,7 @@ import { buildBridgeMap, applyBridges } from './bridges.js';
 // Language importer specs live in ./languages/ — add a language = add a spec file there
 // (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
 // a custom extract for others) + one line in DEFAULT_IMPORTERS below.
-import { depCruiserImporter } from './languages/typescript.js';
+import { typescriptImporter, tsxImporter, javascriptImporter } from './languages/typescript.js';
 import { pythonImporter } from './languages/python.js';
 import { rustImporter } from './languages/rust.js';
 import { goImporter } from './languages/go.js';
@@ -15,10 +15,10 @@ import { javaImporter } from './languages/java.js';
 // The grammar-bundle integrity check re-exported here: commands/health reaches the language
 // machinery ONLY through this hub (the declared single seam for "everything language").
 export { checkGrammars } from './languages/tree-sitter.js';
-export { depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter };
+export { typescriptImporter, tsxImporter, javascriptImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter };
 
 /** Default importer registry (add a language = add an importer here). */
-export const DEFAULT_IMPORTERS: readonly Importer[] = [depCruiserImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter];
+export const DEFAULT_IMPORTERS: readonly Importer[] = [typescriptImporter, tsxImporter, javascriptImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter];
 
 /** Which importers run for the given extensions. Pure — unit-testable. */
 export function selectImporters(exts: readonly string[], importers: readonly Importer[]): Importer[] {
