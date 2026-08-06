@@ -256,7 +256,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   const pct = Math.round(v.maxPercent * 100);
 
   const lines: string[] = [];
-  lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${v.orphanCount === 1 ? '' : 's'}` : ''})` : `     (${v.violationCount} violations)`}`);
+  lines.push(
+    `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${v.orphanCount === 1 ? '' : 's'}` : ''})` : `     (${v.violationCount} violations)`}`,
+  );
   lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
   if (!xOk && verbose) {
     // --verbose: name the failing edges inline — saves the `cells crossings` round-trip on the common failure.

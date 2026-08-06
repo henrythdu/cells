@@ -132,7 +132,10 @@ function configAliases(dir: string, baseDir: string, cache: Map<string, Map<stri
         merged ??= new Map();
         const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
         for (const [alias, targets] of Object.entries(paths)) {
-          merged.set(alias, targets.map((t) => posix.normalize(`${base}/${t}`)));
+          merged.set(
+            alias,
+            targets.map((t) => posix.normalize(`${base}/${t}`)),
+          );
         }
       }
     }
@@ -224,7 +227,13 @@ function rootWorkspaceGlobs(baseDir: string): string[] | null {
       const out: string[] = [];
       for (const l of lines.slice(idx + 1)) {
         if (!/^\s*-\s+/.test(l)) break;
-        out.push(l.trim().replace(/^[-\s]+/, '').replace(/#.*$/, '').trim());
+        out.push(
+          l
+            .trim()
+            .replace(/^[-\s]+/, '')
+            .replace(/#.*$/, '')
+            .trim(),
+        );
       }
       if (out.length > 0) return out;
     }

@@ -476,7 +476,8 @@ function oracleCppRaw() {
     }
   }
   for (const [h, cmd] of reachedHeaders) {
-    const hc = cmd.replace(/\s+-fsyntax-only -H /, ' -fsyntax-only -H ') // keep flags, swap the TU for the header
+    const hc = cmd
+      .replace(/\s+-fsyntax-only -H /, ' -fsyntax-only -H ') // keep flags, swap the TU for the header
       .replace(/(?:^|\s)(\S+\.(?:c|cc|cpp|cxx|m|mm))(?:\s|$)/, (mm, src) => mm.replace(src, join(repo, h)));
     const r = run('/bin/bash', ['-c', `${hc} 2>&1`], repo);
     out.push(`# TU ${h}\n${r.stdout}`);
@@ -627,18 +628,7 @@ function main() {
   const oracle =
     loadRawCache('oracle', oracleVersion) ??
     (() => {
-      const raw =
-        lang === 'ts'
-          ? oracleTsRaw()
-          : lang === 'rust'
-            ? oracleRust()
-            : lang === 'go'
-              ? oracleGo()
-              : lang === 'java'
-                ? oracleJavaRaw()
-                : lang === 'cpp'
-                  ? oracleCppRaw()
-                  : oraclePythonRaw();
+      const raw = lang === 'ts' ? oracleTsRaw() : lang === 'rust' ? oracleRust() : lang === 'go' ? oracleGo() : lang === 'java' ? oracleJavaRaw() : lang === 'cpp' ? oracleCppRaw() : oraclePythonRaw();
       saveRawCache('oracle', oracleVersion, raw);
       return raw;
     })();
@@ -675,9 +665,7 @@ function main() {
   // cells' edges touching them can't be verified. Drop both sides' edges that touch
   // blind files and report the count: honest, and it replaces per-repo hardcoding.
   const oracleFromFiles = oracleParsed.fromFiles;
-  const blindFiles = oracleFromFiles
-    ? [...new Set([...ours.edges].flatMap((k) => k.split('\0')))].filter((f) => !oracleFromFiles.has(f))
-    : [];
+  const blindFiles = oracleFromFiles ? [...new Set([...ours.edges].flatMap((k) => k.split('\0')))].filter((f) => !oracleFromFiles.has(f)) : [];
   const notBlind = (k) => {
     const [f, t] = k.split('\0');
     return !blindFiles.includes(f) && !blindFiles.includes(t);
