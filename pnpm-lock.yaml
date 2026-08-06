@@ -30,6 +30,9 @@ importers:
       tree-sitter-typescript:
         specifier: ^0.23.2
         version: 0.23.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@26.1.1)(supports-color@7.2.0)
@@ -524,6 +527,11 @@ packages:
       tree-sitter:
         optional: true
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
@@ -961,6 +969,8 @@ snapshots:
       node-addon-api: 8.9.1
       node-gyp-build: 4.8.4
       tree-sitter-javascript: 0.23.1
+
+  typescript@5.9.3: {}
 
   undici-types@8.3.0: {}
 
