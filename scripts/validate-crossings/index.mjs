@@ -77,7 +77,6 @@ const tscBin = resolve(get('--tsc', process.env.TSC ?? join(here, '..', '..', 'n
 const raBin = findBin('RUST_ANALYZER', 'rust-analyzer').bin;
 const scipGoBin = findBin('SCIP_GO', 'scip-go').bin;
 const javaBin = findBin('SCIP_JAVA', 'scip-java').bin;
-const cppBin = findBin('SCIP_CLANG', 'scip-clang').bin;
 const pyrightBin = findBin('PYRIGHT', 'pyright').bin;
 
 /** ------------------------------------------------------------------ */
@@ -140,7 +139,7 @@ const cacheKey = (kind, fp) => {
 
 /** cells-edge cache (JSON, edge-based — cells logic is versioned by src/dist mtimes). */
 function loadCellsCache(toolVersion) {
-  if (get('--no-cache', '') === '--no-cache') return undefined;
+  if (rest.includes('--no-cache')) return undefined;
   try {
     const c = JSON.parse(readFileSync(cacheKey('cells', cellsFingerprint()), 'utf8'));
     if (c.toolVersion === toolVersion) return c;
@@ -164,7 +163,7 @@ function saveCellsCache(toolVersion, data) {
 /** Oracle cache: RAW artifacts (gzipped). toolVersion keys content (compiler version
  *  affects the trace); extraction logic lives in this file and re-runs on every load. */
 function loadRawCache(kind, toolVersion) {
-  if (get('--no-cache', '') === '--no-cache') return undefined;
+  if (rest.includes('--no-cache')) return undefined;
   try {
     const c = JSON.parse(gunzipSync(readFileSync(cacheKey(kind))).toString('utf8'));
     if (c.toolVersion === toolVersion) return c.payload;
@@ -441,18 +440,74 @@ function oracleJavaRaw() {
   return index;
 }
 
-/** RAW cpp oracle: out-of-tree cmake config for compile_commands.json (repo stays pristine),
- *  then scip-clang with its own bundled clang. */
+/** RAW cpp oracle: the include graph from the compiler itself. scip-clang was tried
+ *  first — its refs are symbol USES (calls reach declarations through transitively-
+ *  included headers), not imports. `-H` prints the include tree: depth-1 entries =
+ *  the TU's DIRECT includes — exactly the import model. compile_commands.json comes
+ *  from an out-of-tree cmake configure (repo stays pristine). Raw = per-TU stderr,
+ *  wrapped with the TU path; parsed on load. */
 function oracleCppRaw() {
   if (!existsSync(join(repo, 'CMakeLists.txt'))) throw new Error(`no CMakeLists.txt in ${repo} — compile_commands.json needs a cmake configure`);
   const tmp = mkdtempSync(join(tmpdir(), 'vc-cpp-'));
   const build = join(tmp, 'build');
   const cfg = run('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', repo], repo);
   if (!cfg.ok) throw new Error(`cmake configure failed: ${(cfg.stderr || cfg.stdout).slice(0, 600)}`);
-  const idx = join(tmp, 'index.scip');
-  const r = run(cppBin, ['--compdb-path', join(build, 'compile_commands.json'), '--index-output-path', idx], repo);
-  if (!r.ok) throw new Error(`scip-clang failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
-  return decodeScipIndex(idx);
+  let db;
+  try {
+    db = JSON.parse(readFileSync(join(build, 'compile_commands.json'), 'utf8'));
+  } catch {
+    throw new Error('compile_commands.json missing or corrupt after cmake configure');
+  }
+  const out = [];
+  const reachedHeaders = new Map(); // in-repo header → first TU command that reached it
+  for (const entry of db) {
+    if (!/^\S*\.(c|cc|cpp|cxx|m|mm)$/.test(entry.file)) continue; // headers are reached via includes, not compiled
+    const cmd = (entry.command ?? entry.arguments.join(' '))
+      .replace(/\s+-o\s+\S+/g, '') // drop -o (would name an output — with -fsyntax-only none is written, but -MD would name a .d)
+      .replace(/\s+-M(?:D|MD|F|T)(?:\s+\S+)?/g, '') // depfile flags only — NOT -D defines (macros affect includes)
+      .replace(/\s+-c(?=\s)/, ' -fsyntax-only -H ');
+    const r = run('/bin/bash', ['-c', `${cmd} 2>&1`], repo);
+    out.push(`# TU ${rel(entry.file)}\n${r.stdout}`);
+    // Headers the build reached ARE importers in the cells model (attr.h → cast.h).
+    // Recompile each with -H so their direct includes become oracle edges too.
+    for (const m of r.stdout.matchAll(/^\.+ (\/\S+\.(?:h|hpp|hh|hxx))$/gm)) {
+      const h = rel(m[1]);
+      if (!h.startsWith('..') && !reachedHeaders.has(h)) reachedHeaders.set(h, cmd);
+    }
+  }
+  for (const [h, cmd] of reachedHeaders) {
+    const hc = cmd.replace(/\s+-fsyntax-only -H /, ' -fsyntax-only -H ') // keep flags, swap the TU for the header
+      .replace(/(?:^|\s)(\S+\.(?:c|cc|cpp|cxx|m|mm))(?:\s|$)/, (mm, src) => mm.replace(src, join(repo, h)));
+    const r = run('/bin/bash', ['-c', `${hc} 2>&1`], repo);
+    out.push(`# TU ${h}\n${r.stdout}`);
+  }
+  return out.join('\n');
+}
+
+/** Parse the wrapped per-TU -H transcripts into file→file edges. Direct includes are
+ *  the depth-1 lines (exactly one leading '. '). Deeper dots = transitively-reached
+ *  headers — not imports (cells' model: direct #include only), but they ARE oracle-
+ *  visible files: a header reached at any depth was opened by the compiler, so it's
+ *  not a blind zone (fromFiles = TUs + every in-repo path the compiler opened). */
+function oracleCppFromRaw(raw) {
+  const edges = new Set();
+  const fromFiles = new Set();
+  let cur = null;
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^# TU (.+)$/);
+    if (m) {
+      cur = m[1];
+      fromFiles.add(cur);
+      continue;
+    }
+    if (cur && /^\.+ /.test(line)) {
+      const to = rel(line.replace(/^\.+ /, ''));
+      if (to.startsWith('..') || to === cur) continue;
+      fromFiles.add(to); // any in-repo file the compiler opened is oracle-visible
+      if (/^\. [^.]/.test(line)) edges.add(`${cur}\0${to}`); // depth-1 = direct include
+    }
+  }
+  return { edges, resolvedSpecs: undefined, fromFiles };
 }
 
 /** RAW python oracle: pyright --dependencies --verbose prints the TRUE import graph
@@ -566,7 +621,7 @@ function main() {
           : lang === 'java'
             ? { name: 'scip-java', version: `${run(javaBin, ['--version'], repo).stdout.trim()} ${(get('--java-args', '') ?? '').trim()}` }
             : lang === 'cpp'
-              ? { name: 'scip-clang', version: run(cppBin, ['--version'], repo).stdout.trim() }
+              ? { name: 'gcc -H', version: run('gcc', ['--version'], repo).stdout.trim().split('\n')[0] }
               : { name: 'pyright', version: run(pyrightBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
   const oracle =
@@ -596,7 +651,9 @@ function main() {
         ? oraclePythonFromRaw(oracle)
         : lang === 'java'
           ? edgesFromJava(oracle)
-          : { edges: edgesFromIndex(oracle, symbolKeep), resolvedSpecs: undefined };
+          : lang === 'cpp'
+            ? oracleCppFromRaw(oracle)
+            : { edges: edgesFromIndex(oracle, symbolKeep), resolvedSpecs: undefined };
 
   let cellsVersion = 'cells ?';
   try {
@@ -675,10 +732,6 @@ function main() {
         if (side === 'ours' && !tsExt.test(f)) continue;
       }
       if (langExt && side === 'ours' && !langExt.test(f)) continue; // our side keeps only edges FROM the audited language
-      // scip-clang emits header→source definition-use edges (symbol def in the header, use in
-      // the .cpp). Headers aren't importers in the cells model (only #include sources are) —
-      // the reverse direction (source→header) is the real import and stays.
-      if (lang === 'cpp' && side === 'oracle' && /\.(h|hpp|hxx|hh)$/.test(f)) continue;
       out.add(k);
     }
     return out;
