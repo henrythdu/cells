@@ -1,5 +1,5 @@
 name = "typescript"
-purpose = "TS/JS/TSX importers (tree-sitter — the other languages' shared machinery)"
+purpose = "TS/JS/TSX importer specs (AST → specifiers → the ts-resolution core)"
 provides = ["typescriptImporter", "tsxImporter", "javascriptImporter"]
-requires = ["imports", "tree-sitter"]
+requires = ["imports", "tree-sitter", "ts-resolution"]
 layer = 4

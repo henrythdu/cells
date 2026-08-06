@@ -8,5 +8,5 @@ provides = [
   "ImportContext",
   "Importer",
 ]
-requires = ["ownership"]
+requires = []
 layer = 1

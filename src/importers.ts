@@ -75,10 +75,10 @@ export async function collectImportEdges(
   } else {
     files = paths.map((p) => ({ path: p, content: '' }));
   }
-  // dep-cruiser cruises dirs (FS); tree-sitter reads `files`. Point both at `baseDir` so a
-  // HEAD tree can be derived for `crossings --diff`. `.cells/` stays in the working repo.
+  // Tree-sitter reads `files`; point both at `baseDir` so a HEAD tree can be derived
+  // for `crossings --diff`. `.cells/` stays in the working repo.
   const dirs = codeDirs.map((d) => join(baseDir, d));
-  const ctx = { codeDirs: dirs, files, ownership, baseDir, moduleRoot };
+  const ctx = { codeDirs: dirs, files, baseDir, moduleRoot };
   const edges: ImportEdge[] = [];
   const unresolved: UnresolvedImport[] = [];
   const failures: ImporterFailure[] = [];
