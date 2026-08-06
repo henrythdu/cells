@@ -34,6 +34,7 @@
  * The report is informational — it never gates cells itself.
  */
 import { spawnSync } from 'node:child_process';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -125,15 +126,20 @@ function cellsFingerprint() {
 }
 
 const cacheKey = (kind, fp) => {
-  // 'v3': harness-extraction changes must invalidate caches even when tool versions don't
-  const h = createHash('sha1').update(`${repo}\0${lang}\0${kind}\0v6\0${fp ?? fingerprint()}`).digest('hex').slice(0, 16);
-  return join(CACHE_DIR, `${h}.json`);
+  // v7: cache FORMAT. The oracle cache holds RAW artifacts (tsc traces / decoded SCIP) —
+  // extraction-logic changes re-parse them with current code and never re-run the compilers.
+  const h = createHash('sha1')
+    .update(`${repo}\0${lang}\0${kind}\0v7\0${fp ?? fingerprint()}`)
+    .digest('hex')
+    .slice(0, 16);
+  return join(CACHE_DIR, `${h}.json.gz`);
 };
 
-function loadCache(kind, toolVersion) {
+/** cells-edge cache (JSON, edge-based — cells logic is versioned by src/dist mtimes). */
+function loadCellsCache(toolVersion) {
   if (get('--no-cache', '') === '--no-cache') return undefined;
   try {
-    const c = JSON.parse(readFileSync(cacheKey(kind, kind === 'cells' ? cellsFingerprint() : undefined), 'utf8'));
+    const c = JSON.parse(readFileSync(cacheKey('cells', cellsFingerprint()), 'utf8'));
     if (c.toolVersion === toolVersion) return c;
   } catch {
     /* cold cache */
@@ -141,13 +147,36 @@ function loadCache(kind, toolVersion) {
   return undefined;
 }
 
-function saveCache(kind, toolVersion, data) {
+function saveCellsCache(toolVersion, data) {
   try {
     mkdirSync(CACHE_DIR, { recursive: true });
-    const key = cacheKey(kind, kind === 'cells' ? cellsFingerprint() : undefined);
-    const tmp = `${key}.tmp`;
+    const tmp = `${cacheKey('cells', cellsFingerprint())}.tmp`;
     writeFileSync(tmp, JSON.stringify({ toolVersion, ...data }));
-    renameSync(tmp, key);
+    renameSync(tmp, cacheKey('cells', cellsFingerprint()));
+  } catch {
+    /* cache is a convenience — never fail the audit on it */
+  }
+}
+
+/** Oracle cache: RAW artifacts (gzipped). toolVersion keys content (compiler version
+ *  affects the trace); extraction logic lives in this file and re-runs on every load. */
+function loadRawCache(kind, toolVersion) {
+  if (get('--no-cache', '') === '--no-cache') return undefined;
+  try {
+    const c = JSON.parse(gunzipSync(readFileSync(cacheKey(kind))).toString('utf8'));
+    if (c.toolVersion === toolVersion) return c.payload;
+  } catch {
+    /* cold cache */
+  }
+  return undefined;
+}
+
+function saveRawCache(kind, toolVersion, payload) {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const tmp = `${cacheKey(kind)}.tmp`;
+    writeFileSync(tmp, gzipSync(Buffer.from(JSON.stringify({ toolVersion, payload }))));
+    renameSync(tmp, cacheKey(kind));
   } catch {
     /* cache is a convenience — never fail the audit on it */
   }
@@ -174,16 +203,7 @@ function run(cmd, argsArr, cwd, env = {}) {
 /** ------------------------------------------------------------------ */
 /** SCIP → file→file edges (shared by the rust + go oracles).           */
 /** ------------------------------------------------------------------ */
-function edgesFromScip(scipJsonPath, goModuleSymbolsOnly = false) {
-  const dec = run(scipBin, ['print', '--json', scipJsonPath], repo);
-  if (!dec.ok) throw new Error(`scip print failed: ${dec.stderr.slice(0, 400)}`);
-  let index;
-  try {
-    index = JSON.parse(dec.stdout);
-  } catch {
-    throw new Error(`scip print produced no JSON (index corrupt or empty): ${dec.stdout.slice(0, 200)}`);
-  }
-
+function edgesFromIndex(index, goModuleSymbolsOnly = false) {
   // symbol → defining file (role 1 = definition). RA uses file-scoped `local N`
   // symbols (same name in every file) — they must never cross files. Go package
   // symbols are defined in EVERY file of the package — prefer the non-test def
@@ -223,17 +243,12 @@ function edgesFromScip(scipJsonPath, goModuleSymbolsOnly = false) {
 }
 
 /** ------------------------------------------------------------------ */
-/** Oracle runners                                                      */
+/** Oracle runners — RAW phase (runs compilers, collects artifacts)      */
 /** ------------------------------------------------------------------ */
-function oracleTs() {
-  // tsc --traceResolution logs every module resolution; pair the
-  // "Resolving module 'X' from 'F'" with its "successfully resolved to 'T'".
-  const edges = new Set();
-  const resolvedSpecs = new Map(); // fromFile → Set<spec> (spec-level cross-check)
-
-  // tsconfigs: root + subprojects under packages/, apps/, examples/ (depth ≤ 6 —
-  // turborepo's examples nest apps/packages 4+ levels deep; the -p pass carries
-  // each project's path aliases, which the flat fallback can't know).
+/** tsconfigs: root + subprojects under packages/, apps/, examples/ (depth ≤ 6 —
+ *  turborepo's examples nest apps/packages 4+ levels deep; the -p pass carries
+ *  each project's path aliases, which the flat fallback can't know). */
+function discoverTsconfigs() {
   const tsconfigs = [];
   const walk = (dir, depth) => {
     if (depth > 6) return;
@@ -252,36 +267,47 @@ function oracleTs() {
     }
   };
   walk(repo, 0);
+  return tsconfigs;
+}
 
-  // Plain-JS repos (no tsconfig): one allowJs pass over every source file.
-  // TS projects: the -p passes cover each program; files outside every program
-  // get the same allowJs fallback so tests/unlisted dirs aren't untraced.
+/** RAW ts oracle: run every tsc pass, return the transcripts (no parsing). Cached as-is;
+ *  edge extraction re-runs on every load, so extraction-logic changes never re-run tsc. */
+function oracleTsRaw() {
+  const tsconfigs = discoverTsconfigs();
   const fallbackFlags = ['--noEmit', '--traceResolution', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--skipLibCheck', '--allowJs'];
+  const raw = { tsconfigs: [], fallback: null };
   if (tsconfigs.length === 0) {
+    // Plain-JS repos (no tsconfig): one allowJs pass over every source file.
     const all = allSourceFiles(repo);
     if (all.length === 0) throw new Error(`no JS/TS source files found in ${repo}`);
-    traceEdges(run(tscBin, [...fallbackFlags, ...all.map((f) => join(repo, f))], repo).stdout, edges, resolvedSpecs);
-    return { edges, resolvedSpecs };
+    raw.fallback = { trace: run(tscBin, [...fallbackFlags, ...all.map((f) => join(repo, f))], repo).stdout };
+    return raw;
   }
-
+  // Files outside EVERY program (tests, unlisted dirs) get one flat allowJs pass so
+  // every repo file's imports are covered. Each project's own files resolve through
+  // its -p pass (with its path aliases) — no flat-mode contamination.
+  const listedAll = new Set();
   for (const tc of tsconfigs) {
-    const out = run(tscBin, ['--noEmit', '--traceResolution', '-p', tc], repo);
-    // tsc exits nonzero on type errors — the trace is still complete
-    traceEdges(out.stdout, edges, resolvedSpecs);
-    // files the project config never sees (tests, unlisted dirs) aren't in the
-    // program → their imports untraced. Trace them with plain flags so every
-    // repo file's imports are covered.
+    const trace = run(tscBin, ['--noEmit', '--traceResolution', '-p', tc], repo).stdout; // tsc exits nonzero on type errors — the trace is still complete
     const listed = run(tscBin, ['--noEmit', '--listFiles', '-p', tc], repo) // noEmit: --listFiles alone EMITS .js next to sources
       .stdout.split('\n')
       .map((f) => f.trim())
       .filter(inRepo)
       .map(rel);
-    const uncovered = allSourceFiles(repo).filter((f) => !listed.includes(f));
-    if (uncovered.length > 0) {
-      const fallback = run(tscBin, [...fallbackFlags, ...uncovered.map((f) => join(repo, f))], repo);
-      traceEdges(fallback.stdout, edges, resolvedSpecs);
-    }
+    for (const f of listed) listedAll.add(f);
+    raw.tsconfigs.push({ tc, trace, listed });
   }
+  const uncovered = allSourceFiles(repo).filter((f) => !listedAll.has(f));
+  if (uncovered.length > 0) raw.fallback = { trace: run(tscBin, [...fallbackFlags, ...uncovered.map((f) => join(repo, f))], repo).stdout };
+  return raw;
+}
+
+/** Replay: parse cached transcripts into edges — runs with CURRENT extraction logic. */
+function oracleTsFromRaw(raw) {
+  const edges = new Set();
+  const resolvedSpecs = new Map(); // fromFile → Set<spec> (spec-level cross-check)
+  for (const { trace } of raw.tsconfigs) traceEdges(trace, edges, resolvedSpecs);
+  if (raw.fallback) traceEdges(raw.fallback.trace, edges, resolvedSpecs);
   return { edges, resolvedSpecs };
 }
 
@@ -315,7 +341,8 @@ function traceEdges(stdout, edges, resolvedSpecs) {
   }
 }
 
-function oracleScip(probe, buildArgs) {
+/** RAW scip oracle: run the indexer, return the DECODED index (cached as-is). */
+function oracleScipRaw(probe, buildArgs) {
   const tmp = mkdtempSync(join(tmpdir(), 'vc-scip-'));
   const scipFile = join(tmp, 'index.scip');
   const r = run(probe, buildArgs(scipFile), repo);
@@ -323,11 +350,17 @@ function oracleScip(probe, buildArgs) {
     const err = r.stderr.slice(0, 600) || r.stdout.slice(0, 600);
     throw new Error(`${probe} failed: ${err}`);
   }
-  return { edges: edgesFromScip(scipFile, probe === scipGoBin), resolvedSpecs: undefined };
+  const dec = run(scipBin, ['print', '--json', scipFile], repo);
+  if (!dec.ok) throw new Error(`scip print failed: ${dec.stderr.slice(0, 400)}`);
+  try {
+    return JSON.parse(dec.stdout);
+  } catch {
+    throw new Error(`scip print produced no JSON (index corrupt or empty): ${dec.stdout.slice(0, 200)}`);
+  }
 }
 
-const oracleRust = () => oracleScip(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
-const oracleGo = () => oracleScip(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
+const oracleRust = () => oracleScipRaw(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
+const oracleGo = () => oracleScipRaw(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
 
 /** ------------------------------------------------------------------ */
 /** cells side                                                          */
@@ -366,13 +399,14 @@ function main() {
         : { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
   const oracle =
-    loadCache('oracle', oracleVersion) ??
+    loadRawCache('oracle', oracleVersion) ??
     (() => {
-      const o = lang === 'ts' ? oracleTs() : lang === 'rust' ? oracleRust() : oracleGo();
-      saveCache('oracle', oracleVersion, { edges: [...o.edges], resolvedSpecs: o.resolvedSpecs ? [...o.resolvedSpecs].map(([k, v]) => [k, [...v]]) : undefined });
-      return o;
+      const raw = lang === 'ts' ? oracleTsRaw() : lang === 'rust' ? oracleRust() : oracleGo();
+      saveRawCache('oracle', oracleVersion, raw);
+      return raw;
     })();
-  if (oracle.resolvedSpecs) oracle.resolvedSpecs = new Map([...oracle.resolvedSpecs].map(([k, v]) => [k, new Set(v)])); // cache round-trip
+  // RAW artifacts are cached; extraction re-runs with CURRENT logic every load.
+  const oracleParsed = lang === 'ts' ? oracleTsFromRaw(oracle) : { edges: edgesFromIndex(oracle, lang === 'go'), resolvedSpecs: undefined };
 
   let cellsVersion = 'cells ?';
   try {
@@ -381,10 +415,10 @@ function main() {
     /* version read is a cache-key nicety — fall back to a fixed key */
   }
   const ours =
-    loadCache('cells', cellsVersion) ??
+    loadCellsCache(cellsVersion) ??
     (() => {
       const o = cellsEdges();
-      saveCache('cells', cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
+      saveCellsCache(cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
       return o;
     })();
   if (ours.unresolved) ours.unresolved = new Map(ours.unresolved); // cache round-trip
@@ -421,7 +455,7 @@ function main() {
     }
     return out;
   };
-  const oracleEdges = scoped(normalize(oracle.edges), 'oracle');
+  const oracleEdges = scoped(normalize(oracleParsed.edges), 'oracle');
   const ourEdges = scoped(normalize(ours.edges), 'ours');
 
   const oracleOnly = [...oracleEdges].filter((k) => !ourEdges.has(k));
@@ -430,10 +464,10 @@ function main() {
   // classification cross-check (ts only): a specifier cells left unresolved
   // that the compiler itself resolved
   const falseUnresolved = [];
-  if (oracle.resolvedSpecs) {
+  if (oracleParsed.resolvedSpecs) {
     for (const [, u] of ours.unresolved) {
       const from = u.fromFile;
-      const specs = oracle.resolvedSpecs.get(from);
+      const specs = oracleParsed.resolvedSpecs.get(from);
       if (specs?.has(u.import)) falseUnresolved.push(`${from} imports "${u.import}"`);
     }
   }
