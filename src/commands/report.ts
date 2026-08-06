@@ -94,6 +94,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
+  const orphanCount = codeFiles.length - new Set(Object.values(ownership).flat()).size; // census minus owned — the partition-coverage number
 
   const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
   const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
@@ -124,6 +125,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     {
       cellCount: cellNames.length,
       fileCount: codeFiles.length,
+      orphanCount,
       crossingCount: crossings.length,
       violationCount: violations.length,
       violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),

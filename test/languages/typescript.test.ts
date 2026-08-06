@@ -120,7 +120,10 @@ describe('typescriptImporter (tree-sitter)', () => {
     const { edges, unresolved } = await typescriptImporter.extract({
       codeDirs: ['packages'],
       files: [
-        { path: 'packages/create-turbo/src/cli.ts', content: "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n" },
+        {
+          path: 'packages/create-turbo/src/cli.ts',
+          content: "import { foo } from '@turbo/utils';\nimport { bar } from '@turbo/utils/deep';\nimport { baz } from '@turbo/utils/with-module';\nimport { nope } from '@turbo/nope';\nexport const a = foo;\n",
+        },
         { path: 'packages/utils/src/index.ts', content: '' },
         { path: 'packages/utils/src/deep.ts', content: '' },
         { path: 'packages/utils/src/dir/index.default.js', content: '' },

@@ -23,7 +23,13 @@ files = ["src/assign.ts", "test/assign.test.ts"]
 files = ["src/config.ts", "test/config.test.ts"]
 
 [cli]
-files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts", "test/workflow.test.ts", "src/mutate.ts"]
+files = [
+  "src/cli.ts",
+  "test/health.test.ts",
+  "test/remove.test.ts",
+  "test/workflow.test.ts",
+  "src/mutate.ts",
+]
 
 [io]
 files = ["src/io.ts", "test/io.test.ts"]
@@ -38,7 +44,13 @@ files = ["src/ignore.ts", "test/ignore.test.ts"]
 files = ["src/help.ts"]
 
 [importers]
-files = ["src/importers.ts", "test/importers.test.ts", "test/multilang.test.ts", "src/bridges.ts", "test/bridges.test.ts"]
+files = [
+  "src/importers.ts",
+  "test/importers.test.ts",
+  "test/multilang.test.ts",
+  "src/bridges.ts",
+  "test/bridges.test.ts",
+]
 
 [imports]
 files = ["src/imports.ts"]
@@ -59,7 +71,11 @@ files = ["src/languages/rust.ts"]
 files = ["src/diff.ts", "test/diff.test.ts"]
 
 [commands]
-files = ["src/commands/read.ts", "src/commands/report.ts", "test/commands.test.ts"]
+files = [
+  "src/commands/read.ts",
+  "src/commands/report.ts",
+  "test/commands.test.ts",
+]
 
 [tree-sitter]
 files = ["src/languages/tree-sitter.ts"]

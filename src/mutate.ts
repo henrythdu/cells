@@ -340,6 +340,8 @@ export function cmdPlan(apply = false, dryRun = false): void {
   const groups = planGroups(codeFiles);
   const keys = [...groups.keys()].sort();
   const names = new Map(keys.map((k) => [k, cellNameOf(k)]));
+  const grouped = [...groups.values()].reduce((n, f) => n + f.length, 0);
+  const unowned = codeFiles.length - grouped; // files no crate/package/__init__ unit claims — the coverage signal
 
   if (dryRun && !apply) console.error('Note: plain `plan` is read-only — --dry-run only matters with --apply.');
 
@@ -349,7 +351,8 @@ export function cmdPlan(apply = false, dryRun = false): void {
     const existing = new Set(Object.keys(loadDeclarations()));
     const proposed = new Map(keys.map((k) => [names.get(k)!, groups.get(k)!]));
     const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
-    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned.`;
+    const unownedAfter = codeFiles.length - adopted - kept;
+    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
     const summary = dryRun ? `Would apply: ${outcome}\nDry run — nothing changed. Re-run without --dry-run to apply.` : `Applied plan: ${outcome}\nRun \`cells health\` — crossings will be red until requires are filled.`;
     if (dryRun) {
       console.log(summary);
@@ -389,4 +392,5 @@ export function cmdPlan(apply = false, dryRun = false): void {
     );
     console.log('');
   }
+  if (unowned > 0) console.log(`# ${unowned} of ${codeFiles.length} file(s) stay unowned (orphans — no crate/package/__init__ unit; assign or .cells/ignore).`);
 }

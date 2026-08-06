@@ -204,6 +204,8 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
 export interface HealthValues {
   cellCount: number;
   fileCount: number;
+  /** Census files with no owning cell — the partition-coverage signal (informs, never gates). */
+  orphanCount: number;
   crossingCount: number;
   violationCount: number;
   violationDetails: string[];
@@ -254,7 +256,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   const pct = Math.round(v.maxPercent * 100);
 
   const lines: string[] = [];
-  lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files)` : `     (${v.violationCount} violations)`}`);
+  lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${v.orphanCount === 1 ? '' : 's'}` : ''})` : `     (${v.violationCount} violations)`}`);
   lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
   if (!xOk && verbose) {
     // --verbose: name the failing edges inline — saves the `cells crossings` round-trip on the common failure.
