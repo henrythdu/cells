@@ -36,17 +36,17 @@
 import { spawnSync } from 'node:child_process';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve, sep, posix } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep, posix } from 'node:path';
 
 const [, , repoArg, langArg, ...rest] = process.argv;
 const args = new Map();
 for (let i = 0; i < rest.length; i += 2) args.set(rest[i], rest[i + 1]);
 const get = (k, d) => args.get(k) ?? d;
 
-if (!repoArg || !['ts', 'rust', 'go'].includes(langArg)) {
-  console.error('usage: node index.mjs <repo-dir> <ts|rust|go> [--tsc PATH] [--cells PATH] [--scip PATH] [--top N]');
+if (!repoArg || !['ts', 'rust', 'go', 'java', 'cpp', 'python'].includes(langArg)) {
+  console.error('usage: node index.mjs <repo-dir> <ts|rust|go|java|cpp|python> [--tsc PATH] [--cells PATH] [--scip PATH] [--top N]');
   process.exit(2);
 }
 
@@ -76,6 +76,9 @@ const scipBin = findBin('SCIP', 'scip').bin;
 const tscBin = resolve(get('--tsc', process.env.TSC ?? join(here, '..', '..', 'node_modules', '.bin', 'tsc')));
 const raBin = findBin('RUST_ANALYZER', 'rust-analyzer').bin;
 const scipGoBin = findBin('SCIP_GO', 'scip-go').bin;
+const javaBin = findBin('SCIP_JAVA', 'scip-java').bin;
+const cppBin = findBin('SCIP_CLANG', 'scip-clang').bin;
+const pyBin = findBin('SCIP_PYTHON', 'scip-python').bin;
 
 /** ------------------------------------------------------------------ */
 /** Oracle cache — oracles are minutes on big repos; reruns must skip.   */
@@ -350,7 +353,51 @@ function oracleScipRaw(probe, buildArgs) {
     const err = r.stderr.slice(0, 600) || r.stdout.slice(0, 600);
     throw new Error(`${probe} failed: ${err}`);
   }
-  const dec = run(scipBin, ['print', '--json', scipFile], repo);
+  return decodeScipIndex(scipFile);
+}
+
+const oracleRust = () => oracleScipRaw(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
+const oracleGo = () => oracleScipRaw(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
+
+/** RAW java oracle: scip-java runs mvn/gradle internally and writes repo/index.scip. */
+function oracleJavaRaw() {
+  const r = run(javaBin, ['index'], repo);
+  if (!r.ok) throw new Error(`scip-java failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
+  const idx = join(repo, 'index.scip');
+  const index = decodeScipIndex(idx);
+  rmSync(idx, { force: true }); // scip-java writes into the repo — don't leave artifacts (mtime fingerprint)
+  return index;
+}
+
+/** RAW cpp oracle: out-of-tree cmake config for compile_commands.json (repo stays pristine),
+ *  then scip-clang with its own bundled clang. */
+function oracleCppRaw() {
+  if (!existsSync(join(repo, 'CMakeLists.txt'))) throw new Error(`no CMakeLists.txt in ${repo} — compile_commands.json needs a cmake configure`);
+  const tmp = mkdtempSync(join(tmpdir(), 'vc-cpp-'));
+  const build = join(tmp, 'build');
+  const cfg = run('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', repo], repo);
+  if (!cfg.ok) throw new Error(`cmake configure failed: ${(cfg.stderr || cfg.stdout).slice(0, 600)}`);
+  const idx = join(tmp, 'index.scip');
+  const r = run(cppBin, ['--compdb-path', join(build, 'compile_commands.json'), '--index-output-path', idx], repo);
+  if (!r.ok) throw new Error(`scip-clang failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
+  return decodeScipIndex(idx);
+}
+
+/** RAW python oracle: scip-python needs an explicit version when no pyproject.toml
+ *  (its normalizeNameOrVersion crashes on undefined), writes repo/index.scip. */
+function oraclePythonRaw() {
+  const name = basename(repo);
+  const r = run(pyBin, ['index', '.', '--project-name', name, '--project-version', '1.0.0'], repo);
+  if (!r.ok) throw new Error(`scip-python failed: ${(r.stderr || r.stdout).slice(0, 600)}`);
+  const idx = join(repo, 'index.scip');
+  const index = decodeScipIndex(idx);
+  rmSync(idx, { force: true }); // scip-python writes into the repo — don't leave artifacts (mtime fingerprint)
+  return index;
+}
+
+/** Run the scip CLI to decode an index file into JSON (the shared RAW artifact). */
+function decodeScipIndex(file) {
+  const dec = run(scipBin, ['print', '--json', file], repo);
   if (!dec.ok) throw new Error(`scip print failed: ${dec.stderr.slice(0, 400)}`);
   try {
     return JSON.parse(dec.stdout);
@@ -358,9 +405,6 @@ function oracleScipRaw(probe, buildArgs) {
     throw new Error(`scip print produced no JSON (index corrupt or empty): ${dec.stdout.slice(0, 200)}`);
   }
 }
-
-const oracleRust = () => oracleScipRaw(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
-const oracleGo = () => oracleScipRaw(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
 
 /** ------------------------------------------------------------------ */
 /** cells side                                                          */
@@ -396,12 +440,29 @@ function main() {
       ? { name: 'tsc', version: run(tscBin, ['--version'], repo).stdout.trim() }
       : lang === 'rust'
         ? { name: 'rust-analyzer', version: run(raBin, ['--version'], repo).stdout.trim() }
-        : { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() };
+        : lang === 'go'
+          ? { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() }
+          : lang === 'java'
+            ? { name: 'scip-java', version: run(javaBin, ['--version'], repo).stdout.trim() }
+            : lang === 'cpp'
+              ? { name: 'scip-clang', version: run(cppBin, ['--version'], repo).stdout.trim() }
+              : { name: 'scip-python', version: run(pyBin, ['--version'], repo).stdout.trim() };
   const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
   const oracle =
     loadRawCache('oracle', oracleVersion) ??
     (() => {
-      const raw = lang === 'ts' ? oracleTsRaw() : lang === 'rust' ? oracleRust() : oracleGo();
+      const raw =
+        lang === 'ts'
+          ? oracleTsRaw()
+          : lang === 'rust'
+            ? oracleRust()
+            : lang === 'go'
+              ? oracleGo()
+              : lang === 'java'
+                ? oracleJavaRaw()
+                : lang === 'cpp'
+                  ? oracleCppRaw()
+                  : oraclePythonRaw();
       saveRawCache('oracle', oracleVersion, raw);
       return raw;
     })();
@@ -441,6 +502,12 @@ function main() {
   // census never sees) and non-code targets (json/package.json — cells reports
   // those as unresolved, the compiler resolves them as data imports).
   const tsExt = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+  const langExt = {
+    ts: tsExt,
+    java: /\.(java|kt)$/,
+    cpp: /\.(c|h|cc|cpp|cxx|hpp|hxx|hh|m|mm)$/,
+    python: /\.py$/,
+  }[lang];
   const scoped = (set, side) => {
     const out = new Set();
     for (const k of set) {
@@ -451,6 +518,11 @@ function main() {
         if (side === 'oracle' && !tsExt.test(t)) continue;
         if (side === 'ours' && !tsExt.test(f)) continue;
       }
+      if (langExt && side === 'ours' && !langExt.test(f)) continue; // our side keeps only edges FROM the audited language
+      // scip-clang emits header→source definition-use edges (symbol def in the header, use in
+      // the .cpp). Headers aren't importers in the cells model (only #include sources are) —
+      // the reverse direction (source→header) is the real import and stays.
+      if (lang === 'cpp' && side === 'oracle' && /\.(h|hpp|hxx|hh)$/.test(f)) continue;
       out.add(k);
     }
     return out;
