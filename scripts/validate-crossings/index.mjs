@@ -34,7 +34,8 @@
  * The report is informational — it never gates cells itself.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep, posix } from 'node:path';
 
@@ -51,28 +52,89 @@ if (!repoArg || !['ts', 'rust', 'go'].includes(langArg)) {
 const repo = resolve(repoArg);
 const lang = langArg;
 const top = Number(get('--top', '20'));
-const rel = (p) => posix.normalize(relative(repo, p).split(sep).join('/'));
+const rel = (p) => {
+  // SCIP relative_path is repo-relative; path.relative() would resolve it against cwd.
+  let s = p.replace(/^file:\/\//, '');
+  if (s.startsWith('/')) s = relative(repo, s).split(sep).join('/');
+  return posix.normalize(s.replace(/^\.\//, ''));
+};
 const inRepo = (p) => p.startsWith(repo + sep);
 
 /** Resolve a tool: env var → PATH → $HOME/go/bin (this machine's go installs land there, and PATH may carry a literal ~). */
 const findBin = (envName, fallbackName) => {
   const direct = process.env[envName] || fallbackName;
-  if (run(direct, ['--version'], repo).ok) return direct;
-  return join(process.env.HOME ?? '', 'go', 'bin', fallbackName);
+  const v = run(direct, ['--version'], repo);
+  if (v.ok) return { bin: direct, version: v.stdout.trim().split('\n')[0] };
+  const home = join(process.env.HOME ?? '', 'go', 'bin', fallbackName);
+  return { bin: home, version: run(home, ['--version'], repo).stdout.trim().split('\n')[0] };
 };
 
 const here = dirname(import.meta.url.replace('file://', ''));
 const cellsBin = resolve(get('--cells', process.env.CELLS ?? join(here, '..', '..', 'dist', 'cli.js')));
-const scipBin = findBin('SCIP', 'scip');
+const scipBin = findBin('SCIP', 'scip').bin;
 const tscBin = resolve(get('--tsc', process.env.TSC ?? join(here, '..', '..', 'node_modules', '.bin', 'tsc')));
-const raBin = findBin('RUST_ANALYZER', 'rust-analyzer');
-const scipGoBin = findBin('SCIP_GO', 'scip-go');
+const raBin = findBin('RUST_ANALYZER', 'rust-analyzer').bin;
+const scipGoBin = findBin('SCIP_GO', 'scip-go').bin;
+
+/** ------------------------------------------------------------------ */
+/** Oracle cache — oracles are minutes on big repos; reruns must skip.   */
+/** Keyed on (repo fingerprint + tool versions), stored in ~/.cache.     */
+/** ------------------------------------------------------------------ */
+const CACHE_DIR = join(process.env.HOME ?? tmpdir(), '.cache', 'cells-validate');
+
+/** Cheap repo-state fingerprint: git HEAD + source count + newest mtime. */
+function fingerprint() {
+  let max = 0;
+  let n = 0;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === '.cells' || e.name === '.git' || e.name === 'dist') continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else {
+        n++;
+        const st = statSync(p);
+        if (st.mtimeMs > max) max = st.mtimeMs;
+      }
+    }
+  };
+  walk(repo);
+  const g = run('git', ['rev-parse', 'HEAD'], repo);
+  return `${g.ok ? g.stdout.trim() : 'no-git'}:${n}:${Math.round(max)}`;
+}
+
+const cacheKey = (kind) => {
+  const h = createHash('sha1').update(`${repo}\0${lang}\0${kind}\0${fingerprint()}`).digest('hex').slice(0, 16);
+  return join(CACHE_DIR, `${h}.json`);
+};
+
+function loadCache(kind, toolVersion) {
+  if (get('--no-cache', '') === '--no-cache') return undefined;
+  try {
+    const c = JSON.parse(readFileSync(cacheKey(kind), 'utf8'));
+    if (c.toolVersion === toolVersion) return c;
+  } catch {
+    /* cold cache */
+  }
+  return undefined;
+}
+
+function saveCache(kind, toolVersion, data) {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const tmp = `${cacheKey(kind)}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ toolVersion, ...data }));
+    renameSync(tmp, cacheKey(kind));
+  } catch {
+    /* cache is a convenience — never fail the audit on it */
+  }
+}
 
 /** All TS/JS source files in the repo (the fallback pass traces the ones project configs don't see). */
 function allSourceFiles(dir) {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name === '.cells' || e.name === '.git' || e.name === 'dist' || e.name.startsWith('.')) continue;
+    if (e.name === 'node_modules' || e.name === '.cells' || e.name === '.git' || e.name === 'dist') continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) out.push(...allSourceFiles(p));
     else if (/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(e.name)) out.push(rel(p));
@@ -89,7 +151,7 @@ function run(cmd, argsArr, cwd, env = {}) {
 /** ------------------------------------------------------------------ */
 /** SCIP → file→file edges (shared by the rust + go oracles).           */
 /** ------------------------------------------------------------------ */
-function edgesFromScip(scipJsonPath) {
+function edgesFromScip(scipJsonPath, goModuleSymbolsOnly = false) {
   const dec = run(scipBin, ['print', '--json', scipJsonPath], repo);
   if (!dec.ok) throw new Error(`scip print failed: ${dec.stderr.slice(0, 400)}`);
   let index;
@@ -99,13 +161,22 @@ function edgesFromScip(scipJsonPath) {
     throw new Error(`scip print produced no JSON (index corrupt or empty): ${dec.stdout.slice(0, 200)}`);
   }
 
-  // symbol → defining file (role 1 = definition)
+  // symbol → defining file (role 1 = definition). RA uses file-scoped `local N`
+  // symbols (same name in every file) — they must never cross files. Go package
+  // symbols are defined in EVERY file of the package — prefer the non-test def
+  // (last-write-wins would land on *_test.go and mispoint every reference).
   const symbolFile = new Map();
   for (const doc of index.documents ?? []) {
     const p = rel(doc.relative_path);
     if (p.startsWith('..')) continue;
     for (const o of doc.occurrences ?? []) {
-      if (o.symbol_roles === 1 || o.symbolRoles === 1) symbolFile.set(o.symbol, p);
+      if (o.symbol.startsWith('local ')) continue;
+      if (o.symbol_roles === 1 || o.symbolRoles === 1) {
+        const existing = symbolFile.get(o.symbol);
+        if (existing === undefined || (existing.endsWith('_test.go') && !p.endsWith('_test.go'))) {
+          symbolFile.set(o.symbol, p);
+        }
+      }
     }
   }
 
@@ -114,8 +185,13 @@ function edgesFromScip(scipJsonPath) {
     const from = rel(doc.relative_path);
     if (from.startsWith('..')) continue;
     for (const o of doc.occurrences ?? []) {
+      if (o.symbol.startsWith('local ')) continue;
       const role = o.symbol_roles ?? o.symbolRoles ?? 0;
       if (role === 1) continue; // definitions are not edges
+      // Go: only package/module symbols (trailing '/') are import edges — a file can
+      // name a package only via an import statement. Value/type refs (e.g. a method
+      // reached through a return type) are uses, not imports.
+      if (goModuleSymbolsOnly && !o.symbol.endsWith('/')) continue;
       const to = symbolFile.get(o.symbol);
       if (to && to !== from) edges.add(`${from}\0${to}`);
     }
@@ -132,10 +208,12 @@ function oracleTs() {
   const edges = new Set();
   const resolvedSpecs = new Map(); // fromFile → Set<spec> (spec-level cross-check)
 
-  // tsconfigs: root + one level under packages/ or apps/ (workspace repos)
+  // tsconfigs: root + subprojects under packages/, apps/, examples/ (depth ≤ 6 —
+  // turborepo's examples nest apps/packages 4+ levels deep; the -p pass carries
+  // each project's path aliases, which the flat fallback can't know).
   const tsconfigs = [];
   const walk = (dir, depth) => {
-    if (depth > 3) return;
+    if (depth > 6) return;
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -145,13 +223,23 @@ function oracleTs() {
     for (const e of entries) {
       if (e.name === 'node_modules' || e.name === '.cells' || e.name.startsWith('.')) continue;
       if (e.isDirectory()) walk(join(dir, e.name), depth + 1);
-      else if (e.name === 'tsconfig.json' && (depth === 0 || /(^|\/)(packages|apps)(\/|$)/.test(join(dir, e.name)))) {
+      else if (e.name === 'tsconfig.json' && (depth === 0 || /(^|\/)(packages|apps|examples)(\/|$)/.test(join(dir, e.name)))) {
         tsconfigs.push(join(dir, e.name));
       }
     }
   };
   walk(repo, 0);
-  if (tsconfigs.length === 0) throw new Error(`no tsconfig.json found in ${repo}`);
+
+  // Plain-JS repos (no tsconfig): one allowJs pass over every source file.
+  // TS projects: the -p passes cover each program; files outside every program
+  // get the same allowJs fallback so tests/unlisted dirs aren't untraced.
+  const fallbackFlags = ['--noEmit', '--traceResolution', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--skipLibCheck', '--allowJs'];
+  if (tsconfigs.length === 0) {
+    const all = allSourceFiles(repo);
+    if (all.length === 0) throw new Error(`no JS/TS source files found in ${repo}`);
+    traceEdges(run(tscBin, [...fallbackFlags, ...all.map((f) => join(repo, f))], repo).stdout, edges, resolvedSpecs);
+    return { edges, resolvedSpecs };
+  }
 
   for (const tc of tsconfigs) {
     const out = run(tscBin, ['--noEmit', '--traceResolution', '-p', tc], repo);
@@ -167,11 +255,7 @@ function oracleTs() {
       .map(rel);
     const uncovered = allSourceFiles(repo).filter((f) => !listed.includes(f));
     if (uncovered.length > 0) {
-      const fallback = run(
-        tscBin,
-        ['--noEmit', '--traceResolution', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--skipLibCheck', ...uncovered.map((f) => join(repo, f))],
-        repo,
-      );
+      const fallback = run(tscBin, [...fallbackFlags, ...uncovered.map((f) => join(repo, f))], repo);
       traceEdges(fallback.stdout, edges, resolvedSpecs);
     }
   }
@@ -208,11 +292,11 @@ function oracleScip(probe, buildArgs) {
     const err = r.stderr.slice(0, 600) || r.stdout.slice(0, 600);
     throw new Error(`${probe} failed: ${err}`);
   }
-  return { edges: edgesFromScip(scipFile), resolvedSpecs: undefined };
+  return { edges: edgesFromScip(scipFile, probe === scipGoBin), resolvedSpecs: undefined };
 }
 
 const oracleRust = () => oracleScip(raBin, (scipFile) => ['scip', '--output', scipFile, '.']); // RA needs the positional project path
-const oracleGo = () => oracleScip(scipGoBin, (scipFile) => ['--output', scipFile, '.']);
+const oracleGo = () => oracleScip(scipGoBin, (scipFile) => ['index', '--output', scipFile, './...']); // scip-go indexes ONE package by default — ./... covers the module
 
 /** ------------------------------------------------------------------ */
 /** cells side                                                          */
@@ -243,11 +327,65 @@ function sampleLines(set, n, fmt) {
 }
 
 function main() {
-  const oracle = lang === 'ts' ? oracleTs() : lang === 'rust' ? oracleRust() : oracleGo();
-  const ours = cellsEdges();
+  const oracleTool = lang === 'ts' ? { name: 'tsc', version: run(tscBin, ['--version'], repo).stdout.trim() } : lang === 'rust' ? { name: 'rust-analyzer', version: run(raBin, ['--version'], repo).stdout.trim() } : { name: 'scip-go', version: run(scipGoBin, ['--version'], repo).stdout.trim() };
+  const oracleVersion = `${oracleTool.name} ${oracleTool.version}`;
+  const oracle = loadCache('oracle', oracleVersion) ?? (() => {
+    const o = lang === 'ts' ? oracleTs() : lang === 'rust' ? oracleRust() : oracleGo();
+    saveCache('oracle', oracleVersion, { edges: [...o.edges], resolvedSpecs: o.resolvedSpecs ? [...o.resolvedSpecs].map(([k, v]) => [k, [...v]]) : undefined });
+    return o;
+  })();
+  if (oracle.resolvedSpecs) oracle.resolvedSpecs = new Map(oracle.resolvedSpecs); // cache round-trip
 
-  const oracleOnly = [...oracle.edges].filter((k) => !ours.edges.has(k));
-  const oursOnly = [...ours.edges].filter((k) => !oracle.edges.has(k));
+  let cellsVersion = 'cells ?';
+  try {
+    cellsVersion = `cells ${JSON.parse(readFileSync(join(here, '..', '..', 'package.json'), 'utf8')).version}`;
+  } catch {
+    /* version read is a cache-key nicety — fall back to a fixed key */
+  }
+  const ours = loadCache('cells', cellsVersion) ?? (() => {
+    const o = cellsEdges();
+    saveCache('cells', cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
+    return o;
+  })();
+  if (ours.unresolved) ours.unresolved = new Map(ours.unresolved); // cache round-trip
+
+  // Go imports are package-level, but both sides pin them to a representative file —
+  // and they pick DIFFERENT representatives. Compare Go at package granularity
+  // (dirname of the target); the representative-file choice becomes irrelevant.
+  const normalize = (set) => {
+    if (lang !== 'go') return set;
+    const out = new Set();
+    for (const k of set) {
+      const [f, t] = k.split('\0');
+      const tdir = posix.dirname(t);
+      if (tdir !== posix.dirname(f)) out.add(`${f}\0${tdir}`); // same-dir = same package = not an import
+    }
+    return out;
+  };
+  // Scope the comparison to the audited language: our side keeps only edges
+  // FROM ts/js files; the oracle side drops node_modules (type-dep internals the
+  // census never sees) and non-code targets (json/package.json — cells reports
+  // those as unresolved, the compiler resolves them as data imports).
+  const tsExt = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+  const scoped = (set, side) => {
+    const out = new Set();
+    for (const k of set) {
+      const [f, t] = k.split('\0');
+      if (f.startsWith('node_modules/') || t.startsWith('node_modules/')) continue;
+      if (f.includes('/dist/') || t.includes('/dist/')) continue; // built output — the census skips dist
+      if (lang === 'ts') {
+        if (side === 'oracle' && !tsExt.test(t)) continue;
+        if (side === 'ours' && !tsExt.test(f)) continue;
+      }
+      out.add(k);
+    }
+    return out;
+  };
+  const oracleEdges = scoped(normalize(oracle.edges), 'oracle');
+  const ourEdges = scoped(normalize(ours.edges), 'ours');
+
+  const oracleOnly = [...oracleEdges].filter((k) => !ourEdges.has(k));
+  const oursOnly = [...ourEdges].filter((k) => !oracleEdges.has(k));
 
   // classification cross-check (ts only): a specifier cells left unresolved
   // that the compiler itself resolved
@@ -262,7 +400,7 @@ function main() {
 
   const lines = [];
   lines.push(`# crossing validation — ${lang} on ${repo}`);
-  lines.push(`  our edges: ${ours.edges.size}   oracle edges: ${oracle.edges.size}`);
+  lines.push(`  our edges: ${ourEdges.size}   oracle edges: ${oracleEdges.size}${lang === 'go' ? '  (package-granular: target = package dir)' : ''}`);
   lines.push('');
   lines.push(`## under-flag (oracle resolved, cells missed): ${oracleOnly.length}`);
   if (oracleOnly.length > 0) lines.push(...sampleLines(oracleOnly, top, (k) => k.replace('\0', ' → ')));

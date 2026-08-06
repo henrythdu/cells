@@ -45,12 +45,19 @@ PATH, then `$HOME/go/bin`. Requires the repo to be a cells project
 (`.cells/` present — run `cells init` if not) and a built `dist/cli.js` in
 the cells repo.
 
-## Scope
+## Scope & status
+
+**Internal development tool only.** Users never install or run this — it is
+not shipped (scripts/ is excluded from the npm package), it is not a gate,
+and its tools (tsc, rust-analyzer, scip, scip-go) are never a cells
+prerequisite. Its only job is to improve how cells derives crossings: the
+report's divergences drive importer fixes, then the oracle re-verifies.
+
+Oracles are cached in ~/.cache/cells-validate (keyed on repo fingerprint +
+tool version) — reruns skip the minutes-long indexing. Pass --no-cache to
+force.
 
 Wave 1: TS/JS (turborepo, express), Rust (ripgrep), Go (terraform).
 Wave 2: Java (scip-java + maven), C++ (scip-clang + cmake compile_commands),
 Python (scip-python). The C++ and Python oracles carry extra setup
 (compile flags / environment) — deferred until the wave-1 loop is proven.
-
-Not shipped: `scripts/` is excluded from the npm package (`files` in
-package.json). Users never install the validation tooling.
