@@ -37,6 +37,41 @@ granularity.
 
 The report informs — it never gates cells itself.
 
+## Known judged divergences (accepted, no product change)
+
+Divergences are inspected, judged, and closed as **oracle-granularity** when
+cells' resolution is defensible on its own model (import statement → the
+module the import names). Closed classes:
+
+- **Rust crate-root pinning** (ripgrep, ~307 under-flags): rust-analyzer's
+  SCIP defines one `crate/` symbol per target (lib / bin / build-script /
+  bench / example / test) and pins it to a single file — `src/lib.rs`, but
+  also `build.rs`, `benches/bench.rs`, `examples/*.rs`, `tests/tests.rs`.
+  Every `use crate::x::y` references it → an oracle edge to the pinned
+  file. cells resolves the same import to the module the import names and
+  never emits crate-root edges (emitting them would add noise to every
+  repo). Re-export def-site is the same class: RA resolves imported symbols
+  to their defining file (glob.rs), cells to the named package root
+  (lib.rs) — both right, different granularity.
+- **C++ include-once suppression** (pybind11 64, llama.cpp 143 over-flags):
+  a header already pulled in transitively never re-lists in `gcc -H` at its
+  direct include site; cells' source-parse sees every `#include` — the
+  compiler transcript is blind there, cells is right.
+- **Python stub preference** (pandas 335): pyright resolves imports to
+  `.pyi` stubs; cells resolves to the `.pyx`/`.py` source — the census
+  excludes `.pyi` by design, source is the truth for the LLM.
+- **Python parent-package edges** (pandas, zulip): pyright lists parent
+  packages of imported submodules (`import a.b.c` → also `a/__init__.py`,
+  `a/b/__init__.py`); cells emits only the named module.
+- **Java same-package + blind zones** (guava): same-dir oracle edges
+  dropped (Java needs no import within a package); oracle-unseen files
+  (GWT src-super, SDK-gated, unbuilt targets) drop from both sides and are
+  counted as oracle-blind.
+
+The `[[bin]] path = crates/core/main.rs` root-crate layout (stress bug #18)
+WAS a real cells bug — fixed; those under-flags dropped from 338 to 307
+(now 100% oracle-granularity).
+
 ## Usage
 
 ```bash
