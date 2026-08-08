@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
+import type { ParsedOracle } from '../compare.ts';
 
 /** RAW cpp oracle: cmake configure → compdb → per-TU `-H` transcripts. */
 export function oracleCppRaw(repo: string, runFn: Run, extraArgs: string[]): string {
@@ -53,17 +54,12 @@ export function oracleCppRaw(repo: string, runFn: Run, extraArgs: string[]): str
   return out.join('\n');
 }
 
-export interface CppEdges {
-  edges: Set<string>;
-  fromFiles: Set<string>;
-}
-
 /** Parse the wrapped per-TU -H transcripts into file→file edges. Direct includes are
  *  the depth-1 lines (exactly one leading '. '). Deeper dots = transitively-reached
  *  headers — not imports (cells' model: direct #include only), but they ARE oracle-
  *  visible files: a header reached at any depth was opened by the compiler, so it's
  *  not a blind zone (fromFiles = TUs + every in-repo path the compiler opened). */
-export function oracleCppFromRaw(raw: string, repo: string): CppEdges {
+export function oracleCppFromRaw(raw: string, repo: string): ParsedOracle {
   const edges = new Set<string>();
   const fromFiles = new Set<string>();
   let cur: string | null = null;

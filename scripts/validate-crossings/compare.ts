@@ -3,6 +3,7 @@
  *  Pure — takes sets in, returns the report rows. */
 
 import { posix } from 'node:path';
+import type { CellsEdges } from './cells.ts';
 
 export interface ParsedOracle {
   edges: Set<string>; // `${fromFile}\0${toFile}`
@@ -85,11 +86,7 @@ export interface Report {
   falseUnresolved: string[];
 }
 
-export function compare(
-  ours: CellsLike,
-  oracle: ParsedOracle,
-  lang: Lang,
-): Report {
+export function compare(ours: CellsEdges, oracle: ParsedOracle, lang: Lang): Report {
   const blind = blindFiles(ours.edges, oracle.fromFiles);
   const notBlind = (k: string): boolean => {
     const [f, t] = k.split('\0');
@@ -112,9 +109,4 @@ export function compare(
   }
 
   return { ourEdges, oracleEdges, blind, oracleOnly, oursOnly, falseUnresolved };
-}
-
-interface CellsLike {
-  edges: Set<string>;
-  unresolved: Map<string, { fromFile: string; import: string }>;
 }

@@ -16,14 +16,14 @@ describe('oracleCppFromRaw — per-TU gcc -H transcripts → edges', () => {
     const out = oracleCppFromRaw(raw, REPO);
     expect([...out.edges]).toEqual(['src/main.c\0src/attr.h', 'src/attr.h\0src/cast.h']);
     // every file the compiler opened is oracle-visible (not blind)
-    expect(out.fromFiles.has('src/cast.h')).toBe(true);
+    expect(out.fromFiles!.has('src/cast.h')).toBe(true);
   });
 
   it('FAIL sections are blind (dead/disabled targets)', () => {
     const raw = ['# TU src/dead.c FAIL', '. /repo/src/attr.h', '# TU src/alive.c OK', '. /repo/src/attr.h'].join('\n');
     const out = oracleCppFromRaw(raw, REPO);
     expect([...out.edges]).toEqual(['src/alive.c\0src/attr.h']);
-    expect(out.fromFiles.has('src/dead.c')).toBe(false);
+    expect(out.fromFiles!.has('src/dead.c')).toBe(false);
   });
 
   it('skips self-edges and out-of-repo headers', () => {

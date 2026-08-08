@@ -13,6 +13,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
+import type { ParsedOracle } from '../compare.ts';
 import { decodeScipIndex, type ScipIndex } from './scip.ts';
 
 /** RAW java oracle: scip-java runs mvn/gradle internally and writes repo/index.scip.
@@ -28,13 +29,8 @@ export function oracleJavaRaw(javaBin: string, repo: string, runFn: Run, extraAr
   return index;
 }
 
-export interface JavaEdges {
-  edges: Set<string>;
-  fromFiles: Set<string>;
-}
-
 /** slashed FQN path → defining file (non-test, non-target preference). */
-export function edgesFromJava(index: ScipIndex, repo: string): JavaEdges {
+export function edgesFromJava(index: ScipIndex, repo: string): ParsedOracle {
   const symbolFile = new Map<string, string>();
   const fqnOf = (sym: string): string | null => {
     const m = sym.match(/^scip-java maven [^ ]+ [^ ]+ ([^#.()]+)/);

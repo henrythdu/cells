@@ -26,12 +26,7 @@ describe('traceEdges — tsc --traceResolution transcript → edges', () => {
   });
 
   it('keeps node_modules edges in the raw parse — the scoped() pass drops them', () => {
-    const { edges } = parse(
-      [
-        "======== Resolving module 'react' from '/repo/src/app.tsx'. ========",
-        "======== Module name 'react' was successfully resolved to '/repo/node_modules/react/index.d.ts'. ========",
-      ].join('\n'),
-    );
+    const { edges } = parse(["======== Resolving module 'react' from '/repo/src/app.tsx'. ========", "======== Module name 'react' was successfully resolved to '/repo/node_modules/react/index.d.ts'. ========"].join('\n'));
     expect([...edges]).toEqual(['src/app.tsx\0node_modules/react/index.d.ts']); // raw parse: kept
     expect([...scoped(edges, 'oracle', 'ts')]).toEqual([]); // comparison: dropped (census never sees node_modules)
   });
@@ -50,10 +45,7 @@ describe('traceEdges — tsc --traceResolution transcript → edges', () => {
 
   it('handles the NodeNext resolved line trailer (with Package ID)', () => {
     const { edges } = parse(
-      [
-        "======== Resolving module '@pkg/util' from '/repo/src/x.ts'. ========",
-        "======== Module name '@pkg/util' was successfully resolved to '/repo/packages/util/src/index.ts' with Package ID '@pkg/util@1.0.0'. ========",
-      ].join('\n'),
+      ["======== Resolving module '@pkg/util' from '/repo/src/x.ts'. ========", "======== Module name '@pkg/util' was successfully resolved to '/repo/packages/util/src/index.ts' with Package ID '@pkg/util@1.0.0'. ========"].join('\n'),
     );
     expect([...edges]).toEqual(['src/x.ts\0packages/util/src/index.ts']);
   });

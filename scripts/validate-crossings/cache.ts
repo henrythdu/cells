@@ -39,21 +39,22 @@ export function cellsFingerprint(repo: string, srcRoot: string, runFn: Run): str
 function cacheKey(repo: string, lang: string, kind: string, fp: string): string {
   // v7: cache FORMAT. The oracle cache holds RAW artifacts — extraction-logic
   // changes re-parse them with current code and never re-run the compilers.
-  const h = createHash('sha1')
-    .update(`${repo}\0${lang}\0${kind}\0v7\0${fp}`)
-    .digest('hex')
-    .slice(0, 16);
+  const h = createHash('sha1').update(`${repo}\0${lang}\0${kind}\0v7\0${fp}`).digest('hex').slice(0, 16);
   return join(CACHE_DIR, `${h}.json.gz`);
 }
 
-export interface Cache {
-  loadRaw(kind: string, toolVersion: string): unknown | undefined;
-  saveRaw(kind: string, toolVersion: string, payload: unknown): void;
-  loadCells(toolVersion: string): unknown | undefined;
-  saveCells(toolVersion: string, data: Record<string, unknown>): void;
-}
+const write = (key: string, content: string | Buffer): void => {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const tmp = `${key}.tmp`;
+    writeFileSync(tmp, content);
+    renameSync(tmp, key);
+  } catch {
+    /* cache is a convenience — never fail the audit on it */
+  }
+};
 
-export function makeCache(repo: string, lang: string, srcRoot: string, runFn: Run, noCache: boolean): Cache {
+export function makeCache(repo: string, lang: string, srcRoot: string, runFn: Run, noCache: boolean) {
   const loadRaw = (kind: string, toolVersion: string): unknown | undefined => {
     if (noCache) return undefined;
     try {
@@ -66,14 +67,7 @@ export function makeCache(repo: string, lang: string, srcRoot: string, runFn: Ru
   };
 
   const saveRaw = (kind: string, toolVersion: string, payload: unknown): void => {
-    try {
-      mkdirSync(CACHE_DIR, { recursive: true });
-      const tmp = `${cacheKey(repo, lang, kind, fingerprint(repo, runFn))}.tmp`;
-      writeFileSync(tmp, gzipSync(Buffer.from(JSON.stringify({ toolVersion, payload }))));
-      renameSync(tmp, cacheKey(repo, lang, kind, fingerprint(repo, runFn)));
-    } catch {
-      /* cache is a convenience — never fail the audit on it */
-    }
+    write(cacheKey(repo, lang, kind, fingerprint(repo, runFn)), gzipSync(Buffer.from(JSON.stringify({ toolVersion, payload }))));
   };
 
   const loadCells = (toolVersion: string): unknown | undefined => {
@@ -88,14 +82,7 @@ export function makeCache(repo: string, lang: string, srcRoot: string, runFn: Ru
   };
 
   const saveCells = (toolVersion: string, data: Record<string, unknown>): void => {
-    try {
-      mkdirSync(CACHE_DIR, { recursive: true });
-      const tmp = `${cacheKey(repo, lang, 'cells', cellsFingerprint(repo, srcRoot, runFn))}.tmp`;
-      writeFileSync(tmp, JSON.stringify({ toolVersion, ...data }));
-      renameSync(tmp, cacheKey(repo, lang, 'cells', cellsFingerprint(repo, srcRoot, runFn)));
-    } catch {
-      /* cache is a convenience — never fail the audit on it */
-    }
+    write(cacheKey(repo, lang, 'cells', cellsFingerprint(repo, srcRoot, runFn)), JSON.stringify({ toolVersion, ...data }));
   };
 
   return { loadRaw, saveRaw, loadCells, saveCells };

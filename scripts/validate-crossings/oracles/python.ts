@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
+import type { ParsedOracle } from '../compare.ts';
 
 /** RAW python oracle: run pyright with the repo's code-dirs (default src, test). */
 export function oraclePythonRaw(repo: string, runFn: Run, pyrightBin: string): string {
@@ -29,16 +30,11 @@ export function oraclePythonRaw(repo: string, runFn: Run, pyrightBin: string): s
   return r.stdout;
 }
 
-export interface PythonEdges {
-  edges: Set<string>;
-  fromFiles: Set<string>;
-}
-
 /** Parse pyright --dependencies --verbose output into file→file edges. Sections:
  *  <relpath> / " Imports N files" (file:// URIs, verbose) / " Imported by N files"
  *  (file:// URIs — the REVERSE graph, must not be collected). Noise lines
  *  (config, "Found N source files", diagnostics) match none of the patterns. */
-export function oraclePythonFromRaw(stdout: string, repo: string): PythonEdges {
+export function oraclePythonFromRaw(stdout: string, repo: string): ParsedOracle {
   const edges = new Set<string>();
   const fromFiles = new Set<string>();
   let cur: string | null = null;

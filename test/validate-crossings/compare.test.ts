@@ -22,11 +22,7 @@ describe('normalize — per-language granularity', () => {
 
 describe('scoped — comparison scope', () => {
   it('drops node_modules, dist, target edges on either side', () => {
-    const out = scoped(
-      E(['src/a.ts', 'node_modules/x/index.d.ts'], ['dist/out.js', 'src/b.ts'], ['src/c.ts', 'target/gen.java'], ['src/a.ts', 'src/b.ts']),
-      'oracle',
-      'ts',
-    );
+    const out = scoped(E(['src/a.ts', 'node_modules/x/index.d.ts'], ['dist/out.js', 'src/b.ts'], ['src/c.ts', 'target/gen.java'], ['src/a.ts', 'src/b.ts']), 'oracle', 'ts');
     expect([...out]).toEqual(['src/a.ts\0src/b.ts']);
   });
 

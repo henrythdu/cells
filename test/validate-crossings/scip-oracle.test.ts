@@ -43,11 +43,7 @@ describe('edgesFromIndex — SCIP index → file→file edges', () => {
 
   it('prefers the non-test definition for symbols defined in every file (go packages)', () => {
     const index = {
-      documents: [
-        doc('src/pkg/a_test.go', [{ symbol: 'pkg/', roles: 1 }]),
-        doc('src/pkg/a.go', [{ symbol: 'pkg/', roles: 1 }]),
-        doc('src/use.go', [{ symbol: 'pkg/', roles: 4 }]),
-      ],
+      documents: [doc('src/pkg/a_test.go', [{ symbol: 'pkg/', roles: 1 }]), doc('src/pkg/a.go', [{ symbol: 'pkg/', roles: 1 }]), doc('src/use.go', [{ symbol: 'pkg/', roles: 4 }])],
     };
     const edges = edgesFromIndex(index as never, REPO, (s) => s.endsWith('/'));
     expect([...edges]).toEqual(['src/use.go\0src/pkg/a.go']); // not a_test.go
@@ -57,7 +53,10 @@ describe('edgesFromIndex — SCIP index → file→file edges', () => {
     const index = {
       documents: [
         doc('../vendor/x.go', [{ symbol: 'v .x', roles: 1 }]),
-        doc('src/a.go', [{ symbol: 'v .x', roles: 4 }, { symbol: 'own', roles: 1 }]),
+        doc('src/a.go', [
+          { symbol: 'v .x', roles: 4 },
+          { symbol: 'own', roles: 1 },
+        ]),
       ],
     };
     const edges = edgesFromIndex(index as never, REPO);

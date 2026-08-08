@@ -26,10 +26,7 @@ describe('edgesFromJava — import statements × scip-java definition map', () =
     touch('src/com/acme/Outer$Inner.java', 'package com.acme;\nclass Inner {}\n');
     touch('src/app/Main.java', 'package app;\nimport com.acme.Outer.Inner;\nclass Main {}\n');
     const index = {
-      documents: [
-        doc('src/com/acme/Outer.java', ['scip-java maven grp art com/acme/Outer#']),
-        doc('src/app/Main.java', []),
-      ],
+      documents: [doc('src/com/acme/Outer.java', ['scip-java maven grp art com/acme/Outer#']), doc('src/app/Main.java', [])],
     };
     const out = edgesFromJava(index as never, repo);
     // Inner is defined in the outer class file — the prefix walk must land there
@@ -44,7 +41,7 @@ describe('edgesFromJava — import statements × scip-java definition map', () =
     };
     const out = edgesFromJava(index as never, repo);
     expect(out.edges.size).toBe(0);
-    expect([...out.fromFiles]).toEqual(['src/a/Main.java']); // src still oracle-visible
+    expect([...out.fromFiles!]).toEqual(['src/a/Main.java']); // src still oracle-visible
   });
 
   it('skips static imports only when the member class resolves (no self-edges)', () => {

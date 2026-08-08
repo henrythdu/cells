@@ -39,14 +39,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findBin, run } from './shared.ts';
-import { makeCache, type Cache } from './cache.ts';
+import { makeCache } from './cache.ts';
 import { cellsEdges, type CellsEdges } from './cells.ts';
 import { compare, type Lang, type ParsedOracle } from './compare.ts';
 import { edgesFromIndex, oracleScipRaw, type ScipIndex } from './oracles/scip.ts';
 import { oracleTsRaw, oracleTsFromRaw, type TsRaw } from './oracles/ts.ts';
-import { oracleJavaRaw, edgesFromJava, type JavaEdges } from './oracles/java.ts';
-import { oracleCppRaw, oracleCppFromRaw, type CppEdges } from './oracles/cpp.ts';
-import { oraclePythonRaw, oraclePythonFromRaw, type PythonEdges } from './oracles/python.ts';
+import { oracleJavaRaw, edgesFromJava } from './oracles/java.ts';
+import { oracleCppRaw, oracleCppFromRaw } from './oracles/cpp.ts';
+import { oraclePythonRaw, oraclePythonFromRaw } from './oracles/python.ts';
 
 const [, , repoArg, langArg, ...rest] = process.argv;
 const args = new Map<string, string>();
@@ -111,32 +111,34 @@ const ORACLES: Record<Lang, Oracle> = {
     name: 'scip-java',
     version: () => `${run(javaBin, ['--version'], repo).stdout.trim()} ${(get('--java-args', '') ?? '').trim()}`,
     raw: () => oracleJavaRaw(javaBin, repo, run, (get('--java-args', '') ?? '').trim().split(/\s+/).filter(Boolean)),
-    parse: (raw) => edgesFromJava(raw as ScipIndex, repo) as JavaEdges,
+    parse: (raw) => edgesFromJava(raw as ScipIndex, repo),
   },
   cpp: {
     name: 'gcc -H',
     version: () => `${run('gcc', ['--version'], repo).stdout.trim().split('\n')[0]} ${(get('--cmake-args', '') ?? '').trim()} oracle-v3`,
     raw: () => oracleCppRaw(repo, run, (get('--cmake-args', '') ?? '').trim().split(/\s+/).filter(Boolean)),
-    parse: (raw) => oracleCppFromRaw(raw as string, repo) as CppEdges,
+    parse: (raw) => oracleCppFromRaw(raw as string, repo),
   },
   python: {
     name: 'pyright',
     version: () => run(pyrightBin, ['--version'], repo).stdout.trim(),
     raw: () => oraclePythonRaw(repo, run, pyrightBin),
-    parse: (raw) => oraclePythonFromRaw(raw as string, repo) as PythonEdges,
+    parse: (raw) => oraclePythonFromRaw(raw as string, repo),
   },
 };
 
 function main(): void {
   const oracle = ORACLES[lang];
   const oracleVersion = `${oracle.name} ${oracle.version()}`;
-  const cache: Cache = makeCache(repo, lang, join(repoRoot, 'src'), run, rest.includes('--no-cache'));
+  const cache = makeCache(repo, lang, join(repoRoot, 'src'), run, rest.includes('--no-cache'));
 
-  const raw = cache.loadRaw('oracle', oracleVersion) ?? (() => {
-    const r = oracle.raw();
-    cache.saveRaw('oracle', oracleVersion, r);
-    return r;
-  })();
+  const raw =
+    cache.loadRaw('oracle', oracleVersion) ??
+    (() => {
+      const r = oracle.raw();
+      cache.saveRaw('oracle', oracleVersion, r);
+      return r;
+    })();
   // RAW artifacts are cached; extraction re-runs with CURRENT logic every load.
   const oracleParsed = oracle.parse(raw);
 
@@ -146,11 +148,13 @@ function main(): void {
   } catch {
     /* version read is a cache-key nicety — fall back to a fixed key */
   }
-  const ours: CellsEdges = cache.loadCells(cellsVersion) as CellsEdges | undefined ?? (() => {
-    const o = cellsEdges(cellsBin, repo, run);
-    cache.saveCells(cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
-    return o;
-  })();
+  const ours: CellsEdges =
+    (cache.loadCells(cellsVersion) as CellsEdges | undefined) ??
+    (() => {
+      const o = cellsEdges(cellsBin, repo, run);
+      cache.saveCells(cellsVersion, { edges: [...o.edges], unresolved: [...o.unresolved] });
+      return o;
+    })();
   if (Array.isArray(ours.unresolved)) {
     ours.unresolved = new Map(ours.unresolved); // cache round-trip
   }
