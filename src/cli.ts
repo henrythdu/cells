@@ -10,7 +10,7 @@ import { loadContext, requireCells, type CellsContext } from './io.js';
 import { cmdCrossings, cmdImports, cmdList, cmdShow, cmdGraph, cmdOwns, cmdPayload, cmdSurface } from './commands/read.js';
 import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './commands/report.js';
 import { cmdInit, cmdRename, cmdRemove, cmdAssign, cmdUnassign, cmdNew, cmdPruneStale, cmdPlan, cmdConfig } from './mutate.js';
-import { HELP } from './help.js';
+import { renderHelp } from './help.js';
 
 /** Installed version, read lazily from package.json (works in dev + when npm-installed). */
 function readVersion(): string {
@@ -23,19 +23,20 @@ function readVersion(): string {
 
 interface Command {
   readonly usage: string;
+  readonly desc: string;
   readonly minArgs: number;
   readonly needsCells: boolean;
   readonly run: (args: string[], dryRun: boolean, ctx?: CellsContext) => void | Promise<void>;
 }
 
-const USAGE =
-  'usage: cells {help | init | rename <old> <new> | remove <cell> [--force] | new <name> [--purpose ...] [--provides a,b] [--requires a,b] [--layer N] | prune-stale [--apply] | assign [--dry-run] <cell> <file...> | unassign [--dry-run] <file...> | owns <file> | payload <name> | health [--verbose] [--summary] | crossings [--diff] [--verbose] [--json] | imports [--json] | plan [--apply] [--dry-run] | list [--verbose] | size | structure [--summary] | config [set max-payload-tokens <N>] | graph [--mermaid] | show <name> | surface <name> | impact <name>}';
-
-/** Declarative command dispatch — add a command by adding one row, not a case. */
+// One line per command. `usage` is the single source of truth: the error line
+// ("usage: cells …"), the dispatch help ("cells <cmd> --help"), and the
+// COMMANDS block in `cells help` are all derived from it (see renderHelp).
 const COMMANDS: Record<string, Command> = {
-  payload: { usage: 'cells payload <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdPayload(ctx!, a[0]) },
+  payload: { usage: 'cells payload <name>', desc: "print a cell's full payload (the context to work it)", minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdPayload(ctx!, a[0]) },
   validate: {
     usage: 'cells validate',
+    desc: 'legacy alias for health — prints a note, runs the full gate (deprecated)',
     minArgs: 0,
     needsCells: true,
     run: async (_a, _d, ctx) => {
@@ -43,46 +44,50 @@ const COMMANDS: Record<string, Command> = {
       await cmdHealth(ctx!);
     },
   },
-  crossings: { usage: 'cells crossings [--diff] [--verbose] [--json]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json') }) },
-  imports: { usage: 'cells imports [--json]', minArgs: 0, needsCells: true, run: (a) => cmdImports({ json: a.includes('--json') }) },
-  list: { usage: 'cells list [--verbose]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdList(ctx!, a.includes('--verbose')) },
-  size: { usage: 'cells size', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
-  structure: { usage: 'cells structure [--summary]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdStructure(ctx!, a.includes('--summary')) },
-  config: { usage: 'cells config [set max-payload-tokens <N>]', minArgs: 0, needsCells: false, run: (a) => cmdConfig(a) },
-  graph: { usage: 'cells graph [--mermaid]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
-  owns: { usage: 'cells owns <file>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
-  show: { usage: 'cells show <name> [--verbose]', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')) },
-  surface: { usage: 'cells surface <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdSurface(ctx!, a[0]) },
-  impact: { usage: 'cells impact <name>', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdImpact(ctx!, a[0]) },
+  crossings: { usage: 'cells crossings [--diff] [--verbose] [--json]', desc: 'cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json') }) },
+  imports: { usage: 'cells imports [--json]', desc: 'raw file→file import graph (resolved edges + unresolved specifiers) — machine surface for scripts/validate-crossings', minArgs: 0, needsCells: true, run: (a) => cmdImports({ json: a.includes('--json') }) },
+  list: { usage: 'cells list [--verbose]', desc: 'partition overview: cells, sizes, fan-in/out, requires, orphans; --verbose adds a per-cell health line (size%, stale provides, unresolved, dead files)', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdList(ctx!, a.includes('--verbose')) },
+  size: { usage: 'cells size', desc: 'context-fit vs the ceiling (warning); over-ceiling → peel candidates; cells can declare their own ceiling (ceiling = N in the cell.toml)', minArgs: 0, needsCells: true, run: (_a, _d, ctx) => cmdSize(ctx!) },
+  structure: { usage: 'cells structure [--summary]', desc: 'layers + ADP + Direction + SDP (all warnings); cycle → cheapest edge to cut; --summary = triage view (one line per cycle + counts — for high-cycle repos like kafka/elasticsearch)', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdStructure(ctx!, a.includes('--summary')) },
+  config: { usage: 'cells config [set max-payload-tokens <N>]', desc: 'read the effective config; set the global ceiling (edit in place, comments preserved — the per-repo knob)', minArgs: 0, needsCells: false, run: (a) => cmdConfig(a) },
+  graph: { usage: 'cells graph [--mermaid]', desc: 'the dependency graph (ASCII tree; --mermaid for Mermaid)', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdGraph(ctx!, a.includes('--mermaid')) },
+  owns: { usage: 'cells owns <file>', desc: 'which cell owns this file? (reverse lookup)', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
+  show: { usage: 'cells show <name> [--verbose]', desc: 'one cell: membrane + in/out crossings + fan-in/out/instability + size, dead-at-boundary files, co-changes, stale provides, unresolved imports', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')) },
+  surface: { usage: 'cells surface <name>', desc: "print the cell's export-like declaration lines (file:line) — the starting point for populating the membrane signatures field", minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdSurface(ctx!, a[0]) },
+  impact: { usage: 'cells impact <name>', desc: 'blast radius: cells that transitively depend on this one', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdImpact(ctx!, a[0]) },
   init: {
     usage: 'cells init [--dry-run]',
+    desc: 'bootstrap .cells/ (idempotent; --dry-run previews)',
     minArgs: 0,
     needsCells: false,
     run: (_a, dryRun) => cmdInit(dryRun),
   },
-  rename: { usage: 'cells rename <old> <new>', minArgs: 2, needsCells: true, run: (a) => cmdRename(a[0], a[1]) },
-  remove: { usage: 'cells remove <cell> [--force]', minArgs: 1, needsCells: true, run: (a) => cmdRemove(a[0], a.includes('--force')) },
+  rename: { usage: 'cells rename <old> <new>', desc: 'rename a cell — updates .cell.toml, ownership, and all requires', minArgs: 2, needsCells: true, run: (a) => cmdRename(a[0], a[1]) },
+  remove: { usage: 'cells remove <cell> [--force]', desc: 'delete a cell; --force orphans owned files and strips requires refs', minArgs: 1, needsCells: true, run: (a) => cmdRemove(a[0], a.includes('--force')) },
   assign: {
     usage: 'cells assign [--dry-run] <cell> <file...>',
+    desc: 'assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)',
     minArgs: 2,
     needsCells: true,
     run: (a, dryRun) => cmdAssign(a[0], a.slice(1), dryRun),
   },
   unassign: {
     usage: 'cells unassign [--dry-run] <file...>',
+    desc: 'remove files from their cell (→ orphan; --dry-run previews)',
     minArgs: 1,
     needsCells: true,
     run: (a, dryRun) => cmdUnassign(a, dryRun),
   },
-  health: { usage: 'cells health [--verbose] [--summary]', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdHealth(ctx!, a.includes('--verbose'), a.includes('--summary')) },
+  health: { usage: 'cells health [--verbose] [--summary]', desc: 'THE GATE: exit 1 on integrity + undeclared leakage + a broken packaged grammar; size/structure are warnings (--verbose names failing edges inline; --summary collapses unresolved entries into per-FILE groups, sorted desc — the triage unit for high-unresolved repos). Output ends with a machine-parseable health: X.Xs timing line.', minArgs: 0, needsCells: true, run: (a, _d, ctx) => cmdHealth(ctx!, a.includes('--verbose'), a.includes('--summary')) },
   new: {
     usage: 'cells new <name> [--purpose "..."] [--provides a,b] [--requires a,b] [--layer N]',
+    desc: 'scaffold a cell declaration (.cell.toml) — declare first, then assign files to it',
     minArgs: 1,
     needsCells: true,
     run: (a) => cmdNew(a),
   },
-  'prune-stale': { usage: 'cells prune-stale [--apply]', minArgs: 0, needsCells: true, run: (a) => cmdPruneStale(a.includes('--apply')) },
-  plan: { usage: 'cells plan [--apply] [--dry-run]', minArgs: 0, needsCells: false, run: (a, dryRun) => cmdPlan(a.includes('--apply'), dryRun) },
+  'prune-stale': { usage: 'cells prune-stale [--apply]', desc: 'remove requires declared but never imported (stale); dry-run by default, --apply rewrites', minArgs: 0, needsCells: true, run: (a) => cmdPruneStale(a.includes('--apply')) },
+  plan: { usage: 'cells plan [--apply] [--dry-run]', desc: 'scan code-dirs and propose a partition: crates / npm packages / Python __init__ packages become one cell each, other files group by directory (review + curate; --apply creates the cells + ownership mechanically, --dry-run previews)', minArgs: 0, needsCells: false, run: (a, dryRun) => cmdPlan(a.includes('--apply'), dryRun) },
 };
 
 async function main(): Promise<void> {
@@ -95,7 +100,7 @@ async function main(): Promise<void> {
   });
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
-    process.stdout.write(HELP);
+    process.stdout.write(renderHelp(Object.values(COMMANDS)));
     return;
   }
   if (cmd === '--version' || cmd === '-v') {
@@ -105,7 +110,7 @@ async function main(): Promise<void> {
 
   const command = COMMANDS[cmd];
   if (!command) {
-    console.error(USAGE);
+    console.error(`usage: cells {help | --version | ${Object.values(COMMANDS).map((c) => c.usage.replace(/^cells /, '')).join(' | ')}}`);
     process.exit(1);
   }
   // `cells <cmd> --help` must answer help, not run the command (minArgs:0 commands

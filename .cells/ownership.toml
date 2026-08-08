@@ -38,7 +38,7 @@ files = ["src/structure.ts", "test/structure.test.ts"]
 files = ["src/ignore.ts", "test/ignore.test.ts"]
 
 [help]
-files = ["src/help.ts"]
+files = ["src/help.ts", "test/help.test.ts"]
 
 [importers]
 files = ["src/importers.ts", "test/importers.test.ts", "test/multilang.test.ts", "src/bridges.ts", "test/bridges.test.ts"]
@@ -84,3 +84,6 @@ files = ["test/languages/rust.test.ts"]
 
 [ts-resolution]
 files = ["src/languages/ts-resolution.ts", "test/languages/ts-resolution.test.ts"]
+
+[validate-crossings]
+files = ["test/validate-crossings/compare.test.ts", "test/validate-crossings/cpp-oracle.test.ts", "test/validate-crossings/java-oracle.test.ts", "test/validate-crossings/python-oracle.test.ts", "test/validate-crossings/scip-oracle.test.ts", "test/validate-crossings/ts-oracle.test.ts"]

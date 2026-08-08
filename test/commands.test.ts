@@ -130,3 +130,13 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     expect(rendered).toContain('src/b.py  (cell b · 1×)'); // c.py + b.py co-changed in commit 1
   });
 });
+
+describe('help CLI — the wiring', () => {
+  it('exits 0 and prints the COMMANDS block', () => {
+    const bin = join(__dirname, '..', 'dist', 'cli.js');
+    const out = execSync(`node ${bin} help`, { encoding: 'utf8' });
+    expect(out).toContain('COMMANDS');
+    expect(out).toContain('imports [--json]');
+    expect(out).toContain('prune-stale [--apply]');
+  });
+});

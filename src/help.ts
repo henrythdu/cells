@@ -3,8 +3,12 @@
  * dropped into ANY repo with a `.cells/` dir onboards: run `cells help` and the
  * tool teaches itself. The README lives in the Cells repo; THIS text is what
  * reaches foreign repos (it ships with the installed `cells` command).
+ *
+ * The COMMANDS block is rendered by renderHelp() from the dispatch table in
+ * cli.ts — the table's `usage` strings are the only source of truth for command
+ * names + flags (they drifted 3× in one session when help was hand-maintained).
  */
-export const HELP = `cells — code organized into context-bounded cells, for LLMs coding alongside humans.
+const HELP_TEMPLATE = `cells — code organized into context-bounded cells, for LLMs coding alongside humans.
 Work one cell at a time instead of drowning in the whole codebase.
 
 THE MODEL
@@ -49,46 +53,7 @@ WORKING IN A CELLS PROJECT (for agents)
   (no separate divide command — assign IS the repartition tool).
 
 COMMANDS
-  init [--dry-run]         bootstrap .cells/ (idempotent; --dry-run previews)
-  new <name> [--purpose "..."]
-    [--provides a,b] [--requires a,b] [--layer N]
-                           scaffold a cell declaration (.cell.toml) — declare first, then assign files to it
-  prune-stale [--apply]    remove requires declared but never imported (stale); dry-run by default, --apply rewrites
-  rename <old> <new>       rename a cell — updates .cell.toml, ownership, and all requires
-  remove <cell> [--force]  delete a cell; --force orphans owned files and strips requires refs
-  plan [--apply] [--dry-run]
-                           scan code-dirs and propose a partition: crates / npm packages / Python __init__ packages become one
-                           cell each, other files group by directory (review + curate; --apply
-                           creates the cells + ownership mechanically, --dry-run previews)
-  assign <cell> <file...>  assign files to a cell (moves from current cell if already owned; stubs if new; --dry-run previews)
-  unassign <file...>       remove files from their cell (→ orphan; --dry-run previews)
-  owns <file>              which cell owns this file? (reverse lookup)
-  list [--verbose]         partition overview: cells, sizes, fan-in/out, requires, orphans;
-                           --verbose adds a per-cell health line (size%, stale provides,
-                           unresolved, dead files)
-  show <name> [--verbose]  one cell: membrane + in/out crossings + fan-in/out/instability + size,
-                           dead-at-boundary files, co-changes, stale provides, unresolved imports
-  surface <name>           print the cell's export-like declaration lines (file:line) — the
-                           starting point for populating the membrane signatures field
-  impact <name>           blast radius: cells that transitively depend on this one
-  payload <name>           print a cell's full payload (the context to work it)
-  health [--verbose] [--summary]
-                       THE GATE: exit 1 on integrity + undeclared leakage + a broken
-                       packaged grammar; size/structure are warnings (--verbose names
-                       failing edges inline; --summary collapses unresolved entries into
-                       per-FILE groups, sorted desc — the triage unit for high-unresolved
-                       repos). Output ends with a machine-parseable health: X.Xs timing
-                       line.
-  crossings [--diff] [--verbose] [--json]   cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges
-  imports [--json]           raw file→file import graph (resolved edges + unresolved specifiers) — machine surface for scripts/validate-crossings
-  size                     context-fit vs the ceiling (warning); over-ceiling → peel candidates;
-                       cells can declare their own ceiling (ceiling = N in the cell.toml)
-  config [set max-payload-tokens <N>]   read the effective config; set the global ceiling
-                       (edit in place, comments preserved — the per-repo knob)
-  structure [--summary]       layers + ADP + Direction + SDP (all warnings); cycle →
-                       cheapest edge to cut; --summary = triage view (one line per
-                       cycle + counts — for high-cycle repos like kafka/elasticsearch)
-  graph [--mermaid]        the dependency graph (ASCII tree; --mermaid for Mermaid)
+__COMMANDS__
   help                     this text (also --help, -h)
   --version                print the installed version (also -v)
 
@@ -133,3 +98,42 @@ runs on source you're just reading, nothing to build or install.
 
 Drop into any repo with a .cells/ dir and follow the loop above.
 `;
+
+/** Usage column width in the rendered COMMANDS block (2 indent + 28 usage). */
+const USAGE_COL = 30;
+
+/** Greedy word-wrap `text` to 100 cols with continuation lines indented to `indent`. */
+function wrap(text: string, indent: number): string {
+  const cap = 100 - indent; // every rendered line starts at col `indent` (first line carries the usage pad)
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const candidate = cur ? `${cur} ${w}` : w;
+    if (cur && candidate.length > cap) {
+      lines.push(cur);
+      cur = ' '.repeat(indent) + w;
+    } else {
+      cur = candidate;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.join('\n');
+}
+
+/**
+ * The full `cells help` text. Commands are taken from the dispatch table (a
+ * structural `{ usage, desc }[]` — help imports nothing, cli.ts feeds it the
+ * rows), so a new/changed command can't drift from the help output.
+ */
+export function renderHelp(commands: ReadonlyArray<{ usage: string; desc: string }>): string {
+  const block = commands
+    .map((c) => {
+      const usage = c.usage.replace(/^cells /, '');
+      const pad = '  ' + usage.padEnd(USAGE_COL - 2);
+      const first = pad.length > USAGE_COL ? '  ' + usage + '\n' + ' '.repeat(USAGE_COL) : pad;
+      return first + wrap(c.desc, USAGE_COL);
+    })
+    .join('\n');
+  return HELP_TEMPLATE.replace('__COMMANDS__', block);
+}
