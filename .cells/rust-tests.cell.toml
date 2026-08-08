@@ -1,5 +1,5 @@
 name = "rust-tests"
 purpose = "Unit tests for the Rust importer: expands use-clauses, resolves crate::/super::/self::, and the bare-first-segment walk — the regression suite for resolveImportPath."
 provides = []
-requires = ["rust", "imports", "ownership"]
+requires = ["rust", "imports"]
 layer = 4

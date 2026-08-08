@@ -12,14 +12,6 @@ function setupRepo(): string {
   mkdirSync(join(dir, 'src'), { recursive: true });
   mkdirSync(join(dir, '.cells'), { recursive: true });
 
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-  writeFileSync(
-    join(dir, 'tsconfig.json'),
-    JSON.stringify({
-      compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true },
-    }),
-  );
-
   writeFileSync(join(dir, 'src', 'a.ts'), `export const x = 1;\n`);
   writeFileSync(join(dir, '.cells', 'config.toml'), `code-dirs = ["src"]\n`);
   writeFileSync(join(dir, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\n`);
@@ -180,7 +172,6 @@ describe("python src-layout cold start (the griller's hole)", () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-pysrc-'));
     mkdirSync(join(dir, 'src/core'), { recursive: true });
     mkdirSync(join(dir, 'tests'), { recursive: true });
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
     writeFileSync(join(dir, 'src/core/engine.py'), 'from util import setup\n\ndef run():\n    return setup()\n');
     writeFileSync(join(dir, 'src/util.py'), 'def setup():\n    return True\n');
     writeFileSync(join(dir, 'tests/test_engine.py'), 'from core.engine import run\n\ndef test_run():\n    assert run()\n');

@@ -88,7 +88,7 @@ function collectImports(node: Node, out: string[]): void {
  *  internal/legacy + internal/backend/remote-state/*) makes those files' keys carry the full
  *  module path as their first segment). Stripping ANY of them resolves cross-sub-module imports
  *  from any importer (stress #9/#10). Longest-first: a sub-module's path is the more specific
- *  owner. Derived from the map — ownership-derived, no extra go.mod reads. The map is stable
+ *  owner. Derived from the census map — no extra go.mod reads. The map is stable
  *  during phase-2 resolution, so callers compute this ONCE and pass it down (python's
  *  localPackages precedent). */
 export function modulePathsOf(moduleToFile: Map<string, string>): string[] {
@@ -165,7 +165,7 @@ function looksLocal(imp: string, modulePaths: readonly string[]): boolean {
 }
 
 /** Resolve ONE import path to a package file + whether it's local. Pure over the module→file
- *  map (no FS chasing — the map IS the ownership-derived census). The factory's last-set-wins
+ *  map (no FS chasing — the map IS the census-derived module map). The factory's last-set-wins
  *  makes any file in the target dir's package the deterministic representative. */
 export function resolvePackageImport(imp: string, importerModule: string, moduleToFile: Map<string, string>, modulePaths: readonly string[]): { toFile: string | null; local: boolean } {
   const keys = [...candidateKeys(imp, modulePaths), ...relativeKeys(imp, importerModule)];
@@ -180,7 +180,7 @@ export function resolvePackageImport(imp: string, importerModule: string, module
   return { toFile, local: looksLocal(imp, modulePaths) };
 }
 
-/** Go importer — tree-sitter analysis + package→file resolution via ownership. A Go package is
+/** Go importer — tree-sitter analysis + package→file resolution through the census. A Go package is
  *  a directory, so keys are package-level and the map's representative file stands for the whole
  *  dir. No mods, no re-exports, no item chains — exact package-path lookup. */
 export const goImporter = createTreeSitterImporter<string[]>({

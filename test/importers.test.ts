@@ -36,7 +36,7 @@ describe('importer selection', () => {
 
   it('python importer is registered with the .py extension', async () => {
     expect(pythonImporter.extensions).toContain('.py');
-    const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files: [], ownership: {} });
+    const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files: [] });
     expect(edges).toEqual([]);
   });
 });

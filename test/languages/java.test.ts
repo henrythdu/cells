@@ -8,7 +8,7 @@ function files(entries: Record<string, string>): SourceFile[] {
 }
 
 async function extract(entries: Record<string, string>) {
-  return javaImporter.extract({ files: files(entries), codeDirs: ['.'], ownership: {}, moduleRoot: '.', baseDir: '.' });
+  return javaImporter.extract({ files: files(entries), codeDirs: ['.'], moduleRoot: '.', baseDir: '.' });
 }
 
 describe('java: module identity (package decl + basename)', () => {

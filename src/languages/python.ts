@@ -188,7 +188,7 @@ function isCompiledModule(module: string, moduleToFile: Map<string, string>): bo
   }
 }
 
-/** Python importer — tree-sitter analysis + module→file resolution via ownership.
+/** Python importer — tree-sitter analysis + module→file resolution through the census.
  *  Also handles Cython .pyx/.pxd: their regular Python imports produce edges; `cimport` is
  *  compiled-time and deliberately blind (blanked in preprocess — which ALSO prevents
  *  tree-sitter-python's error recovery from swallowing real imports next to cimport lines). */

@@ -279,9 +279,12 @@ function workspacePackages(files: ReadonlySet<string>, baseDir: string, ctx: Res
     let dir = dirname(f);
     while (dir !== '.' && !seen.has(dir)) {
       seen.add(dir);
-      if (globs && !isWorkspaceMember(dir, globs)) {
+      // No workspace config (globs null) = single-package repo: a nested package.json has
+      // no node_modules link, so it is NOT a local package (the previous `globs && …`
+      // short-circuit let it through — a false edge to a dir tsc can never resolve).
+      if (!globs || !isWorkspaceMember(dir, globs)) {
         dir = dirname(dir);
-        continue; // not a workspace member — its package.json is not a local package
+        continue;
       }
       const pj = join(baseDir, dir, 'package.json');
       if (existsSync(pj)) {

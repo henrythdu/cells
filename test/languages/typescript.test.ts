@@ -48,7 +48,7 @@ async function extractAt(dir: string, importer = typescriptImporter, files?: Sou
       }
       return out;
     })());
-  return importer.extract({ codeDirs: ['src'], files: known, ownership: {}, baseDir: dir });
+  return importer.extract({ codeDirs: ['src'], files: known, baseDir: dir });
 }
 
 describe('typescriptImporter (tree-sitter)', () => {
@@ -102,6 +102,8 @@ describe('typescriptImporter (tree-sitter)', () => {
   it('resolves workspace package-name imports to the package entry source (monorepo)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ws-ts-'));
     fixtures.add(dir);
+    // the workspace root: nested packages are local ONLY when the root declares them
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'utils', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'utils', 'src', 'dir'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'create-turbo', 'src'), { recursive: true });
@@ -128,7 +130,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'packages/utils/src/deep.ts', content: '' },
         { path: 'packages/utils/src/dir/index.default.js', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     const exact = edges.find((e) => e.import === '@turbo/utils');
@@ -147,6 +148,7 @@ describe('typescriptImporter (tree-sitter)', () => {
   it('resolves a no-exports workspace subpath the Node way — pkgdir + rest (stress #16: @turbo/utils/src/get-turbo-configs)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ws-subpath-'));
     fixtures.add(dir);
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'turbo-utils', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils'), { recursive: true });
     // NO exports field — the old entry-dir probe looked in src/src/ and flagged this
@@ -162,7 +164,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'packages/turbo-utils/src/index.ts', content: '' },
         { path: 'packages/turbo-utils/src/get-turbo-configs.ts', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     const hit = edges.find((e) => e.import === '@turbo/utils/src/get-turbo-configs');
@@ -174,6 +175,7 @@ describe('typescriptImporter (tree-sitter)', () => {
   it('resolves a subpath whose exports target is dist-flattened (vite: ./module-runner → dist/node/x.js, source src/module-runner/)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-flat-'));
     fixtures.add(dir);
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'vite', 'src', 'module-runner'), { recursive: true });
     mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
     // dist target not committed (real repos); entry resolves to source, and the entry-dir +
@@ -189,7 +191,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'packages/vite/src/index.ts', content: '' },
         { path: 'packages/vite/src/module-runner/index.ts', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     const sub = edges.find((e) => e.import === '@vitejs/test/module-runner');
@@ -213,7 +214,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'apps/docs/app/page.tsx', content: "import { m } from '@/lib/create-metadata';\nexport const p = m;\n" },
         { path: 'apps/docs/lib/create-metadata.ts', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     const viaAlias = edges.find((e) => e.import === '@/lib/create-metadata');
@@ -244,7 +244,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'pkg/index.js', content: 'require("./dist/node/cli");\n' },
         { path: 'pkg/src/node/cli.ts', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     const dirImport = edges.find((e) => e.import === '..');
@@ -276,7 +275,6 @@ describe('typescriptImporter (tree-sitter)', () => {
         { path: 'src/cjs.js', content: 'module.exports = 1;\n' },
         { path: 'src/eq.ts', content: 'export const e = 1;\n' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     expect(edges.some((e) => e.import === './b')).toBe(true); // named import
@@ -297,7 +295,6 @@ describe('typescriptImporter (tree-sitter)', () => {
     const { edges, unresolved } = await typescriptImporter.extract({
       codeDirs: ['src'],
       files: [{ path: 'src/a.ts', content: "import fs from 'node:fs';\nimport path from 'path';\nimport { x } from './nope';\n" }],
-      ownership: {},
       baseDir: dir,
     });
     expect(edges.length).toBe(0);
@@ -312,13 +309,12 @@ describe('typescriptImporter (tree-sitter)', () => {
     mkdirSync(join(dir, 'src'), { recursive: true });
     writeFileSync(join(dir, 'src', 'a.ts'), "import './b';\nimport './b';\nimport './a';\n");
     writeFileSync(join(dir, 'src', 'b.ts'), 'export const b = 1;\n');
-    const { edges, unresolved } = await typescriptImporter.extract({
+    const { edges } = await typescriptImporter.extract({
       codeDirs: ['src'],
       files: [
         { path: 'src/a.ts', content: "import './b';\nimport './b';\nimport './a';\n" },
         { path: 'src/b.ts', content: '' },
       ],
-      ownership: {},
       baseDir: dir,
     });
     expect(edges.filter((e) => e.import === './b').length).toBe(1); // deduped

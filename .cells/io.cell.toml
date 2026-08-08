@@ -12,6 +12,7 @@ provides = [
   "detectProject",
   "requireCells",
   "CELLS_DIR",
+  "SKIP_DIRS",
 ]
 requires = ["declaration", "ownership", "config", "ignore"]
 

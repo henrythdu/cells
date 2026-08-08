@@ -84,10 +84,10 @@ function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   const crates: CrateEntry[] = [];
   for (const file of cargoFiles) {
     const toml = parseTomlFile(file);
-    const lib = toml['lib'] as { name?: string; 'crate-type'?: string[]; path?: string } | undefined;
+    const lib = toml.lib as { name?: string; 'crate-type'?: string[]; path?: string } | undefined;
     const crateType = lib?.['crate-type'];
     if (!crateType || !crateType.includes('cdylib')) continue;
-    const name = lib?.name ?? (toml['package'] as { name?: string } | undefined)?.name;
+    const name = lib?.name ?? (toml.package as { name?: string } | undefined)?.name;
     if (!name) continue;
     const dir = dirname(file);
     const entry = relative(baseDir, join(dir, lib?.path ?? 'src/lib.rs'))
@@ -115,11 +115,11 @@ function readModuleNameOverrides(pyprojectFiles: string[], crates: CrateEntry[])
   const overrides = new Map<string, string>();
   for (const file of pyprojectFiles) {
     const toml = parseTomlFile(file);
-    const tool = toml['tool'] as Record<string, unknown> | undefined;
-    const maturin = tool?.['maturin'] as { 'module-name'?: string } | undefined;
+    const tool = toml.tool as Record<string, unknown> | undefined;
+    const maturin = tool?.maturin as { 'module-name'?: string } | undefined;
     const moduleName = maturin?.['module-name'];
     if (!moduleName) continue;
-    const tail = moduleName.split('.').pop()!;
+    const tail = moduleName.split('.').pop() ?? '';
     const crate = crates.find((c) => c.tail === tail);
     if (crate) overrides.set(moduleName, crate.entry);
   }

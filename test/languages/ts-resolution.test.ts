@@ -192,6 +192,14 @@ describe('workspace package map', () => {
     expect(resolve('standalone', 'apps/web/src/index.ts', ctx)).toEqual({ toFile: null, local: false });
   });
 
+  it('REG: no workspace config at all — nested package.json still NOT local', () => {
+    const { ctx } = fixture(['legacy/src/index.ts', 'src/app.ts'], {
+      'package.json': '{"name":"root"}', // no workspaces field
+      'legacy/package.json': '{"name":"legacy"}',
+    });
+    expect(resolve('legacy', 'src/app.ts', ctx)).toEqual({ toFile: null, local: false });
+  });
+
   it('pnpm-workspace.yaml globs work as the workspace root', () => {
     const { ctx } = fixture(['packages/a/src/index.ts', 'apps/web/src/index.ts'], {
       'pnpm-workspace.yaml': 'packages:\n  - packages/*\n  - apps/*\n',

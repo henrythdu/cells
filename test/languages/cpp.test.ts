@@ -8,7 +8,7 @@ function files(entries: Record<string, string>): SourceFile[] {
 }
 
 async function extract(entries: Record<string, string>) {
-  return cppImporter.extract({ files: files(entries), codeDirs: ['.'], ownership: {}, moduleRoot: '.', baseDir: '.' });
+  return cppImporter.extract({ files: files(entries), codeDirs: ['.'], moduleRoot: '.', baseDir: '.' });
 }
 
 describe('includeRoots (census-derived -I roots)', () => {

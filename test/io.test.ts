@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectProject, loadOwnership, writeOwnership, listCodeFiles } from '../src/io.js';
@@ -144,8 +144,8 @@ describe('detectProject', () => {
     writeFileSync(join(dir, 'src', 'real', 'a.ts'), 'x');
     // a loop: src/loop -> src/real, and real/back -> src
     try {
-      require('node:fs').symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
-      require('node:fs').symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
+      symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
+      symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
     } catch {
       return; // no symlink permission (some CI) — skip
     }
@@ -204,7 +204,7 @@ describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] mus
     writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["."]\ncode-exts = [".ts"]\n');
     writeFileSync(join(repo, 'src', 'a.ts'), 'x');
     try {
-      require('node:fs').symlinkSync('/nonexistent/target', join(repo, 'dangling-link'));
+      symlinkSync('/nonexistent/target', join(repo, 'dangling-link'));
     } catch {
       return; // no symlink permission (some CI) — skip
     }

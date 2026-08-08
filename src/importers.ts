@@ -1,6 +1,6 @@
 import { extname, join } from 'node:path';
 import type { ImportEdge, SourceFile, UnresolvedImport, Importer } from './imports.js';
-import { loadConfig, loadOwnership, listCodeFiles, readFiles } from './io.js';
+import { loadConfig, listCodeFiles, readFiles } from './io.js';
 import { buildBridgeMap, applyBridges } from './bridges.js';
 
 // Language importer specs live in ./languages/ — add a language = add a spec file there
@@ -63,7 +63,6 @@ export async function collectImportEdges(
 }> {
   const config = loadConfig();
   const { codeDirs, moduleRoot } = config;
-  const ownership = loadOwnership();
   const paths = listCodeFiles(baseDir);
   const exts = Array.from(new Set(paths.map((p) => extname(p))));
   const selected = selectImporters(exts, importers);

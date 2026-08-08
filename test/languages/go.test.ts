@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { goImporter, fileToModule, modulePathsOf, resolvePackageImport } from '../../src/languages/go.js';
 import { getGrammarParser } from '../../src/languages/tree-sitter.js';
 import type { SourceFile } from '../../src/imports.js';
-import type { Ownership } from '../../src/ownership.js';
 
 const tmpDirs: string[] = [];
 afterAll(() => {
@@ -23,12 +22,12 @@ function makeGoModule(modulePath: string): string {
 }
 
 /** Run the importer with cwd inside a tmpdir holding a go.mod. */
-async function extractInModule(modulePath: string, files: SourceFile[], ownership: Ownership) {
+async function extractInModule(modulePath: string, files: SourceFile[]) {
   const dir = makeGoModule(modulePath);
   const startCwd = process.cwd();
   try {
     process.chdir(dir);
-    return await goImporter.extract({ codeDirs: ['.'], files, ownership });
+    return await goImporter.extract({ codeDirs: ['.'], files });
   } finally {
     process.chdir(startCwd);
   }
@@ -165,13 +164,8 @@ describe('go importer', () => {
       { path: 'internal/thing.go', content: 'package internal\n\nfunc Thing() {}\n' },
       { path: 'cmd/cli/main.go', content: 'package main\n\nimport "example.com/proj/pkg/nope"\n' },
     ];
-    const ownership: Ownership = {
-      root: ['main.go'],
-      pkg: ['pkg/foo.go', 'pkg/foo/bar.go'],
-      internal: ['internal/thing.go'],
-      cli: ['cmd/cli/main.go'],
-    };
-    const { edges, unresolved } = await extractInModule('example.com/proj', files, ownership);
+    
+    const { edges, unresolved } = await extractInModule('example.com/proj', files);
     // grouped import → spec_list → spec per line; fmt/embed external
     const pkg = edges.find((e) => e.import === 'example.com/proj/pkg');
     expect(pkg).toBeDefined();
@@ -194,8 +188,8 @@ describe('go importer', () => {
     const content = tree.rootNode.text;
     tree.delete();
     const files: SourceFile[] = [{ path: 'main.go', content }, ...['a', 'b', 'c', 'd', 'e'].map((n) => ({ path: `${n}/${n}.go`, content: `package ${n}\n` }))];
-    const ownership: Ownership = { root: ['main.go'], pkgs: files.slice(1).map((f) => f.path) };
-    const { edges } = await extractInModule('example.com/proj', files, ownership);
+    
+    const { edges } = await extractInModule('example.com/proj', files);
     // single + grouped + aliased + blank + dot specs all extract; blank/dot still create the dep
     expect(edges.map((e) => e.import).sort()).toEqual(['example.com/proj/a', 'example.com/proj/b', 'example.com/proj/c', 'example.com/proj/d', 'example.com/proj/e']);
   });

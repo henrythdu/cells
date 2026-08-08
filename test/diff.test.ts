@@ -8,7 +8,7 @@ import { collectImportEdges } from '../src/importers.js';
 import { deriveCrossings } from '../src/crossings.js';
 import type { Ownership } from '../src/ownership.js';
 
-// crossingsDelta drives the real pipeline (git HEAD extraction + dep-cruiser edge
+// crossingsDelta drives the real pipeline (git HEAD extraction + collectImportEdges
 // re-collection + deriveCrossings + diff), so this is an integration test against a
 // throwaway git repo. `working` is derived through the same collectImportEdges the CLI
 // uses — the unit under test is the HEAD side + the diff, exactly what diff owns.
@@ -23,20 +23,10 @@ function git(args: string): void {
 function setupRepo(): void {
   mkdirSync(join(repo, 'src'), { recursive: true });
   mkdirSync(join(repo, '.cells'), { recursive: true });
-  // dep-cruiser needs TS resolution context to map './a.js' → a.ts; without these it
-  // throws (silently caught → no edges), so both sides come back empty.
-  writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-  writeFileSync(
-    join(repo, 'tsconfig.json'),
-    JSON.stringify({
-      compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true },
-    }),
-  );
   writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = ["a"]\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n');
-  // code-dirs scoped to src only — defaults include `test`, which doesn't exist here and
-  // makes dep-cruiser throw ENOENT (silently caught → no edges).
+  // code-dirs scoped to src only — defaults include `test`, which doesn't exist here.
   writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".ts"]\n');
   writeFileSync(join(repo, 'src', 'a.ts'), 'export const x = 1;\n');
 }
@@ -116,8 +106,6 @@ describe('cells crossings --diff (CLI)', () => {
     cliRepo = mkdtempSync(join(tmpdir(), 'cells-diff-cli-'));
     mkdirSync(join(cliRepo, 'src'), { recursive: true });
     mkdirSync(join(cliRepo, '.cells'), { recursive: true });
-    writeFileSync(join(cliRepo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-    writeFileSync(join(cliRepo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
     // b does NOT require a → the b→a edge will be undeclared
     writeFileSync(join(cliRepo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
     writeFileSync(join(cliRepo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n');
@@ -147,8 +135,6 @@ describe('cells crossings --diff (CLI)', () => {
     cliRepo = mkdtempSync(join(tmpdir(), 'cells-diff-cli-'));
     mkdirSync(join(cliRepo, 'src'), { recursive: true });
     mkdirSync(join(cliRepo, '.cells'), { recursive: true });
-    writeFileSync(join(cliRepo, 'package.json'), JSON.stringify({ name: 'test', type: 'module' }));
-    writeFileSync(join(cliRepo, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'esnext', moduleResolution: 'bundler', target: 'es2022', allowImportingTsExtensions: true, noEmit: true } }));
     // b REQUIRES a → removing the b→a edge stales the declared requirement
     writeFileSync(join(cliRepo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
     writeFileSync(join(cliRepo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = []\nrequires = ["a"]\nlayer = 0\n');

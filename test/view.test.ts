@@ -300,6 +300,7 @@ describe('formatHealthReport', () => {
   const clear = {
     cellCount: 3,
     fileCount: 10,
+    orphanCount: 0,
     crossingCount: 5,
     violationCount: 0,
     violationDetails: [],

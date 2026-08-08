@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pythonImporter, fileToModule } from '../../src/languages/python.js';
 import type { SourceFile } from '../../src/imports.js';
-import type { Ownership } from '../../src/ownership.js';
 
 const files: SourceFile[] = [
   { path: 'src/domain/symbol.py', content: 'class Symbol: pass\n' },
@@ -14,14 +13,11 @@ const files: SourceFile[] = [
   { path: 'src/stages/sibling.py', content: 'x = 1\n' },
   { path: 'src/stages/ext.py', content: 'import numpy\nfrom os import path\n' },
 ];
-const ownership: Ownership = {
-  domain: ['src/domain/symbol.py', 'src/domain/graph.py'],
-  stages: ['src/stages/build.py', 'src/stages/rel.py', 'src/stages/sibling.py', 'src/stages/ext.py'],
-};
+
 
 describe('python importer', () => {
   it('extracts absolute + relative edges, drops external', async () => {
-    const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files, ownership });
+    const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile} | ${e.import}`));
     expect(set).toEqual(
       new Set([
@@ -37,7 +33,6 @@ describe('python importer', () => {
   it('handles `import a, b.c` (multiple modules) and `as` aliases', async () => {
     const { edges } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { a: ['src/a.py'], b: ['src/b/c.py', 'src/b/d.py'] },
       files: [
         { path: 'src/a.py', content: 'import src.b.c, src.b.d as dee\n' },
         { path: 'src/b/c.py', content: 'x=1\n' },
@@ -52,7 +47,6 @@ describe('python importer', () => {
     const pySrc = ['def cmd():', '    from src.stages.predict import main', '    from src.stages.enrich import main as _main', ''].join('\n');
     const { edges } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { app: ['app/cli.py'], stages: ['src/stages/predict.py', 'src/stages/enrich.py'] },
       files: [
         { path: 'app/cli.py', content: pySrc },
         { path: 'src/stages/predict.py', content: 'def main(): pass\n' },
@@ -80,8 +74,7 @@ describe('python importer', () => {
           { path: 'headroom/__init__.py', content: '\n' },
           { path: 'headroom/transforms/__init__.py', content: '\n' },
           { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
-        ],
-        ownership: { headroom: ['headroom/__init__.py', 'headroom/transforms/__init__.py', 'headroom/transforms/smart_crusher.py'] },
+        ]
       });
       expect(unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
       expect(unresolved.some((u) => u.import === 'headroom.transforms')).toBe(false); // resolves normally
@@ -115,7 +108,6 @@ describe('module-root in importer (src-layout)', () => {
     const { edges } = await pythonImporter.extract({
       codeDirs: ['src'],
       moduleRoot: 'src',
-      ownership: { domain: ['src/domain/symbol.py'], app: ['src/app/main.py'] },
       files: [
         { path: 'src/domain/symbol.py', content: 'class X: pass\n' },
         { path: 'src/app/main.py', content: 'from domain.symbol import X\n' },
@@ -127,7 +119,6 @@ describe('module-root in importer (src-layout)', () => {
   it('WITHOUT module-root, src-layout import does not resolve', async () => {
     const { edges } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { domain: ['src/domain/symbol.py'], app: ['src/app/main.py'] },
       files: [
         { path: 'src/domain/symbol.py', content: 'class X: pass\n' },
         { path: 'src/app/main.py', content: 'from domain.symbol import X\n' },
@@ -142,7 +133,6 @@ describe('unresolved local imports', () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       moduleRoot: 'src',
-      ownership: { domain: ['src/domain/symbol.py'] },
       files: [{ path: 'src/domain/symbol.py', content: 'from domain.missing import X\n' }],
     });
     expect(unresolved.map((u) => u.import)).toContain('domain.missing');
@@ -151,7 +141,6 @@ describe('unresolved local imports', () => {
   it('external packages do not appear in unresolved', async () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { app: ['src/app.py'] },
       files: [{ path: 'src/app.py', content: 'import numpy\nfrom openai import X\n' }],
     });
     expect(unresolved).toEqual([]);
@@ -164,7 +153,6 @@ describe('unresolved local imports', () => {
     // map's silence: report unresolved (the view hints module-root) instead of lying.
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src', 'tests'],
-      ownership: { engine: ['src/core/engine.py'], util: ['src/util.py'], tests: ['tests/test_engine.py'] },
       files: [
         { path: 'src/core/engine.py', content: 'from util import setup\n' },
         { path: 'src/util.py', content: 'def setup(): return 1\n' },
@@ -179,7 +167,6 @@ describe('unresolved local imports', () => {
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src', 'tests'],
       moduleRoot: 'src',
-      ownership: { engine: ['src/core/engine.py'], util: ['src/util.py'], tests: ['tests/test_engine.py'] },
       files: [
         { path: 'src/core/engine.py', content: 'from util import setup\n' },
         { path: 'src/util.py', content: 'def setup(): return 1\n' },
@@ -194,7 +181,6 @@ describe('unresolved local imports', () => {
   it('first segment exists as a DIRECTORY under a code-dir → also flagged (package mismatch)', async () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { app: ['src/app.py'] },
       files: [
         { path: 'src/app.py', content: 'import helpers.norm\n' },
         { path: 'src/helpers/norm.py', content: 'x = 1\n' },
@@ -206,7 +192,6 @@ describe('unresolved local imports', () => {
   it('relative imports that do not resolve are flagged', async () => {
     const { unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
-      ownership: { app: ['src/app/main.py'] },
       files: [{ path: 'src/app/main.py', content: 'from .missing import X\n' }],
     });
     expect(unresolved.length).toBeGreaterThan(0);
@@ -222,8 +207,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files: cy,
-        ownership: { a: cy.map((f) => f.path) },
+        files: cy
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
@@ -245,8 +229,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files: cy,
-        ownership: { a: cy.map((f) => f.path) },
+        files: cy
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
@@ -266,8 +249,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['pandas'],
-        files,
-        ownership: { a: files.map((f) => f.path) },
+        files
       });
       const viaAlgos = edges.find((e) => e.import === 'pandas._libs.algos');
       expect(viaAlgos).toBeDefined();
@@ -289,8 +271,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files,
-        ownership: { a: files.map((f) => f.path) },
+        files
       });
       expect(edges.map((e) => `${e.import} -> ${e.toFile}`)).toEqual(['pkg.bar -> pkg/bar.pyx']);
       expect(unresolved).toHaveLength(0);

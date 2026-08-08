@@ -1,10 +1,10 @@
 name = "go"
-purpose = "Go importer: extract file→file import edges via tree-sitter (bundled WASM grammar) + module→file resolution through ownership (std/`golang.org/x` external; `go.mod` module path prefix strips to repo-relative). One language implementation of the Importer contract (in the imports cell), built on the shared tree-sitter engine. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
+purpose = "Go importer: extract file→file import edges via tree-sitter (bundled WASM grammar) + module→file resolution through the census (std/`golang.org/x` external; `go.mod` module path prefix strips to repo-relative). One language implementation of the Importer contract (in the imports cell), built on the shared tree-sitter engine. Adding a language = a sibling cell like this one, registered in importers' DEFAULT_IMPORTERS."
 provides = [
   "goImporter",
   "fileToModule",
   "modulePathsOf",
   "resolvePackageImport",
 ]
-requires = ["imports", "tree-sitter", "ownership"]
+requires = ["imports", "tree-sitter"]
 layer = 4
