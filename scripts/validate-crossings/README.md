@@ -67,6 +67,14 @@ module the import names). Closed classes:
   dropped (Java needs no import within a package); oracle-unseen files
   (GWT src-super, SDK-gated, unbuilt targets) drop from both sides and are
   counted as oracle-blind.
+- **Census boundary** (the Cells repo self-audit): the oracle traces the
+  whole tree; cells only scans code-dirs (src/, test/). Imports whose
+  target lives outside a code-dir (here: scripts/validate-crossings/ — the
+  tool's own files, deliberately not a cell) are oracle-only edges: cells
+  gates them by design — a non-census file has no cell, so no crossing can
+  exist. Not an importer gap; the self-audit will always carry this class.
+  Fixing the COUNT by adding the dir to code-dirs would be forcing match —
+  the audit exists to check accuracy, not agreement.
 
 The `[[bin]] path = crates/core/main.rs` root-crate layout (stress bug #18)
 WAS a real cells bug — fixed; those under-flags dropped from 338 to 307
