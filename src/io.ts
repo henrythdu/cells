@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
 import { join, relative, extname } from 'node:path';
+import type { Dirent } from 'node:fs';
 import { parseCell, type Cell } from './declaration.js';
 import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
 import { parseIgnore, isIgnored } from './ignore.js';
@@ -179,6 +180,43 @@ export const SKIP_DIRS = new Set([
   '.eggs',
   'eggs',
 ]);
+
+/** Skip-named dirs that hold census-eligible code or a build manifest (a real `build/` Go
+ *  package, a crate dir literally named `build`). Plan reports them so "0 orphans" can't
+ *  hide a swallowed package — the skip rule stays; the omission becomes visible.
+ *  node_modules/.git/.cells are never source; the ambiguous names (dist/build/target/…)
+ *  are exactly the ones worth a user's eye. Pure over the FS. */
+export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[] {
+  const MANIFESTS = new Set(['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'build.gradle', 'pom.xml']);
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cells') continue;
+      if (SKIP_DIRS.has(e.name)) {
+        const p = join(dir, e.name);
+        let hasCode = false;
+        try {
+          hasCode = readdirSync(p).some((f) => MANIFESTS.has(f) || codeExts.some((ext) => f.endsWith(ext)));
+        } catch {
+          /* unreadable dir — nothing to report */
+        }
+        if (hasCode) out.push(relative(baseDir, p));
+        continue; // never recurse into a skipped dir
+      }
+      walk(join(dir, e.name));
+    }
+  };
+  walk(baseDir);
+  return out.sort();
+}
+
 
 /** Extensions recognised as code (for census + ownership). Cells has importers for
  *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND

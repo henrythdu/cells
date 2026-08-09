@@ -57,7 +57,6 @@ const get = (k: string, d: string): string => args.get(k) ?? d;
 /** The flag surface — single source for the usage line. */
 const FLAGS = ['--tsc PATH', '--cells PATH', '--scip PATH', '--top N', '--no-cache'] as const;
 
-
 const repo = resolve(repoArg ?? '.'); // main() exits on a missing repoArg before this is used
 const lang = langArg as Lang;
 const top = Number(get('--top', '20'));

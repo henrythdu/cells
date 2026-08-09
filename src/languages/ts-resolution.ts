@@ -23,7 +23,7 @@ import type { ResolveCtx } from './tree-sitter.js';
 
 /** A workspace package: its dir (repo-relative), parsed `exports` (for subpath keys), and the
  *  resolved `.` entry source file (or null). */
-export interface PkgInfo {
+interface PkgInfo {
   dir: string;
   exports: Record<string, unknown> | null;
   entry: string | null;
@@ -237,7 +237,8 @@ function rootWorkspaceGlobs(baseDir: string): string[] | null {
             .trim()
             .replace(/^[-\s]+/, '')
             .replace(/#.*$/, '')
-            .trim(),
+            .trim()
+            .replace(/^['"]|['"]$/g, ''), // yaml strings arrive quoted (`- 'packages/*'`) — a quoted glob matched nothing and silently emptied the map
         );
       }
       if (out.length > 0) return out;

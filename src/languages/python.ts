@@ -127,6 +127,26 @@ function resolveImportDesc(
     const targetPkg = pkg.slice(0, keep);
     base = desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
   }
+  // Self-package absolute import (`python -m uv` style — stress run finding): base is a
+  // package dir under a code-dir, but map keys are code-dir-prefixed (python.uv), so the
+  // bare name misses the map. The probe proved the physical target exists; if exactly one
+  // map key ends with '.'+base IN THE IMPORTER'S OWN code-dir family, the resolution is
+  // unambiguous — resolve it (completes the probe instead of flagging a standard pattern).
+  if (desc.dots === 0 && !moduleToFile.has(base) && probeModuleRootMismatch(base.split('.')[0], codeDirs, files, memo)) {
+    const family = importerModule.split('.')[0];
+    const suffix = `.${base}`;
+    let match: string | null = null;
+    for (const key of moduleToFile.keys()) {
+      if (key.endsWith(suffix) && key.split('.')[0] === family) {
+        if (match !== null) {
+          match = null; // two same-family packages share the name — ambiguous, stay unresolved
+          break;
+        }
+        match = key;
+      }
+    }
+    if (match !== null) base = match;
+  }
   const candidates = [base, ...desc.names.map((n) => (base ? `${base}.${n}` : n))];
   const edges: ImportEdge[] = [];
   const seen = new Set<string>();

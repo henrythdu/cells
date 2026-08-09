@@ -51,5 +51,3 @@ describe('renderHelp — the COMMANDS block derives from the dispatch table (dri
     }
   });
 });
-
-

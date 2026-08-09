@@ -181,17 +181,38 @@ describe("python src-layout cold start (the griller's hole)", () => {
     return dir;
   }
 
-  it('never reports a silent 0-edge green gate: the mismatch shows as unresolved with a module-root hint', () => {
+  it('REG: plan names skip-named dirs that hold real code — "0 orphans" cannot hide a swallowed package (cli internal/build stress finding)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-skip-'));
+    mkdirSync(join(dir, 'internal/build'), { recursive: true });
+    mkdirSync(join(dir, 'internal/ghcmd'), { recursive: true });
+    writeFileSync(join(dir, 'go.mod'), 'module example\n');
+    writeFileSync(join(dir, 'internal/build/build.go'), 'package build\n\nfunc X() {}\n');
+    writeFileSync(join(dir, 'internal/ghcmd/cmd.go'), 'package ghcmd\n\nimport "example/internal/build"\n\nfunc Cmd() { build.X() }\n');
+    execSync(`node ${cellsBin} init`, { cwd: dir, encoding: 'utf8' });
+    const r = spawnSync(`node`, [cellsBin, 'plan', '--apply'], { cwd: dir, encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('skip-named dir(s)');
+    expect(r.stdout).toContain('internal/build');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('never reports a silent 0-edge green gate: same-family imports resolve to REAL edges (gated), cross-family stay unresolved with a module-root hint', () => {
     repo = setupPythonRepo();
-    // crossings renders unresolved on STDERR (exit 0 — info, like health) — capture both.
+    // The griller's hole is dead twice over: `from util import setup` now RESOLVES (the
+    // probe proved src/util.py exists; unique in the importer's family) — the resulting
+    // crossing is undeclared, so crossings exits 1 demanding requires. The cross-family
+    // `core.engine` (tests → src) stays unresolved with the module-root hint.
     const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
-    expect(r.status).toBe(0);
-    expect(out).toContain('Unresolved local imports');
+    expect(r.status).toBe(1); // undeclared crossing — the edge is real and the gate demands it be declared
+    expect(out).toContain('src/core/engine.py'); // the real edge renders
+    expect(out).toContain('Unresolved imports that look local');
     expect(out).toContain('module-root'); // the hint, not a bare list
-    // The lie is dead: no "0 edges → All checks passed" on a repo full of imports.
-    const health = execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' });
-    expect(health).toContain('unresolved');
+    // The lie is dead: no "0 edges → All checks passed" on a repo full of imports —
+    // the gate is now RED on the undeclared crossing, and the unresolved remain visible.
+    const h = spawnSync(`node`, [cellsBin, 'health'], { cwd: repo, encoding: 'utf8' });
+    expect(h.status).toBe(1);
+    expect(h.stdout + h.stderr).toContain('unresolved');
   });
 
   it('setting module-root turns the unresolved imports into real edges (the intended fix)', () => {
@@ -202,7 +223,7 @@ describe("python src-layout cold start (the griller's hole)", () => {
     const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
     expect(out).toContain('src/core/engine.py'); // edges now exist (undeclared-crossings rows)
-    expect(out).not.toContain('Unresolved local imports');
+    expect(out).not.toContain('Unresolved imports that look local');
   });
 });
 

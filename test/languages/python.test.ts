@@ -116,15 +116,19 @@ describe('module-root in importer (src-layout)', () => {
     expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toContain('src/app/main.py -> src/domain/symbol.py');
   });
 
-  it('WITHOUT module-root, src-layout import does not resolve', async () => {
-    const { edges } = await pythonImporter.extract({
+  it('WITHOUT module-root, an unambiguous src-layout import still resolves (physical target, unique, same code-dir family)', async () => {
+    // The probe proves src/domain/symbol.py exists; the map has exactly one '.domain.symbol'
+    // key in the importer's family — the resolution is provable, so the tool takes it
+    // instead of flagging (module-root stays the answer for ambiguous cases).
+    const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       files: [
         { path: 'src/domain/symbol.py', content: 'class X: pass\n' },
         { path: 'src/app/main.py', content: 'from domain.symbol import X\n' },
       ],
     });
-    expect(edges).toEqual([]); // without module-root, module is src.domain.symbol, not domain.symbol
+    expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toContain('src/app/main.py -> src/domain/symbol.py');
+    expect(unresolved).toEqual([]);
   });
 });
 
@@ -146,11 +150,37 @@ describe('unresolved local imports', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('src-layout WITHOUT module-root: imports that physically exist under a code-dir are flagged (module-root mismatch), not silently dropped', async () => {
+  it('REG: self-package absolute import (`python -m uv` style — stress finding 3): code-dir-prefixed map, bare-name import resolves', async () => {
+    const { edges, unresolved } = await pythonImporter.extract({
+      codeDirs: ['python'],
+      files: [
+        { path: 'python/uv/__init__.py', content: 'def find_uv_bin(): return 1\n' },
+        { path: 'python/uv/__main__.py', content: 'from uv import find_uv_bin\n' },
+      ],
+    });
+    expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toContain('python/uv/__main__.py -> python/uv/__init__.py');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('REG: ambiguous self-name (two same-family packages share it) stays unresolved — never guess', async () => {
+    const { edges, unresolved } = await pythonImporter.extract({
+      codeDirs: ['src'],
+      files: [
+        { path: 'src/uv/__init__.py', content: 'x = 1\n' },
+        { path: 'src/gen/uv/__init__.py', content: 'y = 2\n' },
+        { path: 'src/app/__main__.py', content: 'from uv import x\n' },
+      ],
+    });
+    expect(edges).toEqual([]);
+    expect(unresolved.map((u) => u.import)).toContain('uv');
+  });
+
+  it('src-layout WITHOUT module-root: unambiguous imports resolve; cross-family ones stay flagged', async () => {
     // The griller's hole: fileToModule derives src.util, imports say util → first segment
     // not a local package → previously classified external → silently dropped → gate shows
     // "0 edges" on a repo full of imports. Physical existence under a code-dir beats the
-    // map's silence: report unresolved (the view hints module-root) instead of lying.
+    // map's silence: same-family unique → resolved; cross-family (tests → src.core.engine)
+    // → still unresolved (the view hints module-root) instead of guessing.
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src', 'tests'],
       files: [
@@ -159,8 +189,9 @@ describe('unresolved local imports', () => {
         { path: 'tests/test_engine.py', content: 'from core.engine import run\n' },
       ],
     });
-    expect(edges).toEqual([]); // no false edges — the tool never guesses
-    expect(unresolved.map((u) => u.import)).toEqual(expect.arrayContaining(['util', 'core.engine']));
+    expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toContain('src/core/engine.py -> src/util.py');
+    expect(unresolved.map((u) => u.import)).toEqual(expect.arrayContaining(['core.engine']));
+    expect(unresolved.map((u) => u.import)).not.toContain('util');
   });
 
   it('same fixture WITH module-root: the imports resolve to real edges', async () => {
@@ -178,15 +209,16 @@ describe('unresolved local imports', () => {
     expect(set).toEqual(new Set(['src/core/engine.py -> src/util.py', 'tests/test_engine.py -> src/core/engine.py']));
   });
 
-  it('first segment exists as a DIRECTORY under a code-dir → also flagged (package mismatch)', async () => {
-    const { unresolved } = await pythonImporter.extract({
+  it('first segment exists as a DIRECTORY under a code-dir → resolves when unique (package mismatch without a module-root)', async () => {
+    const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       files: [
         { path: 'src/app.py', content: 'import helpers.norm\n' },
         { path: 'src/helpers/norm.py', content: 'x = 1\n' },
       ],
     });
-    expect(unresolved.map((u) => u.import)).toContain('helpers.norm');
+    expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toContain('src/app.py -> src/helpers/norm.py');
+    expect(unresolved).toEqual([]);
   });
 
   it('relative imports that do not resolve are flagged', async () => {

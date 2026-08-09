@@ -130,12 +130,12 @@ describe('formatCellShow', () => {
 
   it("lists the cell's unresolved imports when present (structure fact, not a nudge)", () => {
     const rendered = formatCellShow({ ...ctx, unresolved: ['parseX', 'parseY'] });
-    expect(rendered).toContain('unresolved local imports (2) — no matching owned file (check the specifier or module-root):');
+    expect(rendered).toContain('unresolved imports that look local (2) — no matching owned file; a broken specifier, a module-root mismatch, or an external package sharing a local dir name:');
     expect(rendered).toContain('  parseX');
     expect(rendered).toContain('  parseY');
     // absent when there is nothing to report
     const clean = formatCellShow(ctx);
-    expect(clean).not.toContain('unresolved local imports');
+    expect(clean).not.toContain('unresolved imports that look local');
   });
 
   it('omits the dead/co-change sections when empty', () => {

@@ -130,7 +130,7 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   }
   if (unresolved.length > 0) {
     lines.push('');
-    lines.push(`unresolved local imports (${unresolved.length}) — no matching owned file (check the specifier or module-root):`);
+    lines.push(`unresolved imports that look local (${unresolved.length}) — no matching owned file; a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`);
     for (const u of unresolved) lines.push(`  ${u}`);
   }
   lines.push('');
@@ -273,7 +273,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0)
-    lines.push(`  — imports     (${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; check specifiers or module-root)`);
+    lines.push(`  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, or an external package sharing a local dir name)`);
 
   // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];
@@ -306,7 +306,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     for (const s of v.staleProvidesDetails) lines.push(`  ${s}`);
   }
   if (v.unresolvedCount > 0) {
-    lines.push(`(info) ${v.unresolvedCount} unresolved local import(s)${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — likely a broken specifier or module-root mismatch:`);
+    lines.push(`(info) ${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`);
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
   return { report: lines.join('\n') + '\n', gateOk };

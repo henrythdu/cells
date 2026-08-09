@@ -148,9 +148,9 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   }
 
   if (unresolved.length > 0) {
-    console.error(`\nUnresolved local imports (${unresolved.length}):`);
+    console.error(`\nUnresolved imports that look local (${unresolved.length}):`);
     for (const u of unresolved) {
-      console.error(`  ${u.fromFile} imports "${u.import}" — no matching owned file. Check the specifier or set module-root in config.toml.`);
+      console.error(`  ${u.fromFile} imports "${u.import}" — no matching owned file. A broken specifier, a module-root mismatch, or an external package sharing a local dir name (module-root in config.toml).`);
     }
   }
 }

@@ -8,7 +8,7 @@ import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { writeOwnership } from './io.js';
 import { checkLeakage } from './crossings.js';
 import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject, readFiles } from './io.js';
+import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject, readFiles, skippedManifestDirs } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { buildConfig, parseConfig } from './config.js';
 import { importableExts, DEFAULT_IMPORTERS } from './importers.js';
@@ -337,6 +337,8 @@ export function cmdPlan(apply = false, dryRun = false): void {
   const config = loadConfig();
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
+  const skipped = skippedManifestDirs(config.codeExts); // skip-named dirs holding code/manifests — the census can't see them
+  const skippedNote = skipped.length > 0 ? `\n(census note) ${skipped.length} skip-named dir(s) hold code or a build manifest and are excluded — real packages hidden from ownership: ${skipped.join(', ')}` : '';
   const groups = planGroups(codeFiles);
   const keys = [...groups.keys()].sort();
   const names = new Map(keys.map((k) => [k, cellNameOf(k)]));
@@ -353,7 +355,7 @@ export function cmdPlan(apply = false, dryRun = false): void {
     const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
     const unownedAfter = codeFiles.length - adopted - kept;
     const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
-    const summary = dryRun ? `Would apply: ${outcome}\nDry run — nothing changed. Re-run without --dry-run to apply.` : `Applied plan: ${outcome}\nRun \`cells health\` — crossings will be red until requires are filled.`;
+    const summary = dryRun ? `Would apply: ${outcome}${skippedNote}\nDry run — nothing changed. Re-run without --dry-run to apply.` : `Applied plan: ${outcome}${skippedNote}\nRun \`cells health\` — crossings will be red until requires are filled.`;
     if (dryRun) {
       console.log(summary);
       return;
