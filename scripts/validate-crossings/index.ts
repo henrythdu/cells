@@ -31,6 +31,7 @@
  *     --cells <path>  cells dist/cli.js (default: $CELLS or ../../dist/cli.js)
  *     --scip <path>   scip CLI (default: $SCIP or scip on PATH)
  *     --top <n>       max sample lines per class (default 20)
+ *     --no-cache      bypass raw-artifact + cells caches
  *
  * Exit code: 1 when the oracle found imports cells missed (under-flag).
  * The report is informational — it never gates cells itself.
@@ -53,19 +54,18 @@ const args = new Map<string, string>();
 for (let i = 0; i < rest.length; i += 2) args.set(rest[i], rest[i + 1]);
 const get = (k: string, d: string): string => args.get(k) ?? d;
 
-if (!repoArg || !['ts', 'rust', 'go', 'java', 'cpp', 'python'].includes(langArg)) {
-  console.error('usage: node index.ts <repo-dir> <ts|rust|go|java|cpp|python> [--tsc PATH] [--cells PATH] [--scip PATH] [--top N]');
-  process.exit(2);
-}
+/** The flag surface — single source for the usage line. */
+const FLAGS = ['--tsc PATH', '--cells PATH', '--scip PATH', '--top N', '--no-cache'] as const;
 
-const repo = resolve(repoArg);
+
+const repo = resolve(repoArg ?? '.'); // main() exits on a missing repoArg before this is used
 const lang = langArg as Lang;
 const top = Number(get('--top', '20'));
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
 const cellsBin = resolve(get('--cells', process.env.CELLS ?? join(repoRoot, 'dist', 'cli.js')));
-const scipBin = findBin('SCIP', 'scip', repo, run);
+const scipBin = get('--scip', findBin('SCIP', 'scip', repo, run));
 const tscBin = resolve(get('--tsc', process.env.TSC ?? join(repoRoot, 'node_modules', '.bin', 'tsc')));
 const raBin = findBin('RUST_ANALYZER', 'rust-analyzer', repo, run);
 const scipGoBin = findBin('SCIP_GO', 'scip-go', repo, run);
@@ -128,6 +128,10 @@ const ORACLES: Record<Lang, Oracle> = {
 };
 
 function main(): void {
+  if (!repoArg || !(langArg in ORACLES)) {
+    console.error(`usage: node index.ts <repo-dir> <${Object.keys(ORACLES).join('|')}> [${FLAGS.join('] [')}]`);
+    process.exit(2);
+  }
   const oracle = ORACLES[lang];
   const oracleVersion = `${oracle.name} ${oracle.version()}`;
   const cache = makeCache(repo, lang, join(repoRoot, 'src'), run, rest.includes('--no-cache'));

@@ -17,7 +17,7 @@
   "license": "MIT",
   "description": "Code organized into context-bounded cells for LLMs coding alongside humans.",
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.test.json",
+    "build": "tsc && tsc -p tsconfig.test.json && npx biome check .",
     "prepare": "tsc && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
