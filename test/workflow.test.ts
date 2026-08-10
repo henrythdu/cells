@@ -29,10 +29,13 @@ describe('cells imports', () => {
 
   it('dumps the raw import graph as JSON (edges + unresolved, same-cell included)', () => {
     repo = setupRepo();
-    writeFileSync(join(repo, 'src', 'b.ts'), `import { x } from './a';
+    writeFileSync(
+      join(repo, 'src', 'b.ts'),
+      `import { x } from './a';
 import { nope } from './nope';
 export const y = x + nope;
-`);
+`,
+    );
     const out = execSync(`node ${cellsBin} imports --json`, { cwd: repo, encoding: 'utf8' });
     const { edges, unresolved } = JSON.parse(out);
     // same-cell edge present (a.ts → b.ts is one cell) — the validation surface, not crossings

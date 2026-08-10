@@ -14,7 +14,6 @@ const files: SourceFile[] = [
   { path: 'src/stages/ext.py', content: 'import numpy\nfrom os import path\n' },
 ];
 
-
 describe('python importer', () => {
   it('extracts absolute + relative edges, drops external', async () => {
     const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files });
@@ -74,7 +73,7 @@ describe('python importer', () => {
           { path: 'headroom/__init__.py', content: '\n' },
           { path: 'headroom/transforms/__init__.py', content: '\n' },
           { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
-        ]
+        ],
       });
       expect(unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
       expect(unresolved.some((u) => u.import === 'headroom.transforms')).toBe(false); // resolves normally
@@ -239,7 +238,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files: cy
+        files: cy,
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
@@ -261,7 +260,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files: cy
+        files: cy,
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
@@ -281,7 +280,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['pandas'],
-        files
+        files,
       });
       const viaAlgos = edges.find((e) => e.import === 'pandas._libs.algos');
       expect(viaAlgos).toBeDefined();
@@ -303,7 +302,7 @@ describe('unresolved local imports', () => {
       ];
       const { edges, unresolved } = await pythonImporter.extract({
         codeDirs: ['.'],
-        files
+        files,
       });
       expect(edges.map((e) => `${e.import} -> ${e.toFile}`)).toEqual(['pkg.bar -> pkg/bar.pyx']);
       expect(unresolved).toHaveLength(0);

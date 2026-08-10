@@ -217,7 +217,6 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[]
   return out.sort();
 }
 
-
 /** Extensions recognised as code (for census + ownership). Cells has importers for
  *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
  *  (no crossing analysis) — surfaced by the blind-ext warning in health. */

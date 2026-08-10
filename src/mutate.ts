@@ -355,7 +355,9 @@ export function cmdPlan(apply = false, dryRun = false): void {
     const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
     const unownedAfter = codeFiles.length - adopted - kept;
     const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
-    const summary = dryRun ? `Would apply: ${outcome}${skippedNote}\nDry run — nothing changed. Re-run without --dry-run to apply.` : `Applied plan: ${outcome}${skippedNote}\nRun \`cells health\` — crossings will be red until requires are filled.`;
+    const summary = dryRun
+      ? `Would apply: ${outcome}${skippedNote}\nDry run — nothing changed. Re-run without --dry-run to apply.`
+      : `Applied plan: ${outcome}${skippedNote}\nRun \`cells health\` — crossings will be red until requires are filled.`;
     if (dryRun) {
       console.log(summary);
       return;

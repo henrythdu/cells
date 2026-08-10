@@ -15,7 +15,7 @@ export interface CellSmell {
 
 /** One-line health smell for a cell — rendered under its `list` row when non-empty.
  *  Size always shows (verbose = full detail); the rest only when present. Pure. */
-export function formatCellSmell(s: CellSmell): string {
+function formatCellSmell(s: CellSmell): string {
   const parts: string[] = [];
   parts.push(`${Math.round(s.pct * 100)}% size`);
   if (s.staleProvides > 0) parts.push(`${s.staleProvides} stale provide${s.staleProvides === 1 ? '' : 's'}`);
@@ -273,7 +273,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0)
-    lines.push(`  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, or an external package sharing a local dir name)`);
+    lines.push(
+      `  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, or an external package sharing a local dir name)`,
+    );
 
   // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];
@@ -306,7 +308,9 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     for (const s of v.staleProvidesDetails) lines.push(`  ${s}`);
   }
   if (v.unresolvedCount > 0) {
-    lines.push(`(info) ${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`);
+    lines.push(
+      `(info) ${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`,
+    );
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
   return { report: lines.join('\n') + '\n', gateOk };

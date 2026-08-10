@@ -208,7 +208,7 @@ describe('workspace package map', () => {
     expect(resolve('a', 'apps/web/src/index.ts', ctx)).toEqual({ toFile: 'packages/a/src/index.ts', local: true });
   });
 
-  it('REG: QUOTED yaml globs (the pnpm convention) match too — a quoted glob matched nothing and silently emptied the whole package map (vite stress run: `import \'vite\'` → 0 edges, 0 unresolved)', () => {
+  it("REG: QUOTED yaml globs (the pnpm convention) match too — a quoted glob matched nothing and silently emptied the whole package map (vite stress run: `import 'vite'` → 0 edges, 0 unresolved)", () => {
     const { ctx } = fixture(['packages/a/src/index.ts', 'apps/web/src/index.ts'], {
       'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n  - 'apps/*'\n",
       'packages/a/package.json': '{"name":"a"}',
