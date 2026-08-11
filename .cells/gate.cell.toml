@@ -1,5 +1,21 @@
 name = "gate"
 purpose = "The audit family — health (the gate: all four checks at once), size, structure, impact. Composes the four check cells (validate + crossings + structure + size) into one verdict; the surface CI and the stress agent run. Read/query commands stay in commands; this cell only aggregates + renders verdicts."
-provides = ["cmdHealth", "cmdSize", "cmdStructure", "cmdImpact", "groupUnresolved"]
-requires = ["commands", "io", "payload", "crossings", "view", "structure", "importers", "imports", "validate"]
+provides = [
+  "cmdHealth",
+  "cmdSize",
+  "cmdStructure",
+  "cmdImpact",
+  "groupUnresolved",
+]
+requires = [
+  "commands",
+  "io",
+  "payload",
+  "crossings",
+  "view",
+  "structure",
+  "importers",
+  "imports",
+  "validate",
+]
 layer = 6

@@ -55,7 +55,21 @@ export function formatCellList(declarations: Record<string, Cell>, sizes: Record
     const shown = orphanFiles.sort().slice(0, ORPHAN_LIST_CAP);
     for (const f of shown) lines.push(`  ${f}`);
     const rest = orphanFiles.length - shown.length;
-    if (rest > 0) lines.push(`  … and ${rest} more`);
+    if (rest > 0) {
+      // The truncated tail is the adoption queue — shape it by top dirs so "… and 658 more"
+      // says WHERE they are (stress finding: zulip's 672-file frontend was invisible).
+      const byDir = new Map<string, number>();
+      for (const f of orphanFiles.slice(shown.length)) {
+        const d = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '(root)';
+        byDir.set(d, (byDir.get(d) ?? 0) + 1);
+      }
+      const top = [...byDir.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 8)
+        .map(([d, n]) => `${d}: ${n}`)
+        .join(', ');
+      lines.push(`  … and ${rest} more (${top})`);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -130,7 +144,7 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   }
   if (unresolved.length > 0) {
     lines.push('');
-    lines.push(`unresolved imports that look local (${unresolved.length}) — no matching owned file; a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`);
+    lines.push(`unresolved imports that look local (${unresolved.length}) — no matching owned file; a broken specifier, a module-root mismatch, an external package sharing a local dir name, or a code dir excluded by the census skip-list (build/dist/…):`);
     for (const u of unresolved) lines.push(`  ${u}`);
   }
   lines.push('');
@@ -274,7 +288,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0)
     lines.push(
-      `  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, or an external package sharing a local dir name)`,
+      `  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, external package sharing a local dir name, or a census skip-listed dir (build/dist/…))`,
     );
 
   // Verdict FIRST — the failing path must not bury it under info sections.
@@ -309,7 +323,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
   }
   if (v.unresolvedCount > 0) {
     lines.push(
-      `(info) ${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — a broken specifier, a module-root mismatch, or an external package sharing a local dir name:`,
+      `(info) ${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — a broken specifier, a module-root mismatch, an external package sharing a local dir name, or a code dir excluded by the census skip-list (build/dist/…):`,
     );
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }

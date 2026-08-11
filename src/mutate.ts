@@ -2,7 +2,7 @@
  *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in commands/
  *  (read.ts + report.ts); cli.ts keeps the dispatcher + main(). These commands write
  *  after reading, so they re-load the stores fresh instead of using a shared bundle. */
-import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
 import { writeOwnership } from './io.js';
@@ -194,6 +194,16 @@ export function cmdRemove(name: string, force: boolean): void {
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 export function cmdAssign(cell: string, files: string[], dryRun = false): void {
+  // Trust boundary: assign maps FILE paths — a directory or missing path would be written
+  // literally into ownership and lie about success (stress finding: `assign web/` reported
+  // "Assigned 1 file(s)" while owning nothing; the gate flagged the dangling entry later).
+  const invalid = files.filter((f) => !existsSync(f) || !statSync(f).isFile());
+  if (invalid.length > 0) {
+    const dirs = invalid.filter((f) => existsSync(f));
+    console.error(`cells: assign target(s) not files: ${invalid.join(', ')}${dirs.length > 0 ? ` — ${dirs.join(', ')} is a directory; assign takes files (adopt a tree via \`cells plan\` or write .cells/ownership.toml)` : ' — no such file'}`);
+    process.exitCode = 1;
+    return;
+  }
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
   const declarations = loadDeclarations();
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.

@@ -54,6 +54,20 @@ describe('formatCellList', () => {
     expect(out).toContain('and 10 more');
   });
 
+  it('shapes the truncated orphan tail by top dirs (stress finding: 672-file frontend invisible)', () => {
+    const many = Array.from({ length: 30 }, (_, i) => `web/src/${i}.ts`);
+    const out = formatCellList(decls, sizes, listMetrics, many);
+    expect(out).toContain('and 10 more (web/src: 10)');
+    // mixed dirs, sorted by count desc
+    const mixed = [
+      ...Array.from({ length: 10 }, (_, i) => `web/src/${i}.ts`),
+      ...Array.from({ length: 25 }, (_, i) => `scripts/${i}.py`),
+      ...Array.from({ length: 3 }, (_, i) => `top_${i}.ts`),
+    ];
+    const out2 = formatCellList(decls, sizes, listMetrics, mixed);
+    expect(out2).toContain('and 18 more (web/src: 10, scripts: 5, (root): 3)');
+  });
+
   it('renders a per-cell health smell line under the row (list --verbose)', () => {
     const smells = {
       cli: { pct: 1.1, staleProvides: 2, unresolved: 3 },
@@ -130,7 +144,7 @@ describe('formatCellShow', () => {
 
   it("lists the cell's unresolved imports when present (structure fact, not a nudge)", () => {
     const rendered = formatCellShow({ ...ctx, unresolved: ['parseX', 'parseY'] });
-    expect(rendered).toContain('unresolved imports that look local (2) — no matching owned file; a broken specifier, a module-root mismatch, or an external package sharing a local dir name:');
+    expect(rendered).toContain('unresolved imports that look local (2) — no matching owned file; a broken specifier, a module-root mismatch, an external package sharing a local dir name, or a code dir excluded by the census skip-list (build/dist/…):');
     expect(rendered).toContain('  parseX');
     expect(rendered).toContain('  parseY');
     // absent when there is nothing to report

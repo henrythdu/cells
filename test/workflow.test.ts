@@ -294,4 +294,20 @@ describe('cells show per-file tokens', () => {
     expect(out).toContain('src/big.ts');
     expect(execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' })).toContain('All checks passed');
   });
+
+  it('REG: assign refuses a directory with a hint — no literal ownership entry (stress finding: zulip web/)', () => {
+    repo = setupRepo();
+    mkdirSync(join(repo, 'web'), { recursive: true });
+    writeFileSync(join(repo, 'web', 'a.ts'), `export const z = 1;\n`);
+    const res = spawnSync(`node`, [cellsBin, 'assign', 'a', 'web/'], { cwd: repo, encoding: 'utf8' });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('is a directory');
+    expect(res.stderr).toContain('assign takes files');
+    // nothing was written — ownership unchanged, no dangling entry
+    expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).not.toContain('web/');
+    // missing paths are refused too
+    const miss = spawnSync(`node`, [cellsBin, 'assign', 'a', 'nope.ts'], { cwd: repo, encoding: 'utf8' });
+    expect(miss.status).toBe(1);
+    expect(miss.stderr).toContain('no such file');
+  });
 });
