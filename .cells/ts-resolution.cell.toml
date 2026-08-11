@@ -1,5 +1,5 @@
 name = "ts-resolution"
 purpose = "TypeScript/JS/TSX specifier resolution — the deep core shared by the three TS-family importer specs: tsconfig paths aliases (jsonc, extends chains, nearest-config), workspace package maps (exports exact/wildcard, npm/pnpm globs), disk probes (ext/index/dist→src/NodeNext remaps), and broken-local vs external classification. resolveOne is the decision point the oracle harness judges."
-provides = ["resolveOne", "factsOf", "TsFacts", "PkgInfo"]
+provides = ["resolveOne", "factsOf", "TsFacts"]
 requires = ["tree-sitter"]
 layer = 4

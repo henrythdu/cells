@@ -3,7 +3,6 @@ purpose = "Format the partition for human navigation: cell list, single-cell det
 provides = [
   "formatCellList",
   "formatCellShow",
-  "formatCellSmell",
   "CellSmell",
   "formatSizeReport",
   "formatHealthReport",

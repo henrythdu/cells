@@ -51,11 +51,15 @@ import { oraclePythonRaw, oraclePythonFromRaw } from './oracles/python.ts';
 
 const [, , repoArg, langArg, ...rest] = process.argv;
 const args = new Map<string, string>();
-for (let i = 0; i < rest.length; i += 2) args.set(rest[i], rest[i + 1]);
+for (let i = 0; i < rest.length; i++) {
+  if (rest[i] === '--no-cache') continue; // value-less flag — must not consume the next arg
+  args.set(rest[i], rest[i + 1]);
+  i++;
+}
 const get = (k: string, d: string): string => args.get(k) ?? d;
 
 /** The flag surface — single source for the usage line. */
-const FLAGS = ['--tsc PATH', '--cells PATH', '--scip PATH', '--top N', '--no-cache'] as const;
+const FLAGS = ['--tsc PATH', '--cells PATH', '--scip PATH', '--top N', '--java-args S', '--cmake-args S', '--no-cache'] as const;
 
 const repo = resolve(repoArg ?? '.'); // main() exits on a missing repoArg before this is used
 const lang = langArg as Lang;
@@ -108,14 +112,14 @@ const ORACLES: Record<Lang, Oracle> = {
   },
   java: {
     name: 'scip-java',
-    version: () => `${run(javaBin, ['--version'], repo).stdout.trim()} ${(get('--java-args', '') ?? '').trim()}`,
-    raw: () => oracleJavaRaw(javaBin, repo, run, (get('--java-args', '') ?? '').trim().split(/\s+/).filter(Boolean)),
+    version: () => `${run(javaBin, ['--version'], repo).stdout.trim()} ${get('--java-args', '').trim()}`,
+    raw: () => oracleJavaRaw(javaBin, repo, run, get('--java-args', '').trim().split(/\s+/).filter(Boolean)),
     parse: (raw) => edgesFromJava(raw as ScipIndex, repo),
   },
   cpp: {
     name: 'gcc -H',
-    version: () => `${run('gcc', ['--version'], repo).stdout.trim().split('\n')[0]} ${(get('--cmake-args', '') ?? '').trim()} oracle-v3`,
-    raw: () => oracleCppRaw(repo, run, (get('--cmake-args', '') ?? '').trim().split(/\s+/).filter(Boolean)),
+    version: () => `${run('gcc', ['--version'], repo).stdout.trim().split('\n')[0]} ${get('--cmake-args', '').trim()} oracle-v3`,
+    raw: () => oracleCppRaw(repo, run, get('--cmake-args', '').trim().split(/\s+/).filter(Boolean)),
     parse: (raw) => oracleCppFromRaw(raw as string, repo),
   },
   python: {

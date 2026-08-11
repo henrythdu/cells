@@ -83,8 +83,13 @@ WAS a real cells bug — fixed; those under-flags dropped from 338 to 307
 ## Usage
 
 ```bash
-node index.ts <repo-dir> <ts|rust|go|java|cpp|python> [--top N]
+node index.ts <repo-dir> <ts|rust|go|java|cpp|python> [--tsc PATH] [--cells PATH] [--scip PATH] [--top N] [--java-args S] [--cmake-args S] [--no-cache]
 ```
+
+`--java-args` appends build-tool args for scip-java (e.g. `-Pandroid` for
+Guava's android module); `--cmake-args` restricts the cpp oracle's cmake
+configure (e.g. `-DLLAMA_CUDA=OFF` for llama.cpp); `--no-cache` bypasses the
+raw-artifact + cells caches.
 
 (Node ≥23.6 runs .ts natively. The split modules live in oracles/; the
 parsers are pure text→edges functions with unit tests in
