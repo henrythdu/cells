@@ -84,7 +84,7 @@ export async function cmdImports(opts: { json?: boolean } = {}): Promise<void> {
  *  `--verbose` shows every file→file edge; `--diff` shows what your uncommitted edits
  *  added/removed (working tree vs HEAD); `--json` emits raw JSON (stdout stays machine-clean;
  *  human notes go to stderr). */
-export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; verbose?: boolean; json?: boolean } = {}): Promise<void> {
+export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; verbose?: boolean; json?: boolean; warnings?: boolean } = {}): Promise<void> {
   const { ownership, declarations } = ctx;
   const { crossings, unresolved } = await loadCrossings(ownership);
 
@@ -108,28 +108,32 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
     console.error('⚠ --diff unavailable (need a git repo with at least one commit) — showing current crossings instead.');
   }
 
-  if (crossings.length === 0) {
-    if (opts.json) {
-      process.stdout.write('[]\n'); // machine consumers always get valid JSON
+  if (!opts.warnings) {
+    // skip the listing entirely under --warnings: leakage + unresolved only (the agent's
+    // "just the warnings" — on a big repo the pair list drowns the actionable tail)
+    if (crossings.length === 0) {
+      if (opts.json) {
+        process.stdout.write('[]\n'); // machine consumers always get valid JSON
+      } else {
+        console.log('No cross-cell imports.');
+      }
+    } else if (opts.json) {
+      process.stdout.write(JSON.stringify(crossings, null, 2) + '\n');
     } else {
-      console.log('No cross-cell imports.');
-    }
-  } else if (opts.json) {
-    process.stdout.write(JSON.stringify(crossings, null, 2) + '\n');
-  } else {
-    // default: aggregate summary; --verbose: every file→file edge under its cell pair
-    const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
-    for (const c of crossings) {
-      const k = `${c.fromCell}|${c.toCell}`;
-      const p = byPair.get(k) ?? { from: c.fromCell, to: c.toCell, files: [] };
-      p.files.push([c.fromFile, c.toFile]);
-      byPair.set(k, p);
-    }
-    const pairs = [...byPair.values()].sort((a, b) => b.files.length - a.files.length || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
-    console.log(`Cross-cell imports (${pairs.length} cell pairs, ${crossings.length} edges):`);
-    for (const p of pairs) {
-      console.log(`  ${p.from} → ${p.to}   (${p.files.length} edge${p.files.length === 1 ? '' : 's'})`);
-      if (opts.verbose) for (const [f, t] of p.files) console.log(`      ${f} → ${t}`);
+      // default: aggregate summary; --verbose: every file→file edge under its cell pair
+      const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
+      for (const c of crossings) {
+        const k = `${c.fromCell}|${c.toCell}`;
+        const p = byPair.get(k) ?? { from: c.fromCell, to: c.toCell, files: [] };
+        p.files.push([c.fromFile, c.toFile]);
+        byPair.set(k, p);
+      }
+      const pairs = [...byPair.values()].sort((a, b) => b.files.length - a.files.length || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+      console.log(`Cross-cell imports (${pairs.length} cell pairs, ${crossings.length} edges):`);
+      for (const p of pairs) {
+        console.log(`  ${p.from} → ${p.to}   (${p.files.length} edge${p.files.length === 1 ? '' : 's'})`);
+        if (opts.verbose) for (const [f, t] of p.files) console.log(`      ${f} → ${t}`);
+      }
     }
   }
 

@@ -218,6 +218,17 @@ describe("python src-layout cold start (the griller's hole)", () => {
     expect(h.stdout + h.stderr).toContain('unresolved');
   });
 
+  it('REG: crossings --warnings skips the pair listing — leakage + unresolved only (stress feedback: warnings drown on big repos)', () => {
+    repo = setupPythonRepo();
+    const r = spawnSync(`node`, [cellsBin, 'crossings', '--warnings'], { cwd: repo, encoding: 'utf8' });
+    const out = r.stdout + r.stderr;
+    expect(r.status).toBe(1); // the gate still fires on undeclared crossings
+    expect(out).not.toContain('Cross-cell imports'); // no listing
+    expect(out).toContain('Undeclared crossings'); // actionable tail only
+    expect(out).toContain('Unresolved imports that look local');
+    expect(out).toContain('module-root');
+  });
+
   it('setting module-root turns the unresolved imports into real edges (the intended fix)', () => {
     repo = setupPythonRepo();
     const cfg = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');

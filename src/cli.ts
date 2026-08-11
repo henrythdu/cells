@@ -45,11 +45,11 @@ const COMMANDS: Record<string, Command> = {
     },
   },
   crossings: {
-    usage: 'cells crossings [--diff] [--verbose] [--json]',
-    desc: 'cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --json = machine-readable edges',
+    usage: 'cells crossings [--diff] [--verbose] [--json] [--warnings]',
+    desc: 'cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --warnings = leakage + unresolved only (no listing); --json = machine-readable edges',
     minArgs: 0,
     needsCells: true,
-    run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json') }),
+    run: (a, _d, ctx) => cmdCrossings(ctx!, { diff: a.includes('--diff'), verbose: a.includes('--verbose'), json: a.includes('--json'), warnings: a.includes('--warnings') }),
   },
   imports: {
     usage: 'cells imports [--json]',
