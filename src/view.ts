@@ -144,7 +144,9 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   }
   if (unresolved.length > 0) {
     lines.push('');
-    lines.push(`unresolved imports that look local (${unresolved.length}) — no matching owned file; a broken specifier, a module-root mismatch, an external package sharing a local dir name, or a code dir excluded by the census skip-list (build/dist/…):`);
+    lines.push(
+      `unresolved imports that look local (${unresolved.length}) — no matching owned file; a broken specifier, a module-root mismatch, an external package sharing a local dir name, or a code dir excluded by the census skip-list (build/dist/…):`,
+    );
     for (const u of unresolved) lines.push(`  ${u}`);
   }
   lines.push('');
