@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadContext, requireCells, type CellsContext } from './io.js';
 import { cmdCrossings, cmdImports, cmdList, cmdShow, cmdGraph, cmdOwns, cmdPayload, cmdSurface } from './commands/read.js';
-import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './commands/report.js';
+import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './gate.js';
 import { cmdInit, cmdRename, cmdRemove, cmdAssign, cmdUnassign, cmdNew, cmdPruneStale, cmdPlan, cmdConfig } from './mutate.js';
 import { renderHelp } from './help.js';
 

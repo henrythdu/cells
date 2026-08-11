@@ -1,22 +1,17 @@
 name = "commands"
-purpose = "Read/analysis command handlers (crossings, imports, list, show, size, structure, impact, graph, owns, payload, health, surface) — the payload-shaped half of the CLI."
+purpose = "Read/analysis command handlers (crossings, imports, list, show, graph, owns, payload, surface) + the shared read pipeline (loadCrossings, requireCell, warnIfNoCodeFiles) — the payload-shaped half of the CLI. The gate family (health/size/structure/impact) lives in the gate cell."
 provides = [
   "cmdCrossings",
   "cmdImports",
   "cmdList",
   "cmdShow",
-  "cmdSize",
-  "cmdStructure",
-  "cmdImpact",
   "cmdGraph",
   "cmdOwns",
   "cmdPayload",
   "cmdSurface",
-  "cmdHealth",
   "loadCrossings",
   "requireCell",
   "warnIfNoCodeFiles",
-  "groupUnresolved",
 ]
 requires = [
   "io",
@@ -31,6 +26,5 @@ requires = [
   "config",
   "ownership",
   "validate",
-  "structure",
 ]
 layer = 6

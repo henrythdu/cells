@@ -23,7 +23,7 @@ files = ["src/assign.ts", "test/assign.test.ts"]
 files = ["src/config.ts", "test/config.test.ts"]
 
 [cli]
-files = ["src/cli.ts", "test/health.test.ts", "test/remove.test.ts", "test/workflow.test.ts"]
+files = ["src/cli.ts", "test/remove.test.ts", "test/workflow.test.ts"]
 
 [mutate]
 files = ["src/mutate.ts"]
@@ -62,7 +62,7 @@ files = ["src/languages/rust.ts"]
 files = ["src/diff.ts", "test/diff.test.ts"]
 
 [commands]
-files = ["src/commands/read.ts", "src/commands/report.ts", "test/commands.test.ts"]
+files = ["src/commands/read.ts", "test/commands.test.ts"]
 
 [tree-sitter]
 files = ["src/languages/tree-sitter.ts"]
@@ -87,3 +87,6 @@ files = ["src/languages/ts-resolution.ts", "test/languages/ts-resolution.test.ts
 
 [validate-crossings]
 files = ["test/validate-crossings/compare.test.ts", "test/validate-crossings/cpp-oracle.test.ts", "test/validate-crossings/java-oracle.test.ts", "test/validate-crossings/python-oracle.test.ts", "test/validate-crossings/scip-oracle.test.ts", "test/validate-crossings/ts-oracle.test.ts"]
+
+[gate]
+files = ["src/gate.ts", "test/health.test.ts"]

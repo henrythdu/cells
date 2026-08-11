@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { groupUnresolved } from '../src/commands/report.js';
+import { groupUnresolved } from '../src/gate.js';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
 

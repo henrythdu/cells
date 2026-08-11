@@ -1,5 +1,5 @@
 name = "cli"
 purpose = "CLI entry: dispatch commands; wire the io layer + logic cells to argv. Read/analysis commands delegate to the commands cell; mutation commands delegate to the mutate cell."
 provides = ["main"]
-requires = ["io", "commands", "help", "mutate"]
+requires = ["io", "commands", "help", "mutate", "gate"]
 layer = 7

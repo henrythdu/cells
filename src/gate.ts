@@ -1,15 +1,17 @@
-/** Report command handlers: size, structure, impact, health. The renderers live in view /
+/** The gate family: size, structure, impact, health. The renderers live in view /
  *  structure; these shells gather I/O and delegate. The read/query commands (crossings,
- *  list, show, graph, owns, payload) live in read.ts; the shared pipeline is loadCrossings. */
-import { listCodeFiles, readFiles, type CellsContext } from '../io.js';
-import { computePayloadSize, neighborsOf, estimateTokens } from '../payload.js';
-import { checkLeakage, computeMetrics } from '../crossings.js';
-import { formatSizeReport, formatHealthReport, type PeelCandidate } from '../view.js';
-import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatStructureSummary, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from '../structure.js';
-import { checkGrammars } from '../importers.js';
-import type { UnresolvedImport } from '../imports.js';
-import { validatePartition, staleProvidesOf, type StaleProvide } from '../validate.js';
-import { loadCrossings, warnIfNoCodeFiles, requireCell } from './read.js';
+ *  list, show, graph, owns, payload) live in commands/read.ts; the shared pipeline is
+ *  loadCrossings. The gate composes the four check cells into one verdict — the surface
+ *  CI and the stress agent run. */
+import { listCodeFiles, readFiles, type CellsContext } from './io.js';
+import { computePayloadSize, neighborsOf, estimateTokens } from './payload.js';
+import { checkLeakage, computeMetrics } from './crossings.js';
+import { formatSizeReport, formatHealthReport, type PeelCandidate } from './view.js';
+import { detectCycles, checkDirection, checkSDP, formatSdpReport, formatStructureReport, formatStructureSummary, formatLayerOverview, formatLayerSuggestions, computeImpact, formatImpactReport } from './structure.js';
+import { checkGrammars } from './importers.js';
+import type { UnresolvedImport } from './imports.js';
+import { validatePartition, staleProvidesOf, type StaleProvide } from './validate.js';
+import { loadCrossings, warnIfNoCodeFiles, requireCell } from './commands/read.js';
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
 export async function cmdSize(ctx: CellsContext): Promise<void> {
