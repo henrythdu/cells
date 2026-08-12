@@ -11,3 +11,6 @@ HANDOFF.md
 CONTEXT.md
 docs/
 coverage/
+
+# local agent config (per-machine — never commit)
+.pi/
