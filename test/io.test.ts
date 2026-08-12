@@ -175,6 +175,7 @@ describe('readFiles (the byte seam — trust boundary + never-silent-zero)', () 
   });
 
   it('throws on an existing-but-unreadable file instead of silently returning empty content', () => {
+    if (process.platform === 'win32') return; // chmod 000 doesn't deny reads on Windows (ACL model)
     const f = join(dir, 'x.ts');
     writeFileSync(f, 'export {}');
     chmodSync(f, 0o000);

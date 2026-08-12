@@ -380,9 +380,11 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: ReadonlySet<st
         out.push({ path: chain, targetFile: null }); // inline block — lives in this file
         walk(body, chain); // nested inline mods chain further
       } else {
-        // `mod x;` → sibling file x.rs or dir x/mod.rs
-        const sibling = join(dir, `${name}.rs`);
-        const dirMod = join(dir, name, 'mod.rs');
+        // `mod x;` → sibling file x.rs or dir x/mod.rs. join() emits '\' on
+        // Windows — normalize to posix: fileSet keys come from the census
+        // (posix-normalized), so a backslash sibling never matches.
+        const sibling = join(dir, `${name}.rs`).replace(/\\/g, '/');
+        const dirMod = join(dir, name, 'mod.rs').replace(/\\/g, '/');
         let target: string | null = null;
         if (fileSet.has(sibling)) target = sibling;
         else if (fileSet.has(dirMod)) target = dirMod;

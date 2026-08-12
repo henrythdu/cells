@@ -263,7 +263,7 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[]
         } catch {
           /* unreadable dir — nothing to report */
         }
-        if (hasCode) out.push(relative(baseDir, p));
+        if (hasCode) out.push(relative(baseDir, p).replace(/\\/g, '/')); // posix like the census — 'internal\build' would leak to users on Windows
         continue; // never recurse into a skipped dir
       }
       walk(join(dir, e.name));
