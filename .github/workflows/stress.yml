@@ -1,0 +1,25 @@
+name: Stress
+
+on:
+  workflow_dispatch:
+  schedule:
+    # weekly, Monday 03:00 UTC — big-repo regression signal (~670-cell kafka scale)
+    - cron: "0 3 * * 1"
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Actions pinned to full commit SHAs (mutable tags can be repointed).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - run: node scripts/stress.mjs --cells 600 --files-per-cell 10

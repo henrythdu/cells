@@ -140,10 +140,10 @@ export interface ResolveCtx {
  *  candidateKeys, rust's look/walk probes). Java is the exception — plain FQN keys with no
  *  separator (`.` stays inside the key). Exporting it keeps the couple honest — a separator
  *  change breaks the resolvers' key construction loudly (via tests), not silently. */
-export const MODULE_SEP = '::';
+const MODULE_SEP = '::';
 
 /** A declared submodule (from `mod x;` or inline `mod x {}`). */
-export interface ModDecl {
+interface ModDecl {
   path: string[];
   targetFile: string | null; // null = inline block (lives in the containing file)
 }
@@ -161,7 +161,7 @@ export interface Reexport {
 
 /** What one AST analysis pass extracts: declared submodules, pub-use re-exports, and every use
  *  path (language-specific shape in `uses`). */
-export interface Analysis<U> {
+interface Analysis<U> {
   mods: ModDecl[];
   reexports: Reexport[];
   uses: U;

@@ -11,10 +11,10 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Run } from './shared.ts';
 import { newestMtime } from './shared.ts';
 
-export const CACHE_DIR = join(process.env.HOME ?? mkdtempSync('cells-validate-'), '.cache', 'cells-validate');
+const CACHE_DIR = join(process.env.HOME ?? mkdtempSync('cells-validate-'), '.cache', 'cells-validate');
 
 /** Cheap repo-state fingerprint: git HEAD + source count + newest mtime. */
-export function fingerprint(repo: string, runFn: Run): string {
+function fingerprint(repo: string, runFn: Run): string {
   let n = 0;
   const walk = (dir: string): void => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -32,7 +32,7 @@ export function fingerprint(repo: string, runFn: Run): string {
 /** cells-side fingerprint: the repo fingerprint + cells' own src/dist state —
  *  importer edits must invalidate the cells cache even when the version
  *  string is unchanged (dev loop: fix importer → re-audit). */
-export function cellsFingerprint(repo: string, srcRoot: string, runFn: Run): string {
+function cellsFingerprint(repo: string, srcRoot: string, runFn: Run): string {
   return `${fingerprint(repo, runFn)}:cells:${Math.round(Math.max(newestMtime(srcRoot), newestMtime(join(srcRoot, '..', 'dist'))))}`;
 }
 

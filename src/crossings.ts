@@ -40,7 +40,7 @@ export function deriveCrossings(edges: ImportEdge[], ownership: Ownership): Cros
   return crossings;
 }
 
-export type LeakageKind = 'undeclared' | 'stale';
+type LeakageKind = 'undeclared' | 'stale';
 
 export interface Leakage {
   kind: LeakageKind;

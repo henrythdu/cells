@@ -52,7 +52,7 @@ export function isUnsafePath(p: string): boolean {
   return posix.isAbsolute(p) || /^[A-Za-z]:/.test(p) || norm === '..' || norm.startsWith('../') || norm.split('/').includes('..');
 }
 
-export type ViolationKind =
+type ViolationKind =
   | 'duplicate' // a file owned by 2+ cells (violates non-overlap)
   | 'dangling' // an owned file missing from disk
   | 'undeclared-cell' // ownership references a cell with no declaration

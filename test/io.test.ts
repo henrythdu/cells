@@ -184,6 +184,33 @@ describe('readFiles (the byte seam — trust boundary + never-silent-zero)', () 
       chmodSync(f, 0o600);
     }
   });
+
+  it("refuses a symlink that resolves outside the repo (lexical checks can't see links)", () => {
+    const outside = join(dir, '..', 'outside-secret.txt');
+    writeFileSync(outside, 'top secret');
+    const link = join(dir, 'evil-link.ts');
+    try {
+      symlinkSync(outside, link);
+    } catch {
+      return; // no symlink permission (some CI) — skip
+    }
+    try {
+      expect(() => readFiles(['evil-link.ts'], dir)).toThrow(/resolves outside the repo root/);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
+  it('allows a symlink that resolves inside the repo (census follows them anyway)', () => {
+    writeFileSync(join(dir, 'real.ts'), 'export const a = 1;');
+    const link = join(dir, 'alias.ts');
+    try {
+      symlinkSync(join(dir, 'real.ts'), link);
+    } catch {
+      return; // no symlink permission (some CI) — skip
+    }
+    expect(readFiles(['alias.ts'], dir)).toEqual({ 'alias.ts': 'export const a = 1;' });
+  });
 });
 
 describe('loadDeclarations (store invariants)', () => {

@@ -10,3 +10,4 @@ HANDOFF.md
 # agent-internal docs — npm ships dist/grammars/README/LICENSE only
 CONTEXT.md
 docs/
+coverage/

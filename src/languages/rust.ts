@@ -75,7 +75,7 @@ export function fileToModule(path: string, _moduleRoot?: string, baseDir = '.'):
 
 /** The crate root a file belongs to (or null when the scan root isn't inside a crate).
  *  The factory uses it to namespace module keys when a run spans multiple crates. */
-export function crateRootOf(path: string, baseDir = '.'): string | null {
+function crateRootOf(path: string, baseDir = '.'): string | null {
   return findCrateRoot(path, baseDir);
 }
 
@@ -86,7 +86,7 @@ export function crateRootOf(path: string, baseDir = '.'): string | null {
  *  LIMITATION: `name.workspace = true` (workspace-inherited name) resolves to null — such a
  *  crate's cross-crate imports stay silently external (pre-fix behavior, not a false positive).
  *  Package names are overwhelmingly literal in practice; revisit if a real repo hits it. */
-export function crateNameOf(crateRoot: string, baseDir = '.'): string | null {
+function crateNameOf(crateRoot: string, baseDir = '.'): string | null {
   let content: string;
   try {
     content = readFileSync(join(baseDir, crateRoot, 'Cargo.toml'), 'utf8');

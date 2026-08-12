@@ -1,0 +1,36 @@
+---
+# Dependabot — keep deps + actions patched. Minor/patch grouped into single PRs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # hold updates 7d post-release — supply-chain attack mitigation
+    cooldown:
+      default-days: 7
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # package.json pnpm field is ignored by pnpm 11; lockfile updates only.
+      - dependency-name: "pnpm"
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - "*"
+    labels:
+      - dependencies

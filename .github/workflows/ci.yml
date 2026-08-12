@@ -6,23 +6,29 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     steps:
-      # Actions pinned to full commit SHAs (zizmor: mutable tags can be repointed).
+      # Actions pinned to full commit SHAs (mutable tags can be repointed).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.15.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: latest
+          node-version: ${{ matrix.node }}
       # --ignore-scripts: the runner's install wrapper may run the project's
       # prepare before devDeps are linked. The build happens explicitly below.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run build
-      - run: pnpm test
+      # coverage thresholds are the CI gate (vitest.config.ts)
+      - run: pnpm test -- --coverage
       # cells' own gate on its own repo — undeclared crossings, integrity,
       # grammars.
       - run: node dist/cli.js health

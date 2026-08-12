@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # OIDC token for provenance-attested publish (no long-lived npm token).
+      id-token: write
     steps:
       # Actions pinned to full commit SHAs (zizmor: mutable tags).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -27,6 +29,9 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run build && chmod +x dist/cli.js
       - run: pnpm test
+      # the tool's own gate before anything ships — a merged commit that fails
+      # `cells health` must never reach npm.
+      - run: node dist/cli.js health
       - name: Check if version already published
         id: check
         run: |
@@ -40,9 +45,9 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.check.outputs.exists != 'true'
-        run: pnpm publish --no-git-checks --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # --provenance: OIDC-attested build; setup-node exchanges the id-token
+        # for a registry token automatically (no NODE_AUTH_TOKEN secret).
+        run: pnpm publish --provenance --no-git-checks --ignore-scripts
       - name: Create GitHub Release
         run: gh release create "$TAG" --generate-notes
         env:

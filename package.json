@@ -34,9 +34,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
     "@types/node": "^26.1.1",
-    "tree-sitter-cli": "^0.26.11",
-    "tree-sitter-javascript": "^0.25.0",
-    "tree-sitter-typescript": "^0.23.2",
+    "@vitest/coverage-v8": "^2.1.9",
+    "knip": "^6.32.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.0"
   }

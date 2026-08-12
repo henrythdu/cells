@@ -1,6 +1,6 @@
 import type { Dirent } from 'node:fs';
 import { existsSync, readdirSync, readFileSync, realpathSync, type Stats, statSync, writeFileSync } from 'node:fs';
-import { extname, join, relative } from 'node:path';
+import { extname, join, relative, resolve, sep } from 'node:path';
 import { type CellsConfig, parseConfig } from './config.js';
 import { type Cell, parseCell } from './declaration.js';
 import { isIgnored, parseIgnore } from './ignore.js';
@@ -166,21 +166,44 @@ export function listCodeFiles(baseDir = '.'): string[] {
 /** Read files into a {path→content} map. Two guards make this the safe byte seam:
  *  - trust boundary: paths come from repo-controlled ownership/tests entries — an absolute
  *    or `..`-escaping path must not read outside the repo (validatePartition flags the
- *    same condition as an integrity violation).
+ *    same condition as an integrity violation). Lexical checks can't see symlinks, so the
+ *    resolved target must also stay under the resolved baseDir — a repo-owned symlink
+ *    must not smuggle an outside file into the payload.
  *  - never-silent-zero: a MISSING file is skipped (validate flags it as dangling), but a
  *    file that exists yet can't be read (EACCES/EISDIR/…) must not silently become empty
  *    content — importers would derive a zero-edge graph from it.
  *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
 export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
   const out: Record<string, string> = {};
+  // Resolve the root once: every target's realpath must stay under it (symlink escape).
+  // realpathSync fails on a missing root only if baseDir itself is gone — callers pass
+  // an existing repo, so fall back to the lexical path rather than crash on a race.
+  let root: string;
+  try {
+    root = realpathSync(baseDir);
+  } catch {
+    root = resolve(baseDir);
+  }
+  const rootPrefix = root + sep;
   for (const p of paths) {
     if (isUnsafePath(p)) {
       throw new Error(`path "${p}" escapes the repo root — fix the entry in .cells/ownership.toml (or the cell's tests field)`);
     }
+    const full = join(baseDir, p);
+    let real: string;
     try {
-      out[p] = readFileSync(join(baseDir, p), 'utf8');
+      real = realpathSync(full);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // missing — validate flags as dangling
+      throw new Error(`cannot read ${p}: ${(e as Error).message}`);
+    }
+    if (real !== root && !real.startsWith(rootPrefix)) {
+      throw new Error(`path "${p}" resolves outside the repo root (symlink) — fix the entry in .cells/ownership.toml (or the cell's tests field)`);
+    }
+    try {
+      out[p] = readFileSync(full, 'utf8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // vanished between realpath and read
       throw new Error(`cannot read ${p}: ${(e as Error).message}`);
     }
   }

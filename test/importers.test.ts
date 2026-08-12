@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { importableExts, pythonImporter, selectImporters, uncoveredImporterExts } from '../src/importers.js';
+import { importableExts, selectImporters, uncoveredImporterExts } from '../src/importers.js';
 import type { Importer } from '../src/imports.js';
+import { pythonImporter } from '../src/languages/python.js';
 
 describe('importer selection', () => {
   it('selects only importers whose extensions are present', () => {

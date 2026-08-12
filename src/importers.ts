@@ -16,7 +16,6 @@ import { javascriptImporter, tsxImporter, typescriptImporter } from './languages
 // The grammar-bundle integrity check re-exported here: commands/health reaches the language
 // machinery ONLY through this hub (the declared single seam for "everything language").
 export { checkGrammars } from './languages/tree-sitter.js';
-export { cppImporter, goImporter, javaImporter, javascriptImporter, pythonImporter, rustImporter, tsxImporter, typescriptImporter };
 
 /** The single language registry: one row per language — the importer + its bundled
  *  grammar WASM. DEFAULT_IMPORTERS derives from it, and the packaged manifest
