@@ -38,5 +38,19 @@
     "knip": "^6.32.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/henrythdu/cells.git"
+  },
+  "keywords": [
+    "llm",
+    "code-organization",
+    "context",
+    "architecture",
+    "cli"
+  ],
+  "bugs": {
+    "url": "https://github.com/henrythdu/cells/issues"
   }
 }

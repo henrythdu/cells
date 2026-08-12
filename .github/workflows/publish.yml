@@ -18,7 +18,9 @@ jobs:
           version: 11.15.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: latest
+          # pin to a matrix-tested LTS, not 'latest' — a future node major
+          # must not break publishes while CI is green
+          node-version: 24
           registry-url: https://registry.npmjs.org
       # --ignore-scripts: the runner's supply-chain install wrapper changed
       # behavior — it now runs the project's prepare before devDeps (node types)
@@ -30,13 +32,30 @@ jobs:
       # the tool's own gate before anything ships — a merged commit that fails
       # `cells health` must never reach npm.
       - run: node dist/cli.js health
+      - name: Check if version already published
+        id: check
+        run: |
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VER already on npm — skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       # A tag push runs CI in parallel with this workflow — never publish a
       # version whose CI failed (the matrix: ubuntu+windows × node 22+24).
+      # --workflow CI is load-bearing: without it the list includes THIS run
+      # (head_sha = the tagged commit), which stays in_progress while the
+      # loop polls → DONE never equals TOTAL → 20-min deadlock. Only CI runs
+      # on a tag-push commit; the branch-push CI run for the same SHA counts
+      # too (both must pass).
       - name: Wait for CI on this commit
+        if: steps.check.outputs.exists != 'true'
         run: |
           set -euo pipefail
           for _ in $(seq 1 120); do
-            STATE=$(gh run list --commit "$GITHUB_SHA" \
+            STATE=$(gh run list --commit "$GITHUB_SHA" --workflow CI \
               --json status,conclusion \
               --jq '.[] | .status + "/" + (.conclusion // "none")' | sort -u)
             FAILED=$(echo "$STATE" | grep -cE \
@@ -58,17 +77,6 @@ jobs:
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
-      - name: Check if version already published
-        id: check
-        run: |
-          PKG=$(node -p "require('./package.json').name")
-          VER=$(node -p "require('./package.json').version")
-          if npm view "$PKG@$VER" version >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Version $VER already on npm — skipping publish."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
       - name: Publish to npm
         if: steps.check.outputs.exists != 'true'
         # NODE_AUTH_TOKEN: npm account has no trusted-publishing publisher
@@ -78,7 +86,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
-        run: gh release create "$TAG" --generate-notes
+        # idempotent: a re-tagged release whose version is already on npm
+        # (and whose release exists) must not fail the run
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping."
+          else
+            gh release create "$TAG" --generate-notes
+          fi
         env:
           # env, not shell interpolation — no injection surface
           TAG: ${{ github.ref_name }}
