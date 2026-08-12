@@ -1,6 +1,6 @@
 {
   "name": "@henrythdu/cells",
-  "version": "0.0.43",
+  "version": "0.0.44",
   "publishConfig": {
     "access": "public"
   },
@@ -16,9 +16,12 @@
   ],
   "license": "MIT",
   "description": "Code organized into context-bounded cells for LLMs coding alongside humans.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.test.json && npx biome check .",
-    "prepare": "tsc && chmod +x dist/cli.js",
+    "build": "tsc && tsc -p tsconfig.test.json && node scripts/build-manifest.mjs && biome check .",
+    "prepare": "tsc && chmod +x dist/cli.js && node scripts/build-manifest.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -29,6 +32,7 @@
     "web-tree-sitter": "^0.26.11"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.8",
     "@types/node": "^26.1.1",
     "tree-sitter-cli": "^0.26.11",
     "tree-sitter-javascript": "^0.25.0",
