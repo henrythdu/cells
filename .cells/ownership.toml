@@ -94,16 +94,6 @@ files = [
   "test/languages/ts-resolution.test.ts",
 ]
 
-[validate-crossings]
-files = [
-  "test/validate-crossings/compare.test.ts",
-  "test/validate-crossings/cpp-oracle.test.ts",
-  "test/validate-crossings/java-oracle.test.ts",
-  "test/validate-crossings/python-oracle.test.ts",
-  "test/validate-crossings/scip-oracle.test.ts",
-  "test/validate-crossings/ts-oracle.test.ts",
-]
-
 [gate]
 files = ["src/gate.ts", "test/health.test.ts"]
 

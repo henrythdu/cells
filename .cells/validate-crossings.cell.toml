@@ -1,5 +1,0 @@
-name = "validate-crossings"
-purpose = "Oracle-audit harness tests: the validate-crossings parsers (tsc/pyright/gcc -H/SCIP text-to-edge extraction) + the compare pass. The tool itself lives in scripts/validate-crossings/ (outside the census — internal dev tool, not shipped); these tests exercise its pure modules."
-provides = []
-requires = []
-layer = 7

@@ -109,14 +109,6 @@ describe('cells health', () => {
       expect(res.stderr).not.toContain('Undeclared');
     });
   });
-
-  describe('validate is now an alias for health', () => {
-    it('runs the full gate and prints a redirect note (stderr, stdout stays machine-clean)', () => {
-      const res = spawnSync(`node`, [cellsBin, 'validate'], { encoding: 'utf8' });
-      expect(res.stderr).toContain('is now `cells health`');
-      expect(res.stdout).toMatch(/All checks passed|Gate passed/);
-    });
-  });
 });
 
 describe('health --summary grouping', () => {

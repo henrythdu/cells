@@ -5,6 +5,6 @@
     "rootDir": ".",
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*", "test/**/*", "scripts/validate-crossings/**/*.ts"],
+  "include": ["src/**/*", "test/**/*"],
   "exclude": []
 }

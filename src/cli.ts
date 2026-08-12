@@ -35,16 +35,6 @@ interface Command {
 // COMMANDS block in `cells help` are all derived from it (see renderHelp).
 const COMMANDS: Record<string, Command> = {
   payload: { usage: 'cells payload <name>', desc: "print a cell's full payload (the context to work it)", minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdPayload(ctx!, a[0]) },
-  validate: {
-    usage: 'cells validate',
-    desc: 'legacy alias for health — prints a note, runs the full gate (deprecated)',
-    minArgs: 0,
-    needsCells: true,
-    run: async (_a, _d, ctx) => {
-      console.error('Note: `cells validate` is now `cells health` (the full gate). Running it.'); // stderr — stdout stays machine-clean
-      await cmdHealth(ctx!);
-    },
-  },
   crossings: {
     usage: 'cells crossings [--diff] [--verbose] [--json] [--warnings]',
     desc: 'cross-cell imports + leakage; cell-pair summary by default; --verbose = every file edge; --diff = +/- from your edits; --warnings = leakage + unresolved only (no listing); --json = machine-readable edges',
@@ -54,7 +44,7 @@ const COMMANDS: Record<string, Command> = {
   },
   imports: {
     usage: 'cells imports [--json]',
-    desc: 'raw file→file import graph (resolved edges + unresolved specifiers) — machine surface for scripts/validate-crossings',
+    desc: 'raw file→file import graph (resolved edges + unresolved specifiers) — the machine surface for tooling',
     minArgs: 0,
     needsCells: true,
     run: (a) => cmdImports({ json: a.includes('--json') }),

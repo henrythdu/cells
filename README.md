@@ -114,9 +114,9 @@ cells list                          # see the whole partition
 | `cells surface <name>` | print the cell's export-like declaration lines (file:line) — the starting point for populating the membrane `signatures` field |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors + the cells that depend on you) — the context to work it |
-| `cells health [--verbose] [--summary]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip); `--summary` collapses unresolved entries into per-file groups (the triage unit for high-unresolved repos). Output ends with a machine-parseable `health: X.Xs` timing line. `validate` still works (redirects here). |
+| `cells health [--verbose] [--summary]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip); `--summary` collapses unresolved entries into per-file groups (the triage unit for high-unresolved repos). Output ends with a machine-parseable `health: X.Xs` timing line. |
 | `cells crossings [--diff] [--warnings]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed; `--warnings` = leakage + unresolved only (no pair listing — the actionable tail on a big repo) |
-| `cells imports [--json]` | raw file→file import graph (resolved edges + unresolved specifiers) — the machine surface `scripts/validate-crossings` consumes |
+| `cells imports [--json]` | raw file→file import graph (resolved edges + unresolved specifiers) — the machine surface for tooling |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import. A cell can declare its own ceiling (`ceiling = N` in its `.cell.toml`) — same check, its own number |
 | `cells config [set max-payload-tokens <N>]` | read the effective config (defaults where the file omits); `set` edits the global ceiling in place — comments and other keys preserved |
 | `cells structure [--summary]` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut. `--summary` is the triage view: one line per cycle (size + cheapest edges) + counts — for high-cycle repos (kafka 19, elasticsearch 126) where the full chains dominate |
@@ -185,7 +185,7 @@ vendor/
 
 ## Language support
 
-**Partition, payload, size, validate, and owns** are language-agnostic — set `code-dirs` and `code-exts` in `config.toml` to point Cells at your code (e.g. `["lib", "cmd"]` + `[".go"]`).
+**Partition, payload, size, and owns** are language-agnostic — set `code-dirs` and `code-exts` in `config.toml` to point Cells at your code (e.g. `["lib", "cmd"]` + `[".go"]`).
 
 **Crossings and structure** (leakage, ADP, direction, metrics) analyze *real imports*:
 
@@ -242,4 +242,4 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 32 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 31 cells. Run `cells list` to see.*

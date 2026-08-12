@@ -8,7 +8,7 @@ import { factsOf, resolveOne } from '../../src/languages/ts-resolution.js';
 /**
  * Direct tests for the TS resolution core — no parser, no WASM: a specifier + a fixture
  * repo on disk + a ResolveCtx over its census. These are the resolution semantics the
- * oracle harness (scripts/validate-crossings) judges, tested at the decision point.
+ * oracle harness (moved to cells_stress_test) judges, tested at the decision point.
  */
 
 let tmp: string | null = null;

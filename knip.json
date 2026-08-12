@@ -1,4 +1,4 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/commands/*.ts", "scripts/validate-crossings/index.ts", "scripts/validate-crossings/oracles/*.ts", "test/**/*.test.ts", "test/**/*.ts"]
+  "entry": ["src/commands/*.ts", "test/**/*.test.ts", "test/**/*.ts"]
 }

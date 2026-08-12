@@ -61,8 +61,9 @@ function assertNoImporterFailures(failures: { importer: string; error: string }[
 }
 
 /** `cells imports [--json]` — the raw file→file import graph: every resolved edge (same-cell
- *  included, unowned files included) + every unresolved specifier. Machine surface for the
- *  crossing-validation harness (scripts/validate-crossings); the gate never reads it. */
+ *  included, unowned files included) + every unresolved specifier. Machine surface for
+ *  external tooling (the oracle harness in cells_stress_test consumes it); the gate never
+ *  reads it. */
 export async function cmdImports(opts: { json?: boolean } = {}): Promise<void> {
   const { edges, unresolved, uncoveredExts, failures } = await collectImportEdges();
   assertNoImporterFailures(failures);
