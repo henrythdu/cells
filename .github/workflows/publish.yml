@@ -30,6 +30,34 @@ jobs:
       # the tool's own gate before anything ships — a merged commit that fails
       # `cells health` must never reach npm.
       - run: node dist/cli.js health
+      # A tag push runs CI in parallel with this workflow — never publish a
+      # version whose CI failed (the matrix: ubuntu+windows × node 22+24).
+      - name: Wait for CI on this commit
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 120); do
+            STATE=$(gh run list --commit "$GITHUB_SHA" \
+              --json status,conclusion \
+              --jq '.[] | .status + "/" + (.conclusion // "none")' | sort -u)
+            FAILED=$(echo "$STATE" | grep -cE \
+              "completed/(failure|timed_out|action_required|cancelled)" || true)
+            TOTAL=$(echo "$STATE" | grep -c . || true)
+            DONE=$(echo "$STATE" | grep -cE "^completed/" || true)
+            if [ "$FAILED" -gt 0 ]; then
+              echo "CI failed on $GITHUB_SHA — refusing to publish:"
+              echo "$STATE"
+              exit 1
+            fi
+            if [ "$TOTAL" -gt 0 ] && [ "$DONE" -eq "$TOTAL" ]; then
+              echo "CI green on $GITHUB_SHA"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "timed out waiting for CI on $GITHUB_SHA"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Check if version already published
         id: check
         run: |

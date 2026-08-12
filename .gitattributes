@@ -1,0 +1,4 @@
+# Normalize line endings — CRLF checkouts broke biome's formatter on Windows CI.
+* text=auto eol=lf
+# Grammar wasm is binary — never touch.
+*.wasm binary
