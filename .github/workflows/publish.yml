@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # OIDC token for provenance-attested publish (no long-lived npm token).
-      id-token: write
     steps:
       # Actions pinned to full commit SHAs (zizmor: mutable tags).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -45,9 +43,12 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.check.outputs.exists != 'true'
-        # --provenance: OIDC-attested build; setup-node exchanges the id-token
-        # for a registry token automatically (no NODE_AUTH_TOKEN secret).
-        run: pnpm publish --provenance --no-git-checks --ignore-scripts
+        # NODE_AUTH_TOKEN: npm account has no trusted-publishing publisher
+        # registered for this repo yet — OIDC (--provenance, id-token: write)
+        # is the upgrade path once the npmjs dashboard publisher is added.
+        run: pnpm publish --no-git-checks --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
         run: gh release create "$TAG" --generate-notes
         env:
