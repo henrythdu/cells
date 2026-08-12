@@ -10,3 +10,7 @@ allowBuilds:
 # pnpm's pre-run deps-check errors on the ignored esbuild build script;
 # vitest runs fine regardless, so skip the check.
 verifyDepsBeforeRun: false
+# GHSA-mh99-v99m-4gvg + GHSA-rgw5-rvv9-x895: minimatch 10.2.x
+# pins brace-expansion 5.0.7 (DoS). Override to the patched line.
+overrides:
+  brace-expansion: ^5.0.9

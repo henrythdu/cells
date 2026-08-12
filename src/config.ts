@@ -78,6 +78,9 @@ export function parseConfig(content: string): CellsConfig {
     'ignore-blind-exts'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
+  if (typeof maxPayloadTokens === 'number' && (!Number.isFinite(maxPayloadTokens) || maxPayloadTokens <= 0)) {
+    throw new Error(`invalid config.toml: 'max-payload-tokens' must be a positive number (got ${maxPayloadTokens})`);
+  }
   const layersRaw = raw.layers;
   const layers: Record<number, string> = {};
   if (layersRaw && typeof layersRaw === 'object' && !Array.isArray(layersRaw)) {
@@ -99,12 +102,20 @@ export function parseConfig(content: string): CellsConfig {
   const codeExts = raw['code-exts'];
   const moduleRoot = raw['module-root'];
   const ignoreBlindExts = raw['ignore-blind-exts'];
+  // Array keys are passed to path.join / extension matching — a non-string element (e.g.
+  // `code-dirs = [123]`) would crash later with a bare path TypeError; reject at the parse
+  // boundary with the field named. (Defaults apply when the key is absent.)
+  const strArray = (v: unknown, field: string, dflt: string[]): string[] => {
+    if (v === undefined) return dflt;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(`invalid config.toml: '${field}' must be a string array`);
+    return v as string[];
+  };
   return {
     maxPayloadTokens: typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
-    codeDirs: Array.isArray(codeDirs) ? (codeDirs as string[]) : ['src', 'test'],
-    codeExts: Array.isArray(codeExts) ? (codeExts as string[]) : ['.ts'],
+    codeDirs: strArray(codeDirs, 'code-dirs', ['src', 'test']),
+    codeExts: strArray(codeExts, 'code-exts', ['.ts']),
     moduleRoot: typeof moduleRoot === 'string' ? moduleRoot : undefined,
-    ignoreBlindExts: Array.isArray(ignoreBlindExts) ? (ignoreBlindExts as string[]) : [],
+    ignoreBlindExts: strArray(ignoreBlindExts, 'ignore-blind-exts', []),
   };
 }

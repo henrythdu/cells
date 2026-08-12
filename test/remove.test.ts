@@ -82,6 +82,32 @@ describe('cells remove', () => {
     }
   });
 
+  it('refuses a cell name that would escape the store (trust boundary)', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '');
+    try {
+      cells(['remove', '../victim'], repo);
+      expect.unreachable('expected exit 1');
+    } catch (err: any) {
+      expect(err.status).toBe(1);
+      expect(err.stderr).toContain('invalid cell name');
+      expect(existsSync(join(repo, '..', 'victim.cell.toml'))).toBe(false);
+    }
+  });
+
+  it('refuses an escaping old name in rename (trust boundary)', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '');
+    try {
+      cells(['rename', '../victim', 'safe'], repo);
+      expect.unreachable('expected exit 1');
+    } catch (err: any) {
+      expect(err.status).toBe(1);
+      expect(err.stderr).toContain('invalid cell name');
+      expect(existsSync(join(repo, '..', 'victim.cell.toml'))).toBe(false);
+    }
+  });
+
   it('--force removes declaration, orphans files, strips requires from other cells', () => {
     repo = setupRepo();
     writeFileSync(join(repo, '.cells', 'dep.cell.toml'), `name = "dep"\npurpose = "p"\nprovides = []\nrequires = []\n`);

@@ -1,9 +1,9 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectProject, listCodeFiles, loadOwnership, writeOwnership } from '../src/io.js';
+import { detectProject, listCodeFiles, loadDeclarations, loadOwnership, readFiles, writeOwnership } from '../src/io.js';
 
 let dir: string;
 
@@ -152,6 +152,71 @@ describe('detectProject', () => {
     const { codeExts, codeDirs } = detectProject(dir);
     expect(codeExts).toContain('.ts');
     expect(codeDirs).toContain('src');
+  });
+
+  it('detects C++ extensions the cpp importer supports (.cxx/.hh/.hxx)', () => {
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src', 'main.cxx'), 'int main() {}');
+    writeFileSync(join(dir, 'src', 'widget.hh'), 'class W {};');
+    const { codeExts } = detectProject(dir);
+    expect(codeExts).toContain('.cxx');
+    expect(codeExts).toContain('.hh');
+  });
+});
+
+describe('readFiles (the byte seam — trust boundary + never-silent-zero)', () => {
+  it('refuses paths that escape the repo root', () => {
+    expect(() => readFiles(['../secret.ts'])).toThrow(/escapes the repo root/);
+    expect(() => readFiles(['/etc/passwd'])).toThrow(/escapes the repo root/);
+  });
+
+  it('still skips missing files (validate flags them as dangling)', () => {
+    expect(readFiles(['ghost.ts'], dir)).toEqual({});
+  });
+
+  it('throws on an existing-but-unreadable file instead of silently returning empty content', () => {
+    const f = join(dir, 'x.ts');
+    writeFileSync(f, 'export {}');
+    chmodSync(f, 0o000);
+    try {
+      expect(() => readFiles(['x.ts'], dir)).toThrow(/cannot read/);
+    } finally {
+      chmodSync(f, 0o600);
+    }
+  });
+});
+
+describe('loadDeclarations (store invariants)', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('dies on a duplicate cell name across declaration files', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-dup-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "same"\npurpose = "p"\nprovides = []\nrequires = []\n');
+    writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "same"\npurpose = "p"\nprovides = []\nrequires = []\n');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(() => loadDeclarations()).toThrow(/duplicate cell name "same"/);
+    } finally {
+      process.chdir(prev);
+    }
+  });
+
+  it('dies when the file name and declared name disagree', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-mismatch-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "other"\npurpose = "p"\nprovides = []\nrequires = []\n');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(() => loadDeclarations()).toThrow(/declares name "other"/);
+    } finally {
+      process.chdir(prev);
+    }
   });
 });
 

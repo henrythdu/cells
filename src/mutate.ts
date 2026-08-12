@@ -12,6 +12,7 @@ import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
 import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, skippedManifestDirs, writeOwnership } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { loadCrossings, warnIfNoCodeFiles } from './pipeline.js';
+import { isUnsafePath } from './validate.js';
 
 /** `cells config` — show the effective config; `cells config set max-payload-tokens <N>`
  *  edits that one key in place. Targeted line replace (not a rewrite) so the file's
@@ -100,10 +101,12 @@ export function cmdInit(dryRun = false): void {
 }
 
 /** `cells rename <old> <new>` — rename a cell across the store: .cell.toml file,
- *  ownership.toml key, and every other cell's requires reference. */
+ *  ownership.toml key, and every other cell's requires reference. BOTH names are a trust
+ *  boundary: they become filenames under .cells/ — a `..`-laden oldName would move a file
+ *  outside the store (validated before any path is constructed). */
 export function cmdRename(oldName: string, newName: string): void {
-  if (!validCellName(newName)) {
-    console.error(`cells: invalid cell name "${newName}" — use only letters, numbers, dashes, underscores.`);
+  if (!validCellName(oldName) || !validCellName(newName)) {
+    console.error(`cells: invalid cell name "${oldName}" → "${newName}" — use only letters, numbers, dashes, underscores.`);
     process.exit(1);
   }
 
@@ -154,6 +157,12 @@ export function cmdRename(oldName: string, newName: string): void {
  *  owns files or is required by others (state must be resolved first); --force orphans
  *  the files (→ unowned) and strips requires references from other cells. */
 export function cmdRemove(name: string, force: boolean): void {
+  // Trust boundary: the name becomes a filename under .cells/ — a `..`-laden name would
+  // delete a file outside the store (validated before any path is constructed).
+  if (!validCellName(name)) {
+    console.error(`cells: invalid cell name "${name}" — use only letters, numbers, dashes, underscores.`);
+    process.exit(1);
+  }
   const declPath = join(CELLS_DIR, `${name}.cell.toml`);
   if (!existsSync(declPath)) {
     console.error(`cells: no cell named "${name}"`);
@@ -193,9 +202,15 @@ export function cmdRemove(name: string, force: boolean): void {
 
 /** `cells assign <cell> <file...>` — move files into a cell; stub its declaration if new. */
 export function cmdAssign(cell: string, files: string[], dryRun = false): void {
-  // Trust boundary: assign maps FILE paths — a directory or missing path would be written
-  // literally into ownership and lie about success (stress finding: `assign web/` reported
-  // "Assigned 1 file(s)" while owning nothing; the gate flagged the dangling entry later).
+  // Trust boundary: assign maps FILE paths — an absolute or `..`-escaping path would be
+  // written into ownership and later read outside the repo (validatePartition flags the
+  // entry; readFiles refuses it). Reject at the write side so the command can't lie.
+  const unsafe = files.filter((f) => isUnsafePath(f));
+  if (unsafe.length > 0) {
+    console.error(`cells: assign target(s) outside the repo: ${unsafe.join(', ')}`);
+    process.exitCode = 1;
+    return;
+  }
   const invalid = files.filter((f) => !existsSync(f) || !statSync(f).isFile());
   if (invalid.length > 0) {
     const dirs = invalid.filter((f) => existsSync(f));

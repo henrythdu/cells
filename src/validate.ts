@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 import type { Cell } from './declaration.js';
 import type { Ownership } from './ownership.js';
 
@@ -42,11 +43,21 @@ export function staleProvidesOf(cell: Cell, ownedFiles: string[], fileContents: 
   }
   return out;
 }
+/** A path that would read outside the repo: absolute, or normalized to still contain a `..`
+ *  segment. Lexical only — symlinks are out of scope (the census already follows them and
+ *  assign dedupes by realpath). Shared by validatePartition (the gate flags it) and
+ *  io.readFiles (the read seam refuses it) — one definition, both ends. Pure. */
+export function isUnsafePath(p: string): boolean {
+  const norm = posix.normalize(p);
+  return posix.isAbsolute(p) || /^[A-Za-z]:/.test(p) || norm === '..' || norm.startsWith('../') || norm.split('/').includes('..');
+}
+
 export type ViolationKind =
   | 'duplicate' // a file owned by 2+ cells (violates non-overlap)
   | 'dangling' // an owned file missing from disk
   | 'undeclared-cell' // ownership references a cell with no declaration
-  | 'unknown-require'; // a cell requires a cell with no declaration
+  | 'unknown-require' // a cell requires a cell with no declaration
+  | 'unsafe-path'; // an owned path that is absolute or escapes the repo root
 
 export interface Violation {
   kind: ViolationKind;
@@ -65,10 +76,17 @@ export function validatePartition(ownership: Ownership, declarations: Record<str
   const violations: Violation[] = [];
   const codeSet = new Set(codeFiles);
 
-  // 1. single-valued: a file in 2+ cells.
+  // 1. single-valued: a file in 2+ cells. Unsafe paths are flagged and excluded from the
+  //    other checks (they are not real files — a read would escape the repo).
   const ownerOf: Record<string, string> = {};
+  const owned = new Set<string>();
   for (const [cell, files] of Object.entries(ownership)) {
     for (const file of files) {
+      if (isUnsafePath(file)) {
+        violations.push({ kind: 'unsafe-path', detail: `${file} (cell ${cell}) is absolute or escapes the repo root` });
+        continue;
+      }
+      owned.add(file);
       if (ownerOf[file]) {
         violations.push({
           kind: 'duplicate',
@@ -79,8 +97,6 @@ export function validatePartition(ownership: Ownership, declarations: Record<str
       }
     }
   }
-
-  const owned = new Set(Object.values(ownership).flat());
 
   // 2. dangling: owned file not on disk.
   for (const file of owned) {

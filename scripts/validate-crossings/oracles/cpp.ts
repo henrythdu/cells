@@ -7,51 +7,89 @@
  *  example/tool, hundreds of TUs). RAW = per-TU stderr, wrapped with the TU
  *  path; parsed on load. */
 
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ParsedOracle } from '../compare.ts';
-import type { Run } from '../shared.ts';
+import type { Run, RunResult } from '../shared.ts';
 import { rel } from '../shared.ts';
+
+/** The compile argv for one TU, shell-free: prefer compile_commands `arguments` (cmake
+ *  always emits it) minus the flags that would write output (-o and depfile -M*), with -c
+ *  replaced by -fsyntax-only -H. Returns null when the entry has no arguments array — the
+ *  caller falls back to the `command` string (a last resort; a repo-controlled string is
+ *  only ever passed to a shell there, never for the arguments path). Pure. */
+export function tuArgv(arguments_: string[] | undefined): string[] | null {
+  if (!Array.isArray(arguments_) || arguments_.length === 0) return null;
+  const out: string[] = [];
+  for (let i = 0; i < arguments_.length; i++) {
+    const a = arguments_[i];
+    if (a === '-o' || a === '-MF' || a === '-MT' || a === '-MQ') {
+      i++; // skip the flag's value
+      continue;
+    }
+    if (a === '-M' || a === '-MD' || a === '-MMD' || a === '-MM' || a === '-c') continue;
+    out.push(a);
+  }
+  out.push('-fsyntax-only', '-H');
+  return out;
+}
+
+/** Swap the TU's source path for a header path in an argv (the header recompile pass).
+ *  Exact match first, then a suffix match (compdb paths are usually absolute). Pure. */
+export function withTuPath(argv: string[], src: string, header: string): string[] {
+  const idx = argv.findIndex((a) => a === src || a.endsWith(`/${src}`) || a.endsWith(`\\${src}`));
+  if (idx === -1) return argv;
+  const out = [...argv];
+  out[idx] = header;
+  return out;
+}
 
 /** RAW cpp oracle: cmake configure → compdb → per-TU `-H` transcripts. */
 export function oracleCppRaw(repo: string, runFn: Run, extraArgs: string[]): string {
   if (!existsSync(join(repo, 'CMakeLists.txt'))) throw new Error(`no CMakeLists.txt in ${repo} — compile_commands.json needs a cmake configure`);
   const tmp = mkdtempSync(join(tmpdir(), 'vc-cpp-'));
-  const build = join(tmp, 'build');
-  const cfg = runFn('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', ...extraArgs, repo], repo);
-  if (!cfg.ok) throw new Error(`cmake configure failed: ${(cfg.stderr || cfg.stdout).slice(0, 600)}`);
-  let db: { file: string; command?: string; arguments?: string[]; directory?: string }[];
   try {
-    db = JSON.parse(readFileSync(join(build, 'compile_commands.json'), 'utf8'));
-  } catch {
-    throw new Error('compile_commands.json missing or corrupt after cmake configure');
-  }
-  const out: string[] = [];
-  const reachedHeaders = new Map<string, { cmd: string; dir: string }>(); // in-repo header → first TU command that reached it
-  for (const entry of db) {
-    if (!/^\S*\.(c|cc|cpp|cxx|m|mm)$/.test(entry.file)) continue; // headers are reached via includes, not compiled
-    const cmd = (entry.command ?? entry.arguments?.join(' ') ?? '')
-      .replace(/\s+-o\s+\S+/g, '') // drop -o (would name an output — with -fsyntax-only none is written, but -MD would name a .d)
-      .replace(/\s+-M(?:D|MD|F|T)(?:\s+\S+)?/g, '') // depfile flags only — NOT -D defines (macros affect includes)
-      .replace(/\s+-c(?=\s)/, ' -fsyntax-only -H ');
-    const r = runFn('/bin/bash', ['-c', `${cmd} 2>&1`], entry.directory ?? repo); // compdb -I flags are relative to the entry's directory (the build dir)
-    out.push(`# TU ${rel(repo, entry.file)} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`); // FAIL = disabled/dead targets (cmake lists them, the build never compiles them) — unverifiable, treated blind
-    // Headers the build reached ARE importers in the cells model (attr.h → cast.h).
-    // Recompile each with -H so their direct includes become oracle edges too.
-    for (const m of r.stdout.matchAll(/^\.+ (\/\S+\.(?:h|hpp|hh|hxx))$/gm)) {
-      const h = rel(repo, m[1]);
-      if (!h.startsWith('..') && !reachedHeaders.has(h)) reachedHeaders.set(h, { cmd, dir: entry.directory ?? repo });
+    const build = join(tmp, 'build');
+    const cfg = runFn('cmake', ['-B', build, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', ...extraArgs, repo], repo);
+    if (!cfg.ok) throw new Error(`cmake configure failed: ${(cfg.stderr || cfg.stdout).slice(0, 600)}`);
+    let db: { file: string; command?: string; arguments?: string[]; directory?: string }[];
+    try {
+      db = JSON.parse(readFileSync(join(build, 'compile_commands.json'), 'utf8'));
+    } catch {
+      throw new Error('compile_commands.json missing or corrupt after cmake configure');
     }
+    const out: string[] = [];
+    const reachedHeaders = new Map<string, { argv: string[] | null; cmd: string; dir: string; src: string }>(); // in-repo header → first TU command that reached it
+    const runTu = (argv: string[] | null, cmd: string, dir: string): RunResult => (argv ? runFn(argv[0], argv.slice(1), dir) : runFn('/bin/bash', ['-c', `${cmd} 2>&1`], dir)); // command-string fallback only — no arguments array in the compdb
+    for (const entry of db) {
+      if (!/^\S*\.(c|cc|cpp|cxx|m|mm)$/.test(entry.file)) continue; // headers are reached via includes, not compiled
+      const argv = tuArgv(entry.arguments);
+      const cmd = (entry.command ?? '')
+        .replace(/\s+-o\s+\S+/g, '')
+        .replace(/\s+-M(?:D|MD|F|T)(?:\s+\S+)?/g, '')
+        .replace(/\s+-c(?=\s)/, ' -fsyntax-only -H ');
+      const r = runTu(argv, cmd, entry.directory ?? repo);
+      out.push(`# TU ${rel(repo, entry.file)} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`); // FAIL = disabled/dead targets (cmake lists them, the build never compiles them) — unverifiable, treated blind
+      // Headers the build reached ARE importers in the cells model (attr.h → cast.h).
+      // Recompile each with -H so their direct includes become oracle edges too.
+      for (const m of r.stdout.matchAll(/^\.+ (\/\S+\.(?:h|hpp|hh|hxx))$/gm)) {
+        const h = rel(repo, m[1]);
+        if (!h.startsWith('..') && !reachedHeaders.has(h)) reachedHeaders.set(h, { argv, cmd, dir: entry.directory ?? repo, src: entry.file });
+      }
+    }
+    for (const [h, { argv, cmd, dir, src }] of reachedHeaders) {
+      // Header pass: same argv/command, the TU swapped for the header. The header lives in
+      // the repo; the original -I flags are dir-relative, so the same dir applies.
+      const args = argv ? withTuPath(argv, src, join(repo, h)) : null;
+      const cmd2 = args ? '' : cmd.replace(/(?:^|\s)(\S+\.(?:c|cc|cpp|cxx|m|mm))(?:\s|$)/, (mm, s: string) => mm.replace(s, join(repo, h)));
+      const r = runTu(args, cmd2, dir);
+      out.push(`# TU ${h} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`);
+    }
+    return out.join('\n');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true }); // the cmake build dir is a throwaway — never leave it behind
   }
-  for (const [h, { cmd, dir }] of reachedHeaders) {
-    const hc = cmd
-      .replace(/\s+-fsyntax-only -H /, ' -fsyntax-only -H ') // keep flags, swap the TU for the header
-      .replace(/(?:^|\s)(\S+\.(?:c|cc|cpp|cxx|m|mm))(?:\s|$)/, (mm, src: string) => mm.replace(src, join(repo, h)));
-    const r = runFn('/bin/bash', ['-c', `${hc} 2>&1`], dir); // same dir as the TU that reached it — its -I flags are dir-relative
-    out.push(`# TU ${h} ${r.ok ? 'OK' : 'FAIL'}\n${r.stdout}`);
-  }
-  return out.join('\n');
 }
 
 /** Parse the wrapped per-TU -H transcripts into file→file edges. Direct includes are

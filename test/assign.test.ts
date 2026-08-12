@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -380,5 +380,29 @@ describe('cmdAssign size pre-flight (CLI integration)', () => {
     const out = execSync(`node ${bin} assign --dry-run a src/big.ts`, { cwd: repo, encoding: 'utf8' });
     expect(out).toContain('⚠ a would be');
     expect(out).toContain('% of the ceiling');
+  });
+});
+
+describe('cmdAssign trust boundary (CLI integration)', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('rejects assign targets outside the repo (exit 1, no ownership write)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-assign-unsafe-'));
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'x.ts'), 'export {};\n');
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '');
+    const bin = join(__dirname, '..', 'dist', 'cli.js');
+    let stderr = '';
+    try {
+      execSync(`node ${bin} assign a ../x.ts`, { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
+    } catch (err: any) {
+      stderr = err.stderr?.toString() ?? '';
+    }
+    expect(stderr).toContain('outside the repo');
+    expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).toBe('');
   });
 });

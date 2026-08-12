@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { oracleCppFromRaw } from '../../scripts/validate-crossings/oracles/cpp.ts';
+import { oracleCppFromRaw, tuArgv, withTuPath } from '../../scripts/validate-crossings/oracles/cpp.ts';
 
 const REPO = '/repo';
 
@@ -30,5 +30,25 @@ describe('oracleCppFromRaw — per-TU gcc -H transcripts → edges', () => {
     const raw = ['# TU src/x.c OK', '. /repo/src/x.c', '. /usr/include/stdlib.h', '. /repo/src/y.h'].join('\n');
     const out = oracleCppFromRaw(raw, REPO);
     expect([...out.edges]).toEqual(['src/x.c\0src/y.h']);
+  });
+});
+
+describe('tuArgv / withTuPath (shell-free compile commands)', () => {
+  it('builds a shell-free argv: drops -o/depfile flags, swaps -c for -fsyntax-only -H', () => {
+    expect(tuArgv(['gcc', '-c', '-o', 'x.o', '-MD', '-MF', 'x.d', '-I', 'inc', 'src/main.c'])).toEqual(['gcc', '-I', 'inc', 'src/main.c', '-fsyntax-only', '-H']);
+  });
+
+  it('keeps defines (-D) — macros affect includes', () => {
+    expect(tuArgv(['gcc', '-DVERSION=3', '-c', 'src/main.c'])).toEqual(['gcc', '-DVERSION=3', 'src/main.c', '-fsyntax-only', '-H']);
+  });
+
+  it('returns null when the compdb entry has no arguments array (bash fallback)', () => {
+    expect(tuArgv(undefined)).toBeNull();
+    expect(tuArgv([])).toBeNull();
+  });
+
+  it('swaps the TU source path for the header path', () => {
+    expect(withTuPath(['gcc', '/r/src/main.c', '-fsyntax-only', '-H'], '/r/src/main.c', '/r/src/attr.h')).toEqual(['gcc', '/r/src/attr.h', '-fsyntax-only', '-H']);
+    expect(withTuPath(['gcc', '-fsyntax-only', '-H'], 'main.c', 'attr.h')).toEqual(['gcc', '-fsyntax-only', '-H']); // no match → unchanged
   });
 });

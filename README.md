@@ -242,4 +242,4 @@ Drop into a repo with a `.cells/` dir and follow this loop:
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 26 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 32 cells. Run `cells list` to see.*

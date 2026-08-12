@@ -46,7 +46,11 @@ export function parseCell(content: string): Cell {
     return v;
   };
   if (raw.layer !== undefined && typeof raw.layer !== 'number') throw new Error(`invalid .cell.toml: 'layer' must be a number (got ${typeof raw.layer})`);
-  if (raw.ceiling !== undefined && typeof raw.ceiling !== 'number') throw new Error(`invalid .cell.toml: 'ceiling' must be a number (got ${typeof raw.ceiling})`);
+  // ceiling is a budget for the size bar + pct math — a value <= 0 would crash `cells size`
+  // (repeat() of a negative bar length), so it must be a positive finite number.
+  if (raw.ceiling !== undefined && (typeof raw.ceiling !== 'number' || !Number.isFinite(raw.ceiling) || raw.ceiling < 1)) {
+    throw new Error(`invalid .cell.toml: 'ceiling' must be a positive number (got ${raw.ceiling})`);
+  }
 
   return {
     name: str(raw.name, 'name'),

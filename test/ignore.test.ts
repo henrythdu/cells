@@ -29,6 +29,14 @@ describe('isIgnored', () => {
     expect(isIgnored('scratch/foo.ts', patterns)).toBe(true);
   });
 
+  it('last matching pattern wins — `!` re-includes (gitignore negation semantics)', () => {
+    expect(isIgnored('keep.ts', ['*.ts', '!keep.ts'])).toBe(false); // re-included by the later negation
+    expect(isIgnored('other.ts', ['*.ts', '!keep.ts'])).toBe(true); // only keep.ts is exempt
+    expect(isIgnored('keep.ts', ['!keep.ts', '*.ts'])).toBe(true); // order matters — a later positive re-ignores
+    expect(isIgnored('dist/keep.js', ['dist/', '!dist/keep.js'])).toBe(false); // dir pattern + file negation
+    expect(isIgnored('dist/x.js', ['dist/', '!dist/keep.js'])).toBe(true);
+  });
+
   it('does not match an unlisted path', () => {
     expect(isIgnored('src/cli.ts', patterns)).toBe(false);
   });

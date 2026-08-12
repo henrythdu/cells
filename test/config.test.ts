@@ -78,6 +78,17 @@ describe('parseConfig', () => {
   it('module-root defaults to undefined when absent', () => {
     expect(parseConfig('').moduleRoot).toBeUndefined();
   });
+
+  it('rejects non-string elements in array keys (the path-join crash class)', () => {
+    expect(() => parseConfig('code-dirs = [123]')).toThrow(/code-dirs.*string array/);
+    expect(() => parseConfig('code-exts = [".ts", 4]')).toThrow(/code-exts.*string array/);
+    expect(() => parseConfig('ignore-blind-exts = [true]')).toThrow(/ignore-blind-exts.*string array/);
+  });
+
+  it('rejects a non-positive max-payload-tokens (would crash the size bar)', () => {
+    expect(() => parseConfig('max-payload-tokens = 0')).toThrow(/max-payload-tokens/);
+    expect(() => parseConfig('max-payload-tokens = -10')).toThrow(/max-payload-tokens/);
+  });
 });
 
 describe('buildConfig', () => {

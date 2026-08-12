@@ -14,6 +14,6 @@ provides = [
   "CELLS_DIR",
   "SKIP_DIRS",
 ]
-requires = ["declaration", "ownership", "config", "ignore"]
+requires = ["declaration", "ownership", "config", "ignore", "validate"]
 
 layer = 2

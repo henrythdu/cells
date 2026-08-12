@@ -5,6 +5,7 @@ import { type CellsConfig, parseConfig } from './config.js';
 import { type Cell, parseCell } from './declaration.js';
 import { isIgnored, parseIgnore } from './ignore.js';
 import { type Ownership, parseOwnership, serializeOwnership } from './ownership.js';
+import { isUnsafePath } from './validate.js';
 
 export const CELLS_DIR = '.cells';
 
@@ -27,12 +28,32 @@ function readParsed<T>(path: string, parse: (text: string) => T, label: string):
   }
 }
 
-/** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. */
+/** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. The store's
+ *  invariant: file `<name>.cell.toml` declares `name = "<name>"`, and no two declaration
+ *  files name the same cell. A silent overwrite would hide a corrupt store (health would
+ *  report green on half the partition) — detect both and die with the cause. */
 export function loadDeclarations(): Record<string, Cell> {
-  const decls: Record<string, Cell> = {};
+  const parsed: { file: string; cell: Cell }[] = [];
   for (const file of readdirSync(CELLS_DIR)) {
     if (!file.endsWith('.cell.toml')) continue;
-    const cell = readParsed(join(CELLS_DIR, file), parseCell, file);
+    parsed.push({ file, cell: readParsed(join(CELLS_DIR, file), parseCell, file) });
+  }
+  // Duplicate names first: two files declaring the same cell is the worse corruption
+  // (a silent overwrite would hide half the partition). Then file/name mismatch.
+  const sourceBy = new Map<string, string>();
+  for (const { file, cell } of parsed) {
+    const other = sourceBy.get(cell.name);
+    if (other !== undefined) {
+      throw new Error(`duplicate cell name "${cell.name}" declared in ${other} and ${file}`);
+    }
+    sourceBy.set(cell.name, file);
+  }
+  const decls: Record<string, Cell> = {};
+  for (const { file, cell } of parsed) {
+    const expected = file.slice(0, -'.cell.toml'.length);
+    if (cell.name !== expected) {
+      throw new Error(`${file} declares name "${cell.name}" — expected "${expected}" (file name and declared name must match)`);
+    }
     decls[cell.name] = cell;
   }
   return decls;
@@ -131,7 +152,10 @@ function listFiles(dir: string, exts: string[], visited = new Set<string>()): st
  *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */
 export function listCodeFiles(baseDir = '.'): string[] {
   const { codeDirs, codeExts } = loadConfig();
-  const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f))))];
+  // Posix-normalize census paths: importer module keys and resolver string logic assume '/'
+  // separators (ts-resolution, python fileToModule, rust dirname probes). Node's fs accepts
+  // '/' on Windows, so one normalization here makes the whole pipeline platform-agnostic.
+  const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f).replace(/\\/g, '/'))))];
   // Set: overlapping code-dirs (e.g. "." + "crates") must not double-list files — ownership,
   // plan and size all count per file. Detection filters at init; this covers hand-edited configs.
   const patterns = loadIgnorePatterns();
@@ -139,16 +163,25 @@ export function listCodeFiles(baseDir = '.'): string[] {
   return all.filter((f) => !isIgnored(f, patterns));
 }
 
-/** Read files into a {path→content} map (missing files skipped — validate flags them).
- *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`).
- *  The one place file bytes enter cells — importers analyze contents, payload/size pack them. */
+/** Read files into a {path→content} map. Two guards make this the safe byte seam:
+ *  - trust boundary: paths come from repo-controlled ownership/tests entries — an absolute
+ *    or `..`-escaping path must not read outside the repo (validatePartition flags the
+ *    same condition as an integrity violation).
+ *  - never-silent-zero: a MISSING file is skipped (validate flags it as dangling), but a
+ *    file that exists yet can't be read (EACCES/EISDIR/…) must not silently become empty
+ *    content — importers would derive a zero-edge graph from it.
+ *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
 export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
   const out: Record<string, string> = {};
   for (const p of paths) {
+    if (isUnsafePath(p)) {
+      throw new Error(`path "${p}" escapes the repo root — fix the entry in .cells/ownership.toml (or the cell's tests field)`);
+    }
     try {
       out[p] = readFileSync(join(baseDir, p), 'utf8');
-    } catch {
-      // missing — validate flags as dangling
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // missing — validate flags as dangling
+      throw new Error(`cannot read ${p}: ${(e as Error).message}`);
     }
   }
   return out;
@@ -220,7 +253,7 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[]
 /** Extensions recognised as code (for census + ownership). Cells has importers for
  *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
  *  (no crossing analysis) — surfaced by the blind-ext warning in health. */
-const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyx', '.pxd', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs']);
+const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyx', '.pxd', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx', '.cs']);
 
 /** Detect the project's code languages + directories by scanning the repo (used by `cells init`
  *  so a Python/Rust repo doesn't ship TypeScript-only defaults). Scans top-level dirs (skipping

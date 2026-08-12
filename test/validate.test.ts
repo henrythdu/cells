@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
-import { staleProvidesOf, validatePartition } from '../src/validate.js';
+import { isUnsafePath, staleProvidesOf, validatePartition } from '../src/validate.js';
 
 /** Helper: build a declarations map from { name: [requires] }. */
 function decls(cells: Record<string, string[]>): Record<string, Cell> {
@@ -33,6 +33,26 @@ describe('validatePartition', () => {
     const declarations = decls({ parser: [] });
     const codeFiles = ['src/parser.ts', 'src/orphan.ts'];
     expect(validatePartition(ownership, declarations, codeFiles)).toEqual([]);
+  });
+
+  it('flags owned paths that are absolute or escape the repo root (unsafe-path)', () => {
+    const ownership: Ownership = { parser: ['../outside.ts', '/etc/passwd'] };
+    const declarations = decls({ parser: [] });
+    const v = validatePartition(ownership, declarations, ['src/parser.ts']);
+    expect(v.filter((x) => x.kind === 'unsafe-path')).toHaveLength(2);
+    // unsafe entries are excluded from the other checks (not also 'dangling')
+    expect(v.filter((x) => x.kind === 'dangling')).toHaveLength(0);
+  });
+});
+
+describe('isUnsafePath', () => {
+  it('flags absolute and ..-escaping paths, accepts repo-relative ones', () => {
+    expect(isUnsafePath('../x.ts')).toBe(true);
+    expect(isUnsafePath('../../x.ts')).toBe(true);
+    expect(isUnsafePath('/etc/passwd')).toBe(true);
+    expect(isUnsafePath('C:\\win.ts')).toBe(true);
+    expect(isUnsafePath('src/a.ts')).toBe(false);
+    expect(isUnsafePath('src/a/../b.ts')).toBe(false); // normalizes inside the repo
   });
 });
 

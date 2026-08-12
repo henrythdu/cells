@@ -36,6 +36,11 @@ describe('parseCell', () => {
     expect(() => parseCell(toml)).toThrow(/ceiling/);
   });
 
+  it('rejects a non-positive ceiling (would crash the size bar)', () => {
+    expect(() => parseCell('name = "c"\npurpose = "p"\nprovides = []\nrequires = []\nceiling = 0\n')).toThrow(/ceiling.*positive/);
+    expect(() => parseCell('name = "c"\npurpose = "p"\nprovides = []\nrequires = []\nceiling = -1\n')).toThrow(/ceiling.*positive/);
+  });
+
   it('throws a clear error on a malformed provides (not a string array)', () => {
     const toml = 'name = "c"\npurpose = "p"\nprovides = "not-an-array"\nrequires = []\n';
     expect(() => parseCell(toml)).toThrow(/provides.*string array/);
@@ -66,6 +71,11 @@ describe('serializeCell', () => {
 
   it('escapes embedded quotes in purpose', () => {
     const cell: Cell = { name: 'c', purpose: 'say "hi"', provides: [], requires: [] };
+    expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
+
+  it('escapes control characters — a multi-line purpose round-trips', () => {
+    const cell: Cell = { name: 'c', purpose: 'line one\nline two', provides: [], requires: [] };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
   });
 
