@@ -2,6 +2,18 @@
   "runtime": "web-tree-sitter",
   "grammars": [
     {
+      "lang": "typescript",
+      "wasm": "tree-sitter-typescript.wasm"
+    },
+    {
+      "lang": "tsx",
+      "wasm": "tree-sitter-tsx.wasm"
+    },
+    {
+      "lang": "javascript",
+      "wasm": "tree-sitter-javascript.wasm"
+    },
+    {
       "lang": "python",
       "wasm": "tree-sitter-python.wasm"
     },
@@ -20,18 +32,6 @@
     {
       "lang": "java",
       "wasm": "tree-sitter-java.wasm"
-    },
-    {
-      "lang": "typescript",
-      "wasm": "tree-sitter-typescript.wasm"
-    },
-    {
-      "lang": "tsx",
-      "wasm": "tree-sitter-tsx.wasm"
-    },
-    {
-      "lang": "javascript",
-      "wasm": "tree-sitter-javascript.wasm"
     }
   ]
 }

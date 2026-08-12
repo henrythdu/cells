@@ -6,7 +6,7 @@
 
 /** Quote a string for TOML (escape backslash + double-quote). */
 export function tomlString(s: string): string {
-  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /** Format a string array as a TOML inline array. */

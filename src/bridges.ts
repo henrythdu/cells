@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { join, dirname, relative, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import { SKIP_DIRS } from './io.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
+import { SKIP_DIRS } from './io.js';
 
 /**
  * Bridge crossings (ADR 0001): resolve FFI extension-module imports (pyo3/napi) to the
@@ -85,8 +85,7 @@ function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   for (const file of cargoFiles) {
     const toml = parseTomlFile(file);
     const lib = toml.lib as { name?: string; 'crate-type'?: string[]; path?: string } | undefined;
-    const crateType = lib?.['crate-type'];
-    if (!crateType || !crateType.includes('cdylib')) continue;
+    if (!lib?.['crate-type']?.includes('cdylib')) continue;
     const name = lib?.name ?? (toml.package as { name?: string } | undefined)?.name;
     if (!name) continue;
     const dir = dirname(file);

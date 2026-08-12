@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { normalize, scoped, compare } from '../../scripts/validate-crossings/compare.ts';
+import { describe, expect, it } from 'vitest';
+import { compare, normalize, scoped } from '../../scripts/validate-crossings/compare.ts';
 
 const E = (...pairs: [string, string][]) => new Set(pairs.map(([f, t]) => `${f}\0${t}`));
 

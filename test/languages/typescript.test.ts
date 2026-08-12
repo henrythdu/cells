@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { typescriptImporter, javascriptImporter, tsxImporter } from '../../src/languages/typescript.js';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
+import { javascriptImporter, tsxImporter, typescriptImporter } from '../../src/languages/typescript.js';
 
 const TSCONFIG_PATHS = JSON.stringify({
   compilerOptions: {

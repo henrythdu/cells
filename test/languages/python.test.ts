@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { pythonImporter, fileToModule } from '../../src/languages/python.js';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
+import { fileToModule, pythonImporter } from '../../src/languages/python.js';
 
 const files: SourceFile[] = [
   { path: 'src/domain/symbol.py', content: 'class Symbol: pass\n' },

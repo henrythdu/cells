@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import type { Node } from 'web-tree-sitter';
-import type { SourceFile, ImportEdge, UnresolvedImport } from '../imports.js';
+import type { ImportEdge, SourceFile, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter, memoizeWeak } from './tree-sitter.js';
 
 // --- AST → import paths ---

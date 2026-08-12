@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { type Crossing, type CrossingsDelta, deriveCrossings, diffCrossings } from './crossings.js';
 import { collectImportEdges } from './importers.js';
-import { deriveCrossings, diffCrossings, type Crossing, type CrossingsDelta } from './crossings.js';
 import type { Ownership } from './ownership.js';
 
 /**

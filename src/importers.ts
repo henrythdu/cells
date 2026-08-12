@@ -1,24 +1,40 @@
 import { extname, join } from 'node:path';
-import type { ImportEdge, SourceFile, UnresolvedImport, Importer } from './imports.js';
-import { loadConfig, listCodeFiles, readFiles } from './io.js';
-import { buildBridgeMap, applyBridges } from './bridges.js';
-
-// Language importer specs live in ./languages/ — add a language = add a spec file there
-// (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
-// a custom extract for others) + one line in DEFAULT_IMPORTERS below.
-import { typescriptImporter, tsxImporter, javascriptImporter } from './languages/typescript.js';
+import { applyBridges, buildBridgeMap } from './bridges.js';
+import type { ImportEdge, Importer, SourceFile, UnresolvedImport } from './imports.js';
+import { listCodeFiles, loadConfig, readFiles } from './io.js';
+import { cppImporter } from './languages/cpp.js';
+import { goImporter } from './languages/go.js';
+import { javaImporter } from './languages/java.js';
 import { pythonImporter } from './languages/python.js';
 import { rustImporter } from './languages/rust.js';
-import { goImporter } from './languages/go.js';
-import { cppImporter } from './languages/cpp.js';
-import { javaImporter } from './languages/java.js';
+// Language importer specs live in ./languages/ — add a language = add a spec file there
+// (the seam: Importer interface + createTreeSitterImporter factory for tree-sitter langs,
+// a custom extract for others) + one LANGUAGES row below (scripts/build-manifest.mjs
+// derives grammars/manifest.json from the same table at build — no second list to drift).
+import { javascriptImporter, tsxImporter, typescriptImporter } from './languages/typescript.js';
+
 // The grammar-bundle integrity check re-exported here: commands/health reaches the language
 // machinery ONLY through this hub (the declared single seam for "everything language").
 export { checkGrammars } from './languages/tree-sitter.js';
-export { typescriptImporter, tsxImporter, javascriptImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter };
+export { cppImporter, goImporter, javaImporter, javascriptImporter, pythonImporter, rustImporter, tsxImporter, typescriptImporter };
 
-/** Default importer registry (add a language = add an importer here). */
-export const DEFAULT_IMPORTERS: readonly Importer[] = [typescriptImporter, tsxImporter, javascriptImporter, pythonImporter, rustImporter, goImporter, cppImporter, javaImporter];
+/** The single language registry: one row per language — the importer + its bundled
+ *  grammar WASM. DEFAULT_IMPORTERS derives from it, and the packaged manifest
+ *  (grammars/manifest.json) is generated from it at build (scripts/build-manifest.mjs).
+ *  Add a language = one row here (+ the spec file). */
+export const LANGUAGES: readonly { importer: Importer; wasm: string }[] = [
+  { importer: typescriptImporter, wasm: 'tree-sitter-typescript.wasm' },
+  { importer: tsxImporter, wasm: 'tree-sitter-tsx.wasm' },
+  { importer: javascriptImporter, wasm: 'tree-sitter-javascript.wasm' },
+  { importer: pythonImporter, wasm: 'tree-sitter-python.wasm' },
+  { importer: rustImporter, wasm: 'tree-sitter-rust.wasm' },
+  { importer: goImporter, wasm: 'tree-sitter-go.wasm' },
+  { importer: cppImporter, wasm: 'tree-sitter-cpp.wasm' },
+  { importer: javaImporter, wasm: 'tree-sitter-java.wasm' },
+];
+
+/** Default importer registry — derived from LANGUAGES (never hand-maintained). */
+export const DEFAULT_IMPORTERS: readonly Importer[] = LANGUAGES.map((l) => l.importer);
 
 /** Which importers run for the given extensions. Pure — unit-testable. */
 export function selectImporters(exts: readonly string[], importers: readonly Importer[]): Importer[] {

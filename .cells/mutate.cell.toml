@@ -13,7 +13,7 @@ provides = [
 ]
 requires = [
   "io",
-  "commands",
+  "pipeline",
   "config",
   "declaration",
   "crossings",

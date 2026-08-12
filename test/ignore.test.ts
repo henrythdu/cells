@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseIgnore, isIgnored } from '../src/ignore.js';
+import { describe, expect, it } from 'vitest';
+import { isIgnored, parseIgnore } from '../src/ignore.js';
 
 describe('parseIgnore', () => {
   it('collects non-empty, non-comment lines (trimmed)', () => {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { selectImporters, uncoveredImporterExts, importableExts, pythonImporter } from '../src/importers.js';
+import { describe, expect, it } from 'vitest';
+import { importableExts, pythonImporter, selectImporters, uncoveredImporterExts } from '../src/importers.js';
 import type { Importer } from '../src/imports.js';
 
 describe('importer selection', () => {

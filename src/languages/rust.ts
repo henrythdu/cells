@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, basename, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter, type ResolveCtx, type Reexport } from './tree-sitter.js';
+import { createTreeSitterImporter, type Reexport, type ResolveCtx } from './tree-sitter.js';
 
 // --- module-path derivation: file → Rust module path ---
 

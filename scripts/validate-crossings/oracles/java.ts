@@ -11,9 +11,9 @@
 
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ParsedOracle } from '../compare.ts';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
-import type { ParsedOracle } from '../compare.ts';
 import { decodeScipIndex, type ScipIndex } from './scip.ts';
 
 /** RAW java oracle: scip-java runs mvn/gradle internally and writes repo/index.scip.

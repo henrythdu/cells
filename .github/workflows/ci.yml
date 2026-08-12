@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+      # --ignore-scripts: the runner's install wrapper may run the project's
+      # prepare before devDeps are linked. The build happens explicitly below.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - run: pnpm test
+      # cells' own gate on its own repo — undeclared crossings, integrity,
+      # grammars.
+      - run: node dist/cli.js health

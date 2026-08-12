@@ -1,10 +1,10 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { goImporter, fileToModule, modulePathsOf, resolvePackageImport } from '../../src/languages/go.js';
-import { getGrammarParser } from '../../src/languages/tree-sitter.js';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
+import { fileToModule, goImporter, modulePathsOf, resolvePackageImport } from '../../src/languages/go.js';
+import { getGrammarParser } from '../../src/languages/tree-sitter.js';
 
 const tmpDirs: string[] = [];
 afterAll(() => {
@@ -164,7 +164,7 @@ describe('go importer', () => {
       { path: 'internal/thing.go', content: 'package internal\n\nfunc Thing() {}\n' },
       { path: 'cmd/cli/main.go', content: 'package main\n\nimport "example.com/proj/pkg/nope"\n' },
     ];
-    
+
     const { edges, unresolved } = await extractInModule('example.com/proj', files);
     // grouped import → spec_list → spec per line; fmt/embed external
     const pkg = edges.find((e) => e.import === 'example.com/proj/pkg');
@@ -188,7 +188,7 @@ describe('go importer', () => {
     const content = tree.rootNode.text;
     tree.delete();
     const files: SourceFile[] = [{ path: 'main.go', content }, ...['a', 'b', 'c', 'd', 'e'].map((n) => ({ path: `${n}/${n}.go`, content: `package ${n}\n` }))];
-    
+
     const { edges } = await extractInModule('example.com/proj', files);
     // single + grouped + aliased + blank + dot specs all extract; blank/dot still create the dep
     expect(edges.map((e) => e.import).sort()).toEqual(['example.com/proj/a', 'example.com/proj/b', 'example.com/proj/c', 'example.com/proj/d', 'example.com/proj/e']);

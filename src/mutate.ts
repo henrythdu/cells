@@ -1,18 +1,17 @@
 /** Mutation command bodies — the state-writing half of the CLI: init, rename, remove,
  *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in commands/
- *  (read.ts + report.ts); cli.ts keeps the dispatcher + main(). These commands write
+ *  (read.ts + gate.ts); cli.ts keeps the dispatcher + main(). These commands write
  *  after reading, so they re-load the stores fresh instead of using a shared bundle. */
-import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { serializeCell, STUB_PURPOSE, type Cell } from './declaration.js';
-import { writeOwnership } from './io.js';
-import { checkLeakage } from './crossings.js';
-import { unassignFiles, planAssignment, planGroups, planApply, cellNameOf, validCellName } from './assign.js';
-import { CELLS_DIR, loadDeclarations, loadOwnership, loadConfig, listCodeFiles, requireCells, detectProject, readFiles, skippedManifestDirs } from './io.js';
-import { computePayloadSize, neighborsOf } from './payload.js';
+import { cellNameOf, planApply, planAssignment, planGroups, unassignFiles, validCellName } from './assign.js';
 import { buildConfig, parseConfig } from './config.js';
-import { importableExts, DEFAULT_IMPORTERS } from './importers.js';
-import { loadCrossings, warnIfNoCodeFiles } from './commands/read.js';
+import { checkLeakage } from './crossings.js';
+import { type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
+import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
+import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, skippedManifestDirs, writeOwnership } from './io.js';
+import { computePayloadSize, neighborsOf } from './payload.js';
+import { loadCrossings, warnIfNoCodeFiles } from './pipeline.js';
 
 /** `cells config` — show the effective config; `cells config set max-payload-tokens <N>`
  *  edits that one key in place. Targeted line replace (not a rewrite) so the file's
@@ -200,28 +199,84 @@ export function cmdAssign(cell: string, files: string[], dryRun = false): void {
   const invalid = files.filter((f) => !existsSync(f) || !statSync(f).isFile());
   if (invalid.length > 0) {
     const dirs = invalid.filter((f) => existsSync(f));
-    console.error(`cells: assign target(s) not files: ${invalid.join(', ')}${dirs.length > 0 ? ` — ${dirs.join(', ')} is a directory; assign takes files (adopt a tree via \`cells plan\` or write .cells/ownership.toml)` : ' — no such file'}`);
+    console.error(
+      `cells: assign target(s) not files: ${invalid.join(', ')}${dirs.length > 0 ? ` — ${dirs.join(', ')} is a directory; assign takes files (adopt a tree via \`cells plan\` or write .cells/ownership.toml)` : ' — no such file'}`,
+    );
     process.exitCode = 1;
     return;
   }
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
   const declarations = loadDeclarations();
+  // Symlink aliases (stress finding: cxx): the census walks through symlinks and records the
+  // ALIAS path; users type canonical ones. Assigning a canonical path when the same inode is
+  // already owned under its alias would double-own the file (validate catches it later,
+  // silently). Normalize each assigned file to its already-owned path so ownership stays
+  // census-consistent; warn so the rename is visible.
+  const ownership0 = loadOwnership();
+  const ownedByReal = new Map<string, { path: string; owner: string }>();
+  for (const [owner, owned] of Object.entries(ownership0)) {
+    for (const path of owned) {
+      try {
+        ownedByReal.set(realpathSync(path), { path, owner });
+      } catch {
+        /* dangling owned entry — validate flags it */
+      }
+    }
+  }
+  // Census aliases: the census records whichever symlink path it walked first; a user
+  // typing the other path (canonical or alias) would write an entry the census can't see
+  // (reads as dangling/orphan). Prefer the census path for the same inode.
+  const censusByReal = new Map<string, string>();
+  for (const p of listCodeFiles()) {
+    try {
+      censusByReal.set(realpathSync(p), p);
+    } catch {
+      /* vanished between census and assign — keep the typed path */
+    }
+  }
+  const normalized: string[] = [];
+  const seen = new Set<string>(); // realpaths already normalized in this command
+  for (const f of files) {
+    const real = realpathSync(f); // validated as an existing file above — realpath succeeds
+    if (seen.has(real)) {
+      console.log(`note: ${f} is the same file as one already being assigned — skipped.`);
+      continue;
+    }
+    seen.add(real);
+    const existing = ownedByReal.get(real);
+    if (existing !== undefined) {
+      if (existing.owner === cell) {
+        console.log(`note: ${f} already owned by ${cell} (as ${existing.path} — symlink alias).`);
+        continue;
+      }
+      console.log(`note: ${f} is owned as ${existing.path} (symlink alias, cell ${existing.owner}) — moving that entry to ${cell}.`);
+      normalized.push(existing.path);
+      continue;
+    }
+    const censusPath = censusByReal.get(real);
+    if (censusPath !== undefined && censusPath !== f) {
+      console.log(`note: ${f} is known to the census as ${censusPath} (symlink alias) — assigning that path.`);
+      normalized.push(censusPath);
+      continue;
+    }
+    normalized.push(f);
+  }
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
-  const { stub, ownership } = planAssignment(loadOwnership(), cell, files, existsSync(declPath));
+  const { stub, ownership } = planAssignment(ownership0, cell, normalized, existsSync(declPath));
   // Size pre-flight: warn if the destination would exceed its ceiling after the move.
   const cellDecl = declarations[cell] ?? stub;
   if (cellDecl) {
     const ceiling = cellDecl.ceiling ?? loadConfig().maxPayloadTokens;
     const pct = computePayloadSize(cellDecl, ownership[cell] ?? [], readFiles(ownership[cell] ?? []), neighborsOf(cellDecl, declarations), readFiles(cellDecl.tests ?? [])).tokens / ceiling;
-    if (pct > 1) console.log(`⚠ ${cell} would be ${Math.round(pct * 100)}% of the ceiling after this move — consider peeling a file out first (\`cells size ${cell}\`).`);
+    if (pct > 1) console.log(`⚠ ${cell} would be ${Math.round(pct * 100)}% of the ceiling after this move — consider peeling a file out first (\`cells size\`).`);
   }
   if (dryRun) {
-    console.log(stub ? `Would create stub ${cell}.cell.toml + assign ${files.length} file(s) to "${cell}".` : `Would assign ${files.length} file(s) to "${cell}".`);
+    console.log(stub ? `Would create stub ${cell}.cell.toml + assign ${normalized.length} file(s) to "${cell}".` : `Would assign ${normalized.length} file(s) to "${cell}".`);
     return;
   }
   if (stub) writeFileSync(declPath, serializeCell(stub)); // stub before ownership — a write failure leaves no dirty state
   writeOwnership(ownership);
-  console.log(stub ? `Assigned ${files.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${files.length} file(s) to "${cell}".`);
+  console.log(stub ? `Assigned ${normalized.length} file(s) to "${cell}" — created stub declaration.\nEdit ${declPath} (purpose/provides/requires), then run \`cells health\`.` : `Assigned ${normalized.length} file(s) to "${cell}".`);
 }
 
 /** `cells unassign <file...>` — remove files from their cell (→ orphan). */
@@ -364,7 +419,7 @@ export function cmdPlan(apply = false, dryRun = false): void {
     const proposed = new Map(keys.map((k) => [names.get(k)!, groups.get(k)!]));
     const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
     const unownedAfter = codeFiles.length - adopted - kept;
-    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, ` + `adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
+    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
     const summary = dryRun
       ? `Would apply: ${outcome}${skippedNote}\nDry run — nothing changed. Re-run without --dry-run to apply.`
       : `Applied plan: ${outcome}${skippedNote}\nRun \`cells health\` — crossings will be red until requires are filled.`;

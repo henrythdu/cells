@@ -1,18 +1,18 @@
-import { describe, it, expect } from 'vitest';
-import type { Crossing, CellMetrics } from '../src/crossings.js';
+import { describe, expect, it } from 'vitest';
+import type { CellMetrics, Crossing } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
 import {
-  detectCycles,
-  cycleCutCandidates,
   checkDirection,
   checkSDP,
+  computeImpact,
+  cycleCutCandidates,
+  detectCycles,
+  formatImpactReport,
+  formatLayerOverview,
+  formatLayerSuggestions,
   formatSdpReport,
   formatStructureReport,
   formatStructureSummary,
-  formatLayerOverview,
-  formatLayerSuggestions,
-  computeImpact,
-  formatImpactReport,
 } from '../src/structure.js';
 
 /** Build a minimal crossing (file/import fields are irrelevant to structure checks). */

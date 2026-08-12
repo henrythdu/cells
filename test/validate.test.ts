@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { validatePartition, staleProvidesOf } from '../src/validate.js';
+import { describe, expect, it } from 'vitest';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
+import { staleProvidesOf, validatePartition } from '../src/validate.js';
 
 /** Helper: build a declarations map from { name: [requires] }. */
 function decls(cells: Record<string, string[]>): Record<string, Cell> {

@@ -5,9 +5,9 @@
  *  The cells cache is edge-based — cells logic is versioned by src/dist mtimes. */
 
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Run } from './shared.ts';
 import { newestMtime } from './shared.ts';
 

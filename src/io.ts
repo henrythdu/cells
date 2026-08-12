@@ -1,10 +1,10 @@
-import { existsSync, readFileSync, readdirSync, statSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
-import { join, relative, extname } from 'node:path';
 import type { Dirent } from 'node:fs';
-import { parseCell, type Cell } from './declaration.js';
-import { parseOwnership, serializeOwnership, type Ownership } from './ownership.js';
-import { parseIgnore, isIgnored } from './ignore.js';
-import { parseConfig, type CellsConfig } from './config.js';
+import { existsSync, readdirSync, readFileSync, realpathSync, type Stats, statSync, writeFileSync } from 'node:fs';
+import { extname, join, relative } from 'node:path';
+import { type CellsConfig, parseConfig } from './config.js';
+import { type Cell, parseCell } from './declaration.js';
+import { isIgnored, parseIgnore } from './ignore.js';
+import { type Ownership, parseOwnership, serializeOwnership } from './ownership.js';
 
 export const CELLS_DIR = '.cells';
 

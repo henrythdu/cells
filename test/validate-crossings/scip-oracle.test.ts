@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { edgesFromIndex } from '../../scripts/validate-crossings/oracles/scip.ts';
 
 const REPO = '/repo';

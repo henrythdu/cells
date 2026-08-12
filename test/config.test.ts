@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { parseConfig, DEFAULT_MAX_PAYLOAD_TOKENS, DEFAULT_CONFIG, buildConfig } from '../src/config.js';
+import { describe, expect, it, vi } from 'vitest';
+import { buildConfig, DEFAULT_CONFIG, DEFAULT_MAX_PAYLOAD_TOKENS, parseConfig } from '../src/config.js';
 
 const DEFAULT_DIRS = { codeDirs: ['src', 'test'], codeExts: ['.ts'], ignoreBlindExts: [] };
 

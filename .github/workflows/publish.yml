@@ -23,11 +23,9 @@ jobs:
       # behavior — it now runs the project's prepare before devDeps (node types)
       # are linked, so tsc fails. The build happens explicitly below, with the
       # full tree present.
-      # --ignore-scripts: the runner's install wrapper may run the project's
-      # prepare before devDeps are linked. The build happens explicitly below,
-      # with the full tree present.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run build && chmod +x dist/cli.js
+      - run: pnpm test
       - name: Check if version already published
         id: check
         run: |

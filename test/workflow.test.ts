@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
 
@@ -293,6 +293,29 @@ describe('cells show per-file tokens', () => {
     const out = execSync(`node ${cellsBin} show big`, { cwd: repo, encoding: 'utf8' });
     expect(out).toContain('src/big.ts');
     expect(execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' })).toContain('All checks passed');
+  });
+
+  it('REG: assign dedupes symlink aliases — same inode owned twice is impossible (stress finding: cxx)', () => {
+    repo = setupRepo();
+    // census sees both paths (file symlink); ownership holds the real one
+    mkdirSync(join(repo, 'real'), { recursive: true });
+    mkdirSync(join(repo, 'alias'), { recursive: true });
+    writeFileSync(join(repo, 'real', 'atom.ts'), 'export const atom = 1;\n');
+    symlinkSync(join(repo, 'real', 'atom.ts'), join(repo, 'alias', 'atom.ts'));
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["."]\n');
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["real/atom.ts"]\n');
+    // assigning the alias path must reuse the real-path entry, not double-own
+    const out = execSync(`node ${cellsBin} assign b alias/atom.ts`, { cwd: repo, encoding: 'utf8' });
+    expect(out).toContain('symlink alias');
+    const own = readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8');
+    expect(own).not.toContain('alias/atom.ts');
+    expect(own).toContain('real/atom.ts');
+    expect(own.match(/real\/atom\.ts/g)).toHaveLength(1); // one entry, moved to b
+    expect(execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' })).toContain('All checks passed');
+    // assigning the already-owned alias again: no-op note, still one entry
+    const again = execSync(`node ${cellsBin} assign b alias/atom.ts`, { cwd: repo, encoding: 'utf8' });
+    expect(again).toContain('already owned');
+    expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8').match(/real\/atom\.ts/g)).toHaveLength(1);
   });
 
   it('REG: assign refuses a directory with a hint — no literal ownership entry (stress finding: zulip web/)', () => {

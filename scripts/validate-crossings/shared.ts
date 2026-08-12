@@ -5,7 +5,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
-import { join, relative, sep, posix } from 'node:path';
+import { join, posix, relative, sep } from 'node:path';
 
 export interface RunResult {
   ok: boolean;

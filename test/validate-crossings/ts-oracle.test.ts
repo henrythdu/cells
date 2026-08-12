@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { traceEdges } from '../../scripts/validate-crossings/oracles/ts.ts';
+import { describe, expect, it } from 'vitest';
 import { scoped } from '../../scripts/validate-crossings/compare.ts';
+import { traceEdges } from '../../scripts/validate-crossings/oracles/ts.ts';
 
 const REPO = '/repo';
 

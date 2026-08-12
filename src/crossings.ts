@@ -1,6 +1,6 @@
 import type { Cell } from './declaration.js';
-import type { Ownership } from './ownership.js';
 import type { ImportEdge } from './imports.js';
+import type { Ownership } from './ownership.js';
 
 /** A cross-cell crossing: cell A's code imports cell B's code. */
 export interface Crossing {

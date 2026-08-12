@@ -1,4 +1,4 @@
-import type { Crossing, CellMetrics } from './crossings.js';
+import type { CellMetrics, Crossing } from './crossings.js';
 import type { Cell } from './declaration.js';
 
 /**

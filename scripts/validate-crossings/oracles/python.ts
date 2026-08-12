@@ -7,9 +7,9 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ParsedOracle } from '../compare.ts';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
-import type { ParsedOracle } from '../compare.ts';
 
 /** RAW python oracle: run pyright with the repo's code-dirs (default src, test). */
 export function oraclePythonRaw(repo: string, runFn: Run, pyrightBin: string): string {

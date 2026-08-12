@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolveOne, factsOf } from '../../src/languages/ts-resolution.js';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ResolveCtx } from '../../src/languages/tree-sitter.js';
+import { factsOf, resolveOne } from '../../src/languages/ts-resolution.js';
 
 /**
  * Direct tests for the TS resolution core — no parser, no WASM: a specifier + a fixture

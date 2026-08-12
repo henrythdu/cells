@@ -1,8 +1,8 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { buildBridgeMap, applyBridges, scanCdylibCrates } from '../src/bridges.js';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
+import { applyBridges, buildBridgeMap, scanCdylibCrates } from '../src/bridges.js';
 
 let tmp: string | null = null;
 afterAll(() => {

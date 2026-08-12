@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
 import { cppImporter, includeCandidates, includeRoots } from '../../src/languages/cpp.js';
 

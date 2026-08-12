@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { groupUnresolved } from '../src/gate.js';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
@@ -69,7 +69,6 @@ describe('cells health', () => {
       repo = mkdtempSync(join(tmpdir(), 'cells-health-warn-'));
       mkdirSync(join(repo, 'src'), { recursive: true });
       mkdirSync(join(repo, '.cells'), { recursive: true });
-
 
       // one big file in one cell — no crossings, valid partition, but over the ceiling
       writeFileSync(join(repo, 'src', 'big.ts'), `export const pad = '${'x'.repeat(600)}';\n`);

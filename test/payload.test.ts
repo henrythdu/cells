@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { assemblePayload } from '../src/payload.js';
+import { describe, expect, it } from 'vitest';
 import type { Cell } from '../src/declaration.js';
+import { assemblePayload } from '../src/payload.js';
 
 describe('assemblePayload', () => {
   it('assembles declaration + owned code + neighbor membranes into one doc', () => {

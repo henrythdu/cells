@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Language, type Node, Parser, type Tree } from 'web-tree-sitter';
-import type { ImportEdge, ImportResult, SourceFile, UnresolvedImport, Importer } from '../imports.js';
+import type { ImportEdge, Importer, ImportResult, SourceFile, UnresolvedImport } from '../imports.js';
+
 /**
  * Shared tree-sitter importer infrastructure: a grammar-WASM singleton cache +
  * a factory that owns the parse loop. Each language importer supplies only its

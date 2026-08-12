@@ -1,5 +1,5 @@
 import type { Node } from 'web-tree-sitter';
-import type { ImportEdge, UnresolvedImport, Importer } from '../imports.js';
+import type { ImportEdge, Importer, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter } from './tree-sitter.js';
 import { factsOf, resolveOne } from './ts-resolution.js';
 

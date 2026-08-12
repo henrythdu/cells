@@ -1,5 +1,5 @@
-import { STUB_PURPOSE, type Cell } from './declaration.js';
 import type { CellMetrics, Crossing } from './crossings.js';
+import { type Cell, STUB_PURPOSE } from './declaration.js';
 import type { CellSize } from './payload.js';
 
 /** Per-cell health signals for `list --verbose` — every field already computed elsewhere;

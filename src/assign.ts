@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { type Cell, STUB_PURPOSE } from './declaration.js';
 import type { Ownership } from './ownership.js';
-import { STUB_PURPOSE, type Cell } from './declaration.js';
 
 /**
  * Move `files` into `cell`, removing them from any other cell first

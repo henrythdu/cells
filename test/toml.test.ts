@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { tomlString, tomlArray } from '../src/toml.js';
+import { describe, expect, it } from 'vitest';
+import { tomlArray, tomlString } from '../src/toml.js';
 
 describe('toml primitives', () => {
   it('tomlString quotes a plain string', () => {

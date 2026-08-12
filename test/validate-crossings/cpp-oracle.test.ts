@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { oracleCppFromRaw } from '../../scripts/validate-crossings/oracles/cpp.ts';
 
 const REPO = '/repo';

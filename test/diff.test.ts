@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { deriveCrossings } from '../src/crossings.js';
 import { coChangePairs, crossingsDelta } from '../src/diff.js';
 import { collectImportEdges } from '../src/importers.js';
-import { deriveCrossings } from '../src/crossings.js';
 import type { Ownership } from '../src/ownership.js';
 
 // crossingsDelta drives the real pipeline (git HEAD extraction + collectImportEdges

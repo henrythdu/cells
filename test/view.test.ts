@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { formatCellList, formatCellShow, formatSizeReport, formatHealthReport, type CellShowContext } from '../src/view.js';
-import type { CellSize } from '../src/payload.js';
-import type { Cell } from '../src/declaration.js';
+import { describe, expect, it } from 'vitest';
 import type { CellMetrics, Crossing } from '../src/crossings.js';
+import type { Cell } from '../src/declaration.js';
+import type { CellSize } from '../src/payload.js';
+import { type CellShowContext, formatCellList, formatCellShow, formatHealthReport, formatSizeReport } from '../src/view.js';
 
 const decls: Record<string, Cell> = {
   declaration: {

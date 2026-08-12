@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { deriveCrossings, checkLeakage, computeMetrics, diffCrossings, type Crossing } from '../src/crossings.js';
+import { describe, expect, it } from 'vitest';
+import { type Crossing, checkLeakage, computeMetrics, deriveCrossings, diffCrossings } from '../src/crossings.js';
+import type { Cell } from '../src/declaration.js';
 import type { ImportEdge } from '../src/imports.js';
 import type { Ownership } from '../src/ownership.js';
-import type { Cell } from '../src/declaration.js';
 
 /** Helper: build declarations from { name: [requires] }. */
 function decls(cells: Record<string, string[]>): Record<string, Cell> {

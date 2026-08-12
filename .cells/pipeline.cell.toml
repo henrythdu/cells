@@ -1,0 +1,13 @@
+name = "pipeline"
+purpose = "The shared read pipeline: gather import edges, guard importer failures, derive crossings, filter to owned files. The seam commands/gate/mutate route through."
+provides = ["loadCrossings", "cmdImports", "requireCell", "warnIfNoCodeFiles"]
+requires = [
+  "importers",
+  "crossings",
+  "ownership",
+  "config",
+  "declaration",
+  "imports",
+  "io",
+]
+layer = 5

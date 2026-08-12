@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { formatCellGraph, formatCellGraphAscii } from '../src/graph.js';
+import { describe, expect, it } from 'vitest';
 import type { Crossing } from '../src/crossings.js';
+import { formatCellGraph, formatCellGraphAscii } from '../src/graph.js';
 
 const e = (fromCell: string, toCell: string): Crossing => ({
   fromCell,

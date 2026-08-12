@@ -10,9 +10,9 @@
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ParsedOracle } from '../compare.ts';
 import type { Run } from '../shared.ts';
 import { rel } from '../shared.ts';
-import type { ParsedOracle } from '../compare.ts';
 
 /** RAW cpp oracle: cmake configure → compdb → per-TU `-H` transcripts. */
 export function oracleCppRaw(repo: string, runFn: Run, extraArgs: string[]): string {

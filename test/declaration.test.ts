@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseCell, serializeCell, type Cell } from '../src/declaration.js';
+import { describe, expect, it } from 'vitest';
+import { type Cell, parseCell, serializeCell } from '../src/declaration.js';
 
 describe('parseCell', () => {
   it('parses a well-formed cell declaration', () => {

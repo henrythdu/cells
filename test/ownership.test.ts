@@ -1,17 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { parseOwnership, serializeOwnership, owningCell, type Ownership } from '../src/ownership.js';
+import { describe, expect, it } from 'vitest';
+import { type Ownership, owningCell, parseOwnership, serializeOwnership } from '../src/ownership.js';
 
 describe('parseOwnership', () => {
   it('parses a cell→files ownership map', () => {
     // Fixture — independent source of truth.
-    const toml = [
-      '[parser]',
-      'files = ["src/declaration.ts", "src/parser.ts"]',
-      '',
-      '[ownership]',
-      'files = ["src/ownership.ts"]',
-      '',
-    ].join('\n');
+    const toml = ['[parser]', 'files = ["src/declaration.ts", "src/parser.ts"]', '', '[ownership]', 'files = ["src/ownership.ts"]', ''].join('\n');
 
     expect(parseOwnership(toml)).toEqual({
       parser: ['src/declaration.ts', 'src/parser.ts'],

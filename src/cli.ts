@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /** CLI entry: dispatch commands; wire the io layer + logic cells to argv.
- *  Read/analysis handlers live in commands/ (read.ts + report.ts); mutation command
+ *  Read/analysis handlers live in commands/ (read.ts + gate.ts); mutation command
  *  bodies live in mutate.ts. This file stays a thin dispatcher: argv → COMMANDS row →
  *  handler, plus the arg-count/--dry-run/--help gates and EPIPE handling. */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadContext, requireCells, type CellsContext } from './io.js';
-import { cmdCrossings, cmdImports, cmdList, cmdShow, cmdGraph, cmdOwns, cmdPayload, cmdSurface } from './commands/read.js';
-import { cmdSize, cmdStructure, cmdImpact, cmdHealth } from './gate.js';
-import { cmdInit, cmdRename, cmdRemove, cmdAssign, cmdUnassign, cmdNew, cmdPruneStale, cmdPlan, cmdConfig } from './mutate.js';
+import { cmdCrossings, cmdGraph, cmdList, cmdOwns, cmdPayload, cmdShow, cmdSurface } from './commands/read.js';
+import { cmdHealth, cmdImpact, cmdSize, cmdStructure } from './gate.js';
 import { renderHelp } from './help.js';
+import { type CellsContext, loadContext, requireCells } from './io.js';
+import { cmdAssign, cmdConfig, cmdInit, cmdNew, cmdPlan, cmdPruneStale, cmdRemove, cmdRename, cmdUnassign } from './mutate.js';
+import { cmdImports } from './pipeline.js';
 
 /** Installed version, read lazily from package.json (works in dev + when npm-installed). */
 function readVersion(): string {
@@ -134,7 +135,13 @@ const COMMANDS: Record<string, Command> = {
     needsCells: true,
     run: (a) => cmdNew(a),
   },
-  'prune-stale': { usage: 'cells prune-stale [--apply]', desc: 'remove requires declared but never imported (stale); dry-run by default, --apply rewrites', minArgs: 0, needsCells: true, run: (a) => cmdPruneStale(a.includes('--apply')) },
+  'prune-stale': {
+    usage: 'cells prune-stale [--apply]',
+    desc: 'remove requires declared but never imported (stale); dry-run by default, --apply rewrites',
+    minArgs: 0,
+    needsCells: true,
+    run: (a) => cmdPruneStale(a.includes('--apply')),
+  },
   plan: {
     usage: 'cells plan [--apply] [--dry-run]',
     desc: 'scan code-dirs and propose a partition: crates / npm packages / Python __init__ packages become one cell each, other files group by directory (review + curate; --apply creates the cells + ownership mechanically, --dry-run previews)',
@@ -176,6 +183,17 @@ async function main(): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(`usage: ${command.usage}\n`);
     return;
+  }
+  // Unknown-flag gate: the usage string is the single source of truth — every
+  // flag a command accepts appears in its usage (no second list to drift).
+  // Without this, an unknown flag silently flows into positional args
+  // (assign would treat `--verbose` as a filename).
+  const knownFlags: string[] = command.usage.match(/--[\w-]+/g) ?? [];
+  const unknownFlag = args.find((a) => a.startsWith('--') && a !== '--dry-run' && !knownFlags.includes(a));
+  if (unknownFlag !== undefined) {
+    console.error(`unknown flag "${unknownFlag}" for cells ${cmd}`);
+    console.error(`usage: ${command.usage}`);
+    process.exit(1);
   }
   if (command.needsCells) requireCells();
   // --dry-run is a pure boolean flag (never takes a value) — strip it before the arg-count

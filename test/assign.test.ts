@@ -1,11 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { assignFiles, unassignFiles, validCellName, cellNameOf, planAssignment, planGroups, planApply } from '../src/assign.js';
+import { execSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { assignFiles, cellNameOf, planApply, planAssignment, planGroups, unassignFiles, validCellName } from '../src/assign.js';
 import { STUB_PURPOSE } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { execSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 
 describe('assignFiles', () => {
   it('adds files to a cell', () => {

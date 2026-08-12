@@ -39,15 +39,15 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findBin, run } from './shared.ts';
 import { makeCache } from './cache.ts';
-import { cellsEdges, type CellsEdges } from './cells.ts';
+import { type CellsEdges, cellsEdges } from './cells.ts';
 import { compare, type Lang, type ParsedOracle } from './compare.ts';
+import { oracleCppFromRaw, oracleCppRaw } from './oracles/cpp.ts';
+import { edgesFromJava, oracleJavaRaw } from './oracles/java.ts';
+import { oraclePythonFromRaw, oraclePythonRaw } from './oracles/python.ts';
 import { edgesFromIndex, oracleScipRaw, type ScipIndex } from './oracles/scip.ts';
-import { oracleTsRaw, oracleTsFromRaw, type TsRaw } from './oracles/ts.ts';
-import { oracleJavaRaw, edgesFromJava } from './oracles/java.ts';
-import { oracleCppRaw, oracleCppFromRaw } from './oracles/cpp.ts';
-import { oraclePythonRaw, oraclePythonFromRaw } from './oracles/python.ts';
+import { oracleTsFromRaw, oracleTsRaw, type TsRaw } from './oracles/ts.ts';
+import { findBin, run } from './shared.ts';
 
 const [, , repoArg, langArg, ...rest] = process.argv;
 const args = new Map<string, string>();

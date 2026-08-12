@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { rustImporter, fileToModule, resolveImportPath } from '../../src/languages/rust.js';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
+import { fileToModule, resolveImportPath, rustImporter } from '../../src/languages/rust.js';
 
 describe('fileToModule', () => {
   it('derives Rust module paths from file paths', () => {
@@ -128,8 +128,8 @@ describe('resolveImportPath', () => {
       { path: 'tests/it/ssl_certs.rs', content: 'use crate::http_util::SelfSigned;\n' },
       { path: 'tests/it/http_util.rs', content: 'pub struct SelfSigned;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['.'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['.'], files });
     const viaTestRoot = edges.find((e) => e.import === 'crate::http_util::SelfSigned');
     expect(viaTestRoot).toBeDefined();
     expect(viaTestRoot!.toFile).toBe('tests/it/http_util.rs'); // the TEST crate's module, not the lib's
@@ -159,9 +159,8 @@ describe('rust importer', () => {
       { path: 'src/config/file.rs', content: 'use super::Config;\n' },
       { path: 'src/cli.rs', content: 'use std::path::PathBuf;\nuse crate::nonexistent::X;\n' },
     ];
-    
 
-    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files});
+    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
     expect(set).toEqual(
       new Set([
@@ -179,7 +178,7 @@ describe('rust importer', () => {
   it('surfaces unresolved crate:: paths as diagnostics', async () => {
     const { unresolved } = await rustImporter.extract({
       codeDirs: ['src'],
-      files: [{ path: 'src/cli.rs', content: 'use crate::missing::Thing;\n' }]
+      files: [{ path: 'src/cli.rs', content: 'use crate::missing::Thing;\n' }],
     });
     expect(unresolved.map((u) => u.import)).toContain('crate::missing::Thing');
   });
@@ -187,7 +186,7 @@ describe('rust importer', () => {
   it('external crates (std, serde) do not appear in unresolved', async () => {
     const { unresolved } = await rustImporter.extract({
       codeDirs: ['src'],
-      files: [{ path: 'src/lib.rs', content: 'use std::collections::HashMap;\nuse serde::Serialize;\n' }]
+      files: [{ path: 'src/lib.rs', content: 'use std::collections::HashMap;\nuse serde::Serialize;\n' }],
     });
     expect(unresolved).toEqual([]);
   });
@@ -198,8 +197,8 @@ describe('rust importer', () => {
       { path: 'src/compaction/ir.rs', content: 'pub struct OpaqueKind;\npub struct SimpleKind;\n' },
       { path: 'src/ir.rs', content: 'pub struct OpaqueKind;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     const superSuper = edges.find((e) => e.import === 'super::super::ir::OpaqueKind');
     expect(superSuper).toBeDefined();
     expect(superSuper!.toFile).toBe('src/compaction/ir.rs'); // mod-tests depth counts — NOT src/ir.rs
@@ -215,8 +214,8 @@ describe('rust importer', () => {
       { path: 'src/warnings.rs', content: 'pub use owo_colors;\n' },
       { path: 'src/ui.rs', content: 'use crate::warnings::owo_colors::OwoColorize;\nuse crate::nope::Thing;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     // the external re-export routes through nothing owned — no edge, no unresolved
     expect(edges.find((e) => e.import === 'crate::warnings::owo_colors::OwoColorize')).toBeUndefined();
     // a genuinely broken local import (no intermediate module at all) in the same file still flags
@@ -231,8 +230,8 @@ describe('rust importer', () => {
       { path: 'src/service/osv.rs', content: 'pub struct Filter;\n' },
       { path: 'src/other.rs', content: 'use crate::osv::Filter;\nuse crate::service::osv::Filter as Direct;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     const viaAlias = edges.find((e) => e.import === 'crate::osv::Filter');
     expect(viaAlias).toBeDefined();
     expect(viaAlias!.toFile).toBe('src/service/osv.rs');
@@ -247,8 +246,8 @@ describe('rust importer', () => {
       { path: 'src/svc/filter.rs', content: 'pub struct F;\n' },
       { path: 'src/other.rs', content: 'use crate::oz::Filter;\nuse crate::svc::osv::Filter as Direct;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     // use crate::oz::Filter resolves through the ALIASED re-export (explicit `as oz` beats last-segment 'osv')
     const viaAlias = edges.find((e) => e.import === 'crate::oz::Filter');
     expect(viaAlias).toBeDefined();
@@ -265,8 +264,8 @@ describe('rust importer', () => {
       { path: 'src/metadata.rs', content: 'pub struct ValidationError;\n' },
       { path: 'src/wheel.rs', content: 'pub fn metadata() {}\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     const direct = edges.find((e) => e.import === 'crate::metadata::ValidationError');
     expect(direct).toBeDefined();
     expect(direct!.toFile).toBe('src/metadata.rs'); // NOT hijacked to wheel.rs by the item alias
@@ -280,7 +279,7 @@ describe('rust importer', () => {
     ];
     const { edges, unresolved } = await rustImporter.extract({
       codeDirs: ['src'],
-      files
+      files,
     });
     // the deep path resolves to the file containing the deepest module
     expect(edges).toContainEqual({ fromFile: 'src/lib.rs', toFile: 'src/observability.rs', import: 'crate::observability::metric_names::response_status::COMPLETED' });
@@ -297,7 +296,7 @@ describe('rust importer', () => {
     ];
     const { edges, unresolved } = await rustImporter.extract({
       codeDirs: ['src'],
-      files
+      files,
     });
     // deep chain: observability (file) → engine (name/ dir) → inner (inline) — resolves to engine.rs
     expect(edges).toContainEqual({ fromFile: 'src/cli.rs', toFile: 'src/observability/engine.rs', import: 'crate::observability::engine::inner::run' });
@@ -323,7 +322,7 @@ describe('rust importer', () => {
       ];
       const { edges, unresolved } = await rustImporter.extract({
         codeDirs: ['crates'],
-        files
+        files,
       });
       // each crate's `crate::helper` resolves to ITS OWN helper.rs (namespaced keys)
       expect(edges).toContainEqual({ fromFile: 'crates/a/src/lib.rs', toFile: 'crates/a/src/helper.rs', import: 'crate::helper::f' });
@@ -371,7 +370,7 @@ describe('rust importer', () => {
       ];
       const { edges, unresolved } = await rustImporter.extract({
         codeDirs: ['crates'],
-        files
+        files,
       });
       // cross-crate import resolves to the sibling's file
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan' });
@@ -402,8 +401,8 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
       { path: 'src/foo/mod.rs', content: 'pub enum LoadError { X }\npub struct LoadedDocument;\n' },
       { path: 'src/foo/a.rs', content: 'use super::{LoadError, LoadedDocument};\npub fn f() -> Result<(), LoadError> { Ok(()) }\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
     // the brace form must resolve like the dotted form: super = crate::foo → foo/mod.rs,
     // NOT fall through to the crate root (lib.rs)
@@ -417,8 +416,8 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
       { path: 'src/reading/mod.rs', content: 'pub mod ovp;\n' },
       { path: 'src/reading/ovp.rs', content: 'pub fn anchor() {}\nmod tests {\n  use super::*;\n  #[test]\n  fn t() { anchor(); }\n}\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
     // glob re-export of the enclosing module is a SELF-import — no edge at all (and never a
     // false crate-root edge to lib.rs)
@@ -444,8 +443,8 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
         { path: 'src/main.rs', content: readFileSync(join(root, 'src/main.rs'), 'utf8') },
         { path: 'src/app/mod.rs', content: readFileSync(join(root, 'src/app/mod.rs'), 'utf8') },
       ];
-      
-      const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+      const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
       expect(unresolved).toEqual([]);
       // root-item import (use crate::RootItem) edges to lib.rs, NOT main.rs
       expect(edges).toContainEqual({ fromFile: 'src/app/mod.rs', toFile: 'src/lib.rs', import: 'crate::RootItem' });
@@ -468,8 +467,8 @@ describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', (
       { path: 'src/app/mod.rs', content: 'pub mod app_impl;\n' },
       { path: 'src/app/app_impl.rs', content: 'use crate::reading::tokenize_text;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
     // the re-export is LOCAL (crate::reading::tokenization), so the import is not dropped
     // as external — it resolves through the re-exporting module (the direct hit wins)
@@ -485,8 +484,8 @@ describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', (
       { path: 'src/reading/tokenization.rs', content: 'pub fn tokenize_text() {}\n' },
       { path: 'src/reading/ovp.rs', content: 'use tokenization::tokenize_text;\npub fn anchor() { tokenize_text() }\n' },
     ];
-    
-    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges } = await rustImporter.extract({ codeDirs: ['src'], files });
     // Rust 2018: bare first segment walks up from crate::reading → crate::reading::tokenization
     expect(edges).toContainEqual({ fromFile: 'src/reading/ovp.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' });
     // never a false crate-root edge
@@ -499,8 +498,8 @@ describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', (
       { path: 'src/ui.rs', content: 'pub use owo_colors;\n' },
       { path: 'src/app.rs', content: 'use crate::ui::owo_colors::OwoColorize;\n' },
     ];
-    
-    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files});
+
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     // external re-export routed import: no edge, and NOT flagged as broken local
     expect(edges.filter((e) => e.import.includes('owo_colors'))).toEqual([]);
     expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toEqual([]);
