@@ -19,8 +19,9 @@ jobs:
             const owner = context.repo.owner;
             const author = context.payload.sender.login;
 
-            // Only the repo owner's issues/PRs stay open.
-            if (author === owner) return;
+            // Only the repo owner's issues/PRs stay open (dependabot's PRs
+            // are CI-vetted dependency bumps — let them through).
+            if (author === owner || author === 'dependabot[bot]') return;
 
             const isPr = context.payload.pull_request !== undefined;
             const type = isPr ? 'pull request' : 'issue';
