@@ -7,6 +7,7 @@ export interface CellsConfig {
   codeExts: string[]; // extensions counted as code (default: .ts) — set per language
   moduleRoot?: string; // path prefix stripped from module names (e.g. "src" for Python src-layout: src/utils/schema.py → utils.schema)
   ignoreBlindExts: string[]; // extensions to silence the "no importer — crossings BLIND" warning for (e.g. a lone .c vendored file)
+  skipDirs?: string[]; // dir names the census never walks (default: the built-in SKIP_DIRS). SET = full replacement — a real internal/build package needs skip-dirs = [] to become adoptable.
 }
 
 /**
@@ -81,6 +82,11 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
       '# (e.g. a lone vendored .c file in a Rust repo).',
       '# ignore-blind-exts = [".c"]',
       '',
+      '# Dir names the census never walks (deps/build/tooling): node_modules, dist, build,',
+      '# target, .git, .cells, vendor, .venv, __pycache__, ... Setting this REPLACES the',
+      '# defaults — a real internal/build Go package becomes adoptable via:',
+      '# skip-dirs = []',
+      '',
       '# Optional layer legend: tier rank -> label (0 = core). Shown in list/structure.',
       '# Uncomment + edit to label your tiers; leave as-is to show raw numbers.',
       '[layers]',
@@ -104,6 +110,7 @@ export function parseConfig(content: string): CellsConfig {
     'code-exts'?: unknown;
     'module-root'?: unknown;
     'ignore-blind-exts'?: unknown;
+    'skip-dirs'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
   if (typeof maxPayloadTokens === 'number' && (!Number.isFinite(maxPayloadTokens) || maxPayloadTokens <= 0)) {
@@ -130,6 +137,7 @@ export function parseConfig(content: string): CellsConfig {
   const codeExts = raw['code-exts'];
   const moduleRoot = raw['module-root'];
   const ignoreBlindExts = raw['ignore-blind-exts'];
+  const skipDirs = raw['skip-dirs'];
   // Array keys are passed to path.join / extension matching — a non-string element (e.g.
   // `code-dirs = [123]`) would crash later with a bare path TypeError; reject at the parse
   // boundary with the field named. (Defaults apply when the key is absent.)
@@ -145,5 +153,6 @@ export function parseConfig(content: string): CellsConfig {
     codeExts: strArray(codeExts, 'code-exts', ['.ts']),
     moduleRoot: typeof moduleRoot === 'string' ? moduleRoot : undefined,
     ignoreBlindExts: strArray(ignoreBlindExts, 'ignore-blind-exts', []),
+    skipDirs: skipDirs === undefined ? undefined : strArray(skipDirs, 'skip-dirs', []),
   };
 }

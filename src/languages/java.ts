@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, SourceFile, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter, memoizeWeak } from './tree-sitter.js';
+import { createTreeSitterImporter, memoizeWeak, nearestCandidate } from './tree-sitter.js';
 
 // --- AST → import paths ---
 
@@ -127,7 +127,7 @@ export const javaImporter = createTreeSitterImporter<JavaImport[]>({
         // package-level dependency — one representative edge (Go parity); never flagged (a
         // wildcard to a missing package is external or a no-op, not a broken import).
         const best = reps.get(imp.fqn);
-        const rep = best ? (ctx.moduleToFile.get(best) ?? null) : null;
+        const rep = best ? nearestCandidate(ctx.moduleCandidates.get(best) ?? [], sourcePath) : null;
         if (rep && rep !== sourcePath) edges.push({ fromFile: sourcePath, toFile: rep, import: `${imp.fqn}.*` });
         continue;
       }
@@ -135,11 +135,12 @@ export const javaImporter = createTreeSitterImporter<JavaImport[]>({
       // address the class FILE, possibly through nesting (`SampleElements.Strings.AFTER_LAST`
       // → `SampleElements`; a same-file nested enum resolves to its own file and is dropped
       // as a self-edge). First hit wins — most specific. The package-only candidate can never
-      // hit (no package-level keys).
+      // hit (no package-level keys). F4: duplicate FQNs (mirror trees) resolve same-tree via
+      // nearestCandidate — the old flat map gave every import whichever tree won the walk.
       let target: string | null = null;
       let f = imp.fqn;
       for (;;) {
-        target = ctx.moduleToFile.get(f) ?? null;
+        target = nearestCandidate(ctx.moduleCandidates.get(f) ?? [], sourcePath);
         if (target) break;
         const i = f.lastIndexOf('.');
         if (i <= 0) break;

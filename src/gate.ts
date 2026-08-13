@@ -4,6 +4,7 @@
  *  (loadCrossings + guards) lives in pipeline.ts. The gate composes the four check
  *  cells into one verdict — the surface CI and the stress agent run. */
 
+import { existsSync } from 'node:fs';
 import { checkLeakage, computeMetrics } from './crossings.js';
 import { recentCommitFiles } from './diff.js';
 import { checkGrammars } from './importers.js';
@@ -127,7 +128,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
   const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
 
-  const violations = validatePartition(ownership, declarations, codeFiles);
+  const violations = validatePartition(ownership, declarations, codeFiles, existsSync);
   const grammarResults = await checkGrammars();
   const leakage = checkLeakage(crossings, declarations);
   const stale = leakage.filter((l) => l.kind === 'stale');

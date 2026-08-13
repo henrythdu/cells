@@ -168,6 +168,9 @@ max-payload-tokens = 16000                                 # context-fit ceiling
 # 2 = "infrastructure"
 code-dirs = ["src", "test"]                                # dirs scanned for code (`cells init` auto-detects)
 code-exts = [".ts"]                                        # extensions counted (`cells init` auto-detects; set per language)
+# skip-dirs = []                                            # dir names the census never walks (node_modules, dist, build,
+#                                                          # target, .git, .cells, vendor, .venv, ...). Setting this REPLACES
+#                                                          # the defaults — the unhide path for a real internal/build package.
 ```
 
 ### `ignore` — intentionally cell-free files

@@ -9,7 +9,7 @@ import { buildConfig, parseConfig } from './config.js';
 import { checkLeakage } from './crossings.js';
 import { type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
 import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
-import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, skippedManifestDirs, writeOwnership } from './io.js';
+import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, SKIP_DIRS, skippedManifestDirs, writeOwnership } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
 import { loadCrossings, warnIfNoCodeFiles } from './pipeline.js';
 import { isUnsafePath } from './validate.js';
@@ -276,6 +276,19 @@ export function cmdAssign(cell: string, files: string[], dryRun = false): void {
     }
     normalized.push(f);
   }
+  // F3 (stress finding: cli internal/build): ownership partitions the CENSUS. A skip-listed
+  // or non-code target would be owned yet invisible to importers — validate would flag it
+  // "outside-census" forever and no command could reconcile it. Refuse at the write side
+  // (like the unsafe-path check): the fix is config (skip-dirs / code-dirs / code-exts),
+  // not an ownership entry.
+  const outside = normalized.filter((f) => !censusByReal.has(realpathSync(f)));
+  if (outside.length > 0) {
+    console.error(
+      `cells: assign target(s) outside the code census: ${outside.join(', ')} — they exist but the census never walks them (skip-listed dir, non-code extension, or outside code-dirs). Fix .cells/config.toml (skip-dirs / code-dirs / code-exts) to adopt them; ownership partitions the census.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   // planAssignment validates the name (throws → main().catch surfaces it), decides the stub, computes ownership.
   const { stub, ownership } = planAssignment(ownership0, cell, normalized, existsSync(declPath));
   // Size pre-flight: warn if the destination would exceed its ceiling after the move.
@@ -417,7 +430,7 @@ export function cmdPlan(apply = false, dryRun = false): void {
   const config = loadConfig();
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
-  const skipped = skippedManifestDirs(config.codeExts); // skip-named dirs holding code/manifests — the census can't see them
+  const skipped = skippedManifestDirs(config.codeExts, '.', new Set(config.skipDirs ?? SKIP_DIRS)); // skip-named dirs holding code/manifests — the census can't see them
   const skippedNote = skipped.length > 0 ? `\n(census note) ${skipped.length} skip-named dir(s) hold code or a build manifest and are excluded — real packages hidden from ownership: ${skipped.join(', ')}` : '';
   const groups = planGroups(codeFiles);
   const keys = [...groups.keys()].sort();

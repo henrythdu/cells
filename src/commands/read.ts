@@ -132,12 +132,18 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
     sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
     if (verbose) smells[name] = { pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens), staleProvides: 0, unresolved: 0 };
   }
-  const { crossings, unresolved } = await loadCrossings(ownership);
+  const { crossings, unresolved, edges } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
   const orphanFiles = codeFiles.filter((f) => !owned.has(f));
+  // Orphan magnets: inbound imports into unowned files (edges survive to imports level;
+  // deriveCrossings drops them — an orphan has no cell). The adoption queue, prioritized.
+  const magnetCounts = new Map<string, number>();
+  for (const e of edges) {
+    if (!owned.has(e.toFile)) magnetCounts.set(e.toFile, (magnetCounts.get(e.toFile) ?? 0) + 1);
+  }
   if (verbose) {
     const unresolvedByCell = new Map<string, number>();
     for (const u of unresolved) {
@@ -153,7 +159,7 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
       s.staleProvides = cell.provides.length === 0 ? 0 : staleProvidesOf(cell, ownership[name] ?? [], readFiles(ownership[name] ?? [])).length;
     }
   }
-  process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined));
+  process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined, magnetCounts));
 }
 
 /** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.
@@ -293,7 +299,7 @@ export async function cmdPayload(ctx: CellsContext, name: string): Promise<void>
   const coupled = coupling.pairs
     .filter((p) => !p.explained && (p.a === name || p.b === name))
     .slice(0, 3)
-    .map((p) => ({ cell: p.a === name ? p.b : p.a, count: p.count, window: coupling.window }));
+    .map((p) => ({ cell: p.a === name ? p.b : p.a, count: p.count, window: coupling.window, files: p.sampleFiles }));
   const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependents.length, testFiles, testContents, dependents, coupled);
   process.stdout.write(payload);
 

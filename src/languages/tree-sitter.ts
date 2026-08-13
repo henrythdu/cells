@@ -107,6 +107,11 @@ export interface ResolveCtx {
   /** module path → source file. Enriched by the factory (fileToModule keys + declared
    *  submodules + name aliases) BEFORE any resolution runs. */
   moduleToFile: Map<string, string>;
+  /** module path → EVERY file declaring it, in census order (sorted). Mirror trees share
+   *  keys (guava: android/guava/src + guava/src declare identical FQNs); FQN languages
+   *  resolve through this with nearestCandidate (same-tree twin wins) instead of the
+   *  winner map. Path-key languages (rust/go/cpp/ts) never collide — one entry each. */
+  moduleCandidates: Map<string, string[]>;
   /** every code file's path (for `mod x;` sibling-target lookups). */
   files: ReadonlySet<string>;
   /** package names of workspace member crates (rust): a bare first segment matching one is a
@@ -141,6 +146,30 @@ export interface ResolveCtx {
  *  separator (`.` stays inside the key). Exporting it keeps the couple honest — a separator
  *  change breaks the resolvers' key construction loudly (via tests), not silently. */
 const MODULE_SEP = '::';
+
+/** Pick the file declaring `key` that sits in the importer's own tree — the deepest shared
+ *  dir-prefix with sourcePath wins (mirror trees: guava's android/guava/src import must
+ *  resolve to android/guava/src/…, not the desktop twin). Tie → lexicographically last
+ *  (the old winner-map's last-write on the sorted census — preserves .pyx-over-.pxd and
+ *  every stable single-tree pick). Empty → null. F4: the general fix for duplicate-FQN
+ *  trees. */
+export function nearestCandidate(candidates: string[], sourcePath: string): string | null {
+  if (candidates.length === 0) return null;
+  let best = candidates[0];
+  let bestDepth = -1;
+  const srcDirs = sourcePath.split('/').slice(0, -1);
+  for (const cand of candidates) {
+    const cdirs = cand.split('/').slice(0, -1);
+    let depth = 0;
+    const n = Math.min(srcDirs.length, cdirs.length);
+    while (depth < n && srcDirs[depth] === cdirs[depth]) depth++;
+    if (depth > bestDepth || (depth === bestDepth && cand > best)) {
+      bestDepth = depth;
+      best = cand;
+    }
+  }
+  return best;
+}
 
 /** A declared submodule (from `mod x;` or inline `mod x {}`). */
 interface ModDecl {
@@ -279,16 +308,30 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
               else if (key.startsWith(prefix)) rest = key.slice(prefix.length);
               if (rest === null) return;
               const alias = rest ? `${name}::${rest}` : name;
-              if (!moduleToFile.has(alias)) moduleToFile.set(alias, moduleToFile.get(key)!);
+              if (!moduleToFile.has(alias)) addModule(alias, moduleToFile.get(key)!);
             };
           }
         }
       }
       const moduleToFile = new Map<string, string>();
+      const moduleCandidates = new Map<string, string[]>();
+      // module path → file, keeping EVERY declarer (winner map = last-write-wins, for the
+      // path-key languages; candidates = all, for FQN collisions — F4 stress finding:
+      // guava's mirror trees fabricated 4541 edges by resolving to whichever tree won the
+      // sorted walk; nearestCandidate at resolve time picks the same-tree twin).
+      const addModule = (key: string, file: string): void => {
+        moduleToFile.set(key, file);
+        const arr = moduleCandidates.get(key);
+        if (arr) {
+          if (!arr.includes(file)) arr.push(file);
+        } else {
+          moduleCandidates.set(key, [file]);
+        }
+      };
       for (const f of files) {
         if (!matches(f.path)) continue;
         const key = moduleKey(f);
-        moduleToFile.set(key, f.path);
+        addModule(key, f.path);
         aliasByName(key, spec.crateRootOf?.(f.path, baseDir) ?? null);
       }
 
@@ -308,6 +351,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       const externalReexports = new Map<string, Set<string>>();
       const ctx: ResolveCtx = {
         moduleToFile,
+        moduleCandidates,
         files: new Set(files.map((f) => f.path)),
         crateNames,
         reexports: reexportMap,
@@ -329,7 +373,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
           const root = spec.crateRootOf?.(f.path, baseDir) ?? null;
           for (const m of a.mods) {
             const key = `${importerModule}${MODULE_SEP}${m.path.join(MODULE_SEP)}`;
-            moduleToFile.set(key, m.targetFile ?? f.path);
+            addModule(key, m.targetFile ?? f.path);
             aliasByName(key, root);
           }
           for (const r of a.reexports) {

@@ -27,7 +27,14 @@ function formatCellSmell(s: CellSmell): string {
  * Format the partition overview: one row per cell (file count, ~tokens,
  * requires) + a header with totals and orphan count. Pure.
  */
-export function formatCellList(declarations: Record<string, Cell>, sizes: Record<string, CellSize>, metrics: Record<string, CellMetrics>, orphanFiles: string[], smells?: Record<string, CellSmell>): string {
+export function formatCellList(
+  declarations: Record<string, Cell>,
+  sizes: Record<string, CellSize>,
+  metrics: Record<string, CellMetrics>,
+  orphanFiles: string[],
+  smells?: Record<string, CellSmell>,
+  magnetCounts?: Map<string, number>,
+): string {
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const stubSuffix = ' (stub)';
@@ -53,7 +60,12 @@ export function formatCellList(declarations: Record<string, Cell>, sizes: Record
     lines.push('');
     lines.push('unowned (assign or add to .cells/ignore):');
     const shown = orphanFiles.sort().slice(0, ORPHAN_LIST_CAP);
-    for (const f of shown) lines.push(`  ${f}`);
+    for (const f of shown) {
+      // An orphan with inbound imports is the file the partition actually needs — the
+      // import magnet (stress finding: lodash's monolith, silently invisible).
+      const n = magnetCounts?.get(f) ?? 0;
+      lines.push(n > 0 ? `  ${f} — imported by ${n} file${n === 1 ? '' : 's'}` : `  ${f}`);
+    }
     const rest = orphanFiles.length - shown.length;
     if (rest > 0) {
       // The truncated tail is the adoption queue — shape it by top dirs so "… and 658 more"

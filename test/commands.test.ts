@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cmdPayload, cmdShow, extractSurface } from '../src/commands/read.js';
 import { loadContext } from '../src/io.js';
+import { cmdAssign } from '../src/mutate.js';
 
 describe("extractSurface — the raw material for a cell's signatures field", () => {
   it('extracts TS export declarations, Rust pub items, Python defs, Go funcs', () => {
@@ -127,7 +128,31 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     }
     const rendered = out.join('');
     expect(rendered).toContain('## Change coupling');
-    expect(rendered).toContain("⚠ b co-changes with you (5/5 commits, no import edge) — pull b's payload when touching b's code");
+    expect(rendered).toContain("⚠ b co-changes with you (5/5 commits, no import edge) — pull b's payload before touching its code, its context is invisible to you; co-changing files: src/b.py, src/c.py");
+  });
+
+  it('cmdAssign refuses a skip-listed target (ownership partitions the census) — and honors skip-dirs = [] unhide', () => {
+    setupShowRepo();
+    mkdirSync(join(repo, 'src', 'build'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'build', 'gen.py'), 'GEN = 1\n');
+    const errs: string[] = [];
+    const origErr = console.error;
+    console.error = (s: string) => {
+      errs.push(String(s));
+    };
+    try {
+      cmdAssign('newcell', ['src/build/gen.py']);
+    } finally {
+      console.error = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    expect(errs.join('\n')).toContain('outside the code census');
+    expect(errs.join('\n')).toContain('skip-dirs');
+    // The unhide path: skip-dirs = [] replaces the defaults → src/build/ enters the census → assign works.
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".py"]\nmodule-root = "src"\nskip-dirs = []\n');
+    process.exitCode = 0;
+    cmdAssign('newcell', ['src/build/gen.py']);
+    expect(process.exitCode).toBe(0);
   });
 });
 

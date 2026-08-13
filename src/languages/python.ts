@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter } from './tree-sitter.js';
+import { createTreeSitterImporter, nearestCandidate } from './tree-sitter.js';
 
 // --- module-path derivation: file → python module path ---
 
@@ -107,7 +107,7 @@ function resolveImportDesc(
   desc: ImportDesc,
   sourcePath: string,
   importerModule: string,
-  moduleToFile: Map<string, string>,
+  moduleCandidates: Map<string, string[]>,
   localPackages: Set<string>,
   codeDirs: string[],
   files: ReadonlySet<string>,
@@ -132,11 +132,11 @@ function resolveImportDesc(
   // bare name misses the map. The probe proved the physical target exists; if exactly one
   // map key ends with '.'+base IN THE IMPORTER'S OWN code-dir family, the resolution is
   // unambiguous — resolve it (completes the probe instead of flagging a standard pattern).
-  if (desc.dots === 0 && !moduleToFile.has(base) && probeModuleRootMismatch(base.split('.')[0], codeDirs, files, memo)) {
+  if (desc.dots === 0 && !moduleCandidates.has(base) && probeModuleRootMismatch(base.split('.')[0], codeDirs, files, memo)) {
     const family = importerModule.split('.')[0];
     const suffix = `.${base}`;
     let match: string | null = null;
-    for (const key of moduleToFile.keys()) {
+    for (const key of moduleCandidates.keys()) {
       if (key.endsWith(suffix) && key.split('.')[0] === family) {
         if (match !== null) {
           match = null; // two same-family packages share the name — ambiguous, stay unresolved
@@ -151,7 +151,9 @@ function resolveImportDesc(
   const edges: ImportEdge[] = [];
   const seen = new Set<string>();
   for (const cand of candidates) {
-    const toFile = moduleToFile.get(cand);
+    // F4: duplicate module names (mirror trees) resolve same-tree via nearestCandidate —
+    // the old winner map gave every import whichever file won the census walk.
+    const toFile = nearestCandidate(moduleCandidates.get(cand) ?? [], sourcePath);
     if (toFile && !seen.has(toFile)) {
       seen.add(toFile);
       edges.push({ fromFile: sourcePath, toFile, import: cand });
@@ -165,7 +167,7 @@ function resolveImportDesc(
     // A compiled extension module (pyo3/cython: `headroom._core` → _core.cpython-*.so) is
     // legitimately unresolvable — the file exists but isn't code. Silencing it keeps the
     // unresolved list honest (wave-3 #5: headroom's 73/81 entries were this one specifier).
-    if (!isCompiledModule(base, moduleToFile)) unresolved.push({ fromFile: sourcePath, import: base });
+    if (!isCompiledModule(base, moduleCandidates, sourcePath)) unresolved.push({ fromFile: sourcePath, import: base });
   }
   return { edges, unresolved };
 }
@@ -188,12 +190,12 @@ const compiledDirCache = new Map<string, string[]>();
  *  map (moduleRoot/src-layout aware — `src/headroom/__init__.py` → dir `src/headroom`), so the
  *  compiled artifact is found wherever the package actually lives. Only called for local-looking
  *  unresolved imports; a missing dir (or no parent in the map) → false. */
-function isCompiledModule(module: string, moduleToFile: Map<string, string>): boolean {
+function isCompiledModule(module: string, moduleCandidates: Map<string, string[]>, sourcePath: string): boolean {
   const lastDot = module.lastIndexOf('.');
   if (lastDot === -1) return false;
   const parentMod = module.slice(0, lastDot);
   const name = module.slice(lastDot + 1);
-  const parentFile = moduleToFile.get(parentMod);
+  const parentFile = nearestCandidate(moduleCandidates.get(parentMod) ?? [], sourcePath);
   if (!parentFile) return false;
   const dir = dirname(parentFile);
   try {
@@ -237,7 +239,7 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
     // being enriched). Distinguishes local-but-unresolved imports (warn) from external
     // packages (skip silently).
     const localPackages = new Set<string>();
-    for (const mod of ctx.moduleToFile.keys()) {
+    for (const mod of ctx.moduleCandidates.keys()) {
       const firstSeg = mod.split('.')[0];
       if (firstSeg) localPackages.add(firstSeg);
     }
@@ -248,7 +250,7 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {
-      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleToFile, localPackages, codeDirs, ctx.files, ctx.memo);
+      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleCandidates, localPackages, codeDirs, ctx.files, ctx.memo);
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
     }

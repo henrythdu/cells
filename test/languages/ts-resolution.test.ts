@@ -33,6 +33,7 @@ function fixture(files: string[], extra?: Record<string, string>): { ctx: Resolv
   const ctx: ResolveCtx = {
     files: new Set(files),
     moduleToFile: new Map(files.map((f) => [f, f])),
+    moduleCandidates: new Map(files.map((f) => [f, [f]])),
     crateNames: new Set(),
     reexports: new Map(),
     externalReexports: new Map(),

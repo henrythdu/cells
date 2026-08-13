@@ -174,4 +174,23 @@ describe('java: unresolved classification (importer-package rule)', () => {
     });
     expect(unresolved).toEqual([]);
   });
+
+  it('duplicate-FQN mirror trees resolve same-tree (F4: guava android/guava mirrors — no more fabricated cross-tree edges)', async () => {
+    const { edges, unresolved } = await extract({
+      // Two trees declare the SAME FQN; the census sorts android/ before guava/ (the old
+      // winner map's last-write went to guava/ — every android import pointed at the
+      // desktop twin: 4541 fabricated edges on real guava). nearestCandidate must pick
+      // the importer's own tree.
+      'android/guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',
+      'guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',
+      'android/guava/src/com/google/common/collect/AbstractBiMap.java': 'package com.google.common.collect;\nimport com.google.common.collect.Maps;\npublic class AbstractBiMap {}\n',
+      'guava/src/com/google/common/collect/Iterables.java': 'package com.google.common.collect;\nimport com.google.common.collect.Maps;\npublic class Iterables {}\n',
+      // wildcard parity: the package representative must ALSO resolve same-tree
+      'android/guava/src/com/google/common/collect/Forwarding.java': 'package com.google.common.collect;\nimport com.google.common.collect.*;\npublic class Forwarding {}\n',
+    });
+    expect(edges.find((e) => e.fromFile === 'android/guava/src/com/google/common/collect/AbstractBiMap.java')?.toFile).toBe('android/guava/src/com/google/common/collect/Maps.java');
+    expect(edges.find((e) => e.fromFile === 'guava/src/com/google/common/collect/Iterables.java')?.toFile).toBe('guava/src/com/google/common/collect/Maps.java');
+    expect(edges.find((e) => e.fromFile === 'android/guava/src/com/google/common/collect/Forwarding.java')?.toFile).toBe('android/guava/src/com/google/common/collect/Maps.java');
+    expect(unresolved).toEqual([]);
+  });
 });

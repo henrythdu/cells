@@ -44,7 +44,7 @@ export function assemblePayload(
   testFiles?: string[],
   testContents?: Record<string, string>,
   dependents?: Cell[],
-  coupled?: { cell: string; count: number; window: number }[],
+  coupled?: { cell: string; count: number; window: number; files?: string[] }[],
 ): string {
   const lines: string[] = [];
 
@@ -66,7 +66,8 @@ export function assemblePayload(
     lines.push('');
     lines.push('## Change coupling');
     for (const c of coupled) {
-      lines.push(`- ⚠ ${c.cell} co-changes with you (${c.count}/${c.window} commits, no import edge) — pull ${c.cell}'s payload when touching ${c.cell}'s code`);
+      const files = c.files && c.files.length > 0 ? `; co-changing files: ${c.files.join(', ')}` : '';
+      lines.push(`- ⚠ ${c.cell} co-changes with you (${c.count}/${c.window} commits, no import edge) — pull ${c.cell}'s payload before touching its code, its context is invisible to you${files}`);
     }
   }
   lines.push('');

@@ -45,6 +45,13 @@ describe('formatCellList', () => {
     expect(out).toContain('examples/demo.ts');
   });
 
+  it('flags orphan import magnets (imported-by count on the adoption queue)', () => {
+    const out = formatCellList(decls, sizes, listMetrics, ['src/orphan.ts', 'src/quiet.ts'], undefined, new Map([['src/orphan.ts', 7]]));
+    expect(out).toContain('src/orphan.ts — imported by 7 files');
+    expect(out).toContain('src/quiet.ts'); // no count → plain line
+    expect(out).not.toContain('src/quiet.ts —');
+  });
+
   it('caps the unowned dump at 20 files with a count hint (orphan flood)', () => {
     const many = Array.from({ length: 30 }, (_, i) => `src/loose_${i}.ts`);
     const out = formatCellList(decls, sizes, listMetrics, many);

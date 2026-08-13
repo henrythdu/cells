@@ -122,18 +122,19 @@ export function loadContext(): CellsContext {
 
 /** Recursively list files under a directory whose extension is in `exts` (relative paths).
  *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
- *  can't grow the result, only re-walk forever. SKIP_DIRS (deps/build/tooling) never
- *  enter the census — a code-dirs ["."] config (flat repo) must not sweep node_modules/
- *  dist/ into ownership, plan and size (detectProject already excludes them at init;
- *  this closes the same hole for hand-edited configs). */
-function listFiles(dir: string, exts: string[], visited = new Set<string>()): string[] {
+ *  can't grow the result, only re-walk forever. `skip` (default: the built-in SKIP_DIRS)
+ *  never enter the census — a code-dirs ["."] config (flat repo) must not sweep
+ *  node_modules/ dist/ into ownership, plan and size (detectProject already excludes
+ *  them at init; this closes the same hole for hand-edited configs). Config skip-dirs
+ *  REPLACES the default set — that's the unhide path for a real internal/build package. */
+function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visited = new Set<string>()): string[] {
   if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
   const real = realpathSync(dir);
   if (visited.has(real)) return []; // symlink cycle — stop
   visited.add(real);
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
-    if (SKIP_DIRS.has(entry)) continue;
+    if (skip.has(entry)) continue;
     const path = join(dir, entry);
     let st: Stats;
     try {
@@ -141,7 +142,7 @@ function listFiles(dir: string, exts: string[], visited = new Set<string>()): st
     } catch {
       continue; // dangling symlink / vanished entry — not code; a crash would sink the census
     }
-    if (st.isDirectory()) out.push(...listFiles(path, exts, visited));
+    if (st.isDirectory()) out.push(...listFiles(path, exts, skip, visited));
     else if (exts.some((e) => entry.endsWith(e))) out.push(path);
   }
   return out;
@@ -151,11 +152,14 @@ function listFiles(dir: string, exts: string[], visited = new Set<string>()): st
  *  `baseDir` reads code from elsewhere (e.g. an extracted HEAD tree); paths stay repo-relative
  *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */
 export function listCodeFiles(baseDir = '.'): string[] {
-  const { codeDirs, codeExts } = loadConfig();
+  const { codeDirs, codeExts, skipDirs } = loadConfig();
+  // Config skip-dirs REPLACES the defaults (repo convention: code-dirs/code-exts too) —
+  // the unhide path for a skip-named dir that holds real code (internal/build in Go).
+  const skip = new Set(skipDirs ?? SKIP_DIRS);
   // Posix-normalize census paths: importer module keys and resolver string logic assume '/'
   // separators (ts-resolution, python fileToModule, rust dirname probes). Node's fs accepts
   // '/' on Windows, so one normalization here makes the whole pipeline platform-agnostic.
-  const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts).map((f) => relative(baseDir, f).replace(/\\/g, '/'))))];
+  const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts, skip).map((f) => relative(baseDir, f).replace(/\\/g, '/'))))];
   // Set: overlapping code-dirs (e.g. "." + "crates") must not double-list files — ownership,
   // plan and size all count per file. Detection filters at init; this covers hand-edited configs.
   const patterns = loadIgnorePatterns();
@@ -242,7 +246,7 @@ export const SKIP_DIRS = new Set([
  *  hide a swallowed package — the skip rule stays; the omission becomes visible.
  *  node_modules/.git/.cells are never source; the ambiguous names (dist/build/target/…)
  *  are exactly the ones worth a user's eye. Pure over the FS. */
-export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[] {
+export function skippedManifestDirs(codeExts: string[], baseDir = '.', skip: ReadonlySet<string> = SKIP_DIRS): string[] {
   const MANIFESTS = new Set(['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'build.gradle', 'pom.xml']);
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -255,7 +259,7 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.'): string[]
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cells') continue;
-      if (SKIP_DIRS.has(e.name)) {
+      if (skip.has(e.name)) {
         const p = join(dir, e.name);
         let hasCode = false;
         try {

@@ -17,14 +17,14 @@ describe('validatePartition', () => {
     const ownership: Ownership = { parser: ['src/parser.ts'], util: ['src/util.ts'] };
     const declarations = decls({ parser: ['util'], util: [] });
     const codeFiles = ['src/parser.ts', 'src/util.ts'];
-    expect(validatePartition(ownership, declarations, codeFiles)).toEqual([]);
+    expect(validatePartition(ownership, declarations, codeFiles, () => true)).toEqual([]);
   });
 
   it('flags a file owned by two cells (single-valued)', () => {
     const ownership: Ownership = { parser: ['src/shared.ts'], util: ['src/shared.ts'] };
     const declarations = decls({ parser: [], util: [] });
     const codeFiles = ['src/shared.ts'];
-    const v = validatePartition(ownership, declarations, codeFiles);
+    const v = validatePartition(ownership, declarations, codeFiles, () => true);
     expect(v.some((x) => x.kind === 'duplicate' && x.detail.includes('src/shared.ts'))).toBe(true);
   });
 
@@ -32,16 +32,26 @@ describe('validatePartition', () => {
     const ownership: Ownership = { parser: ['src/parser.ts'] };
     const declarations = decls({ parser: [] });
     const codeFiles = ['src/parser.ts', 'src/orphan.ts'];
-    expect(validatePartition(ownership, declarations, codeFiles)).toEqual([]);
+    expect(validatePartition(ownership, declarations, codeFiles, () => true)).toEqual([]);
   });
 
   it('flags owned paths that are absolute or escape the repo root (unsafe-path)', () => {
     const ownership: Ownership = { parser: ['../outside.ts', '/etc/passwd'] };
     const declarations = decls({ parser: [] });
-    const v = validatePartition(ownership, declarations, ['src/parser.ts']);
+    const v = validatePartition(ownership, declarations, ['src/parser.ts'], () => true);
     expect(v.filter((x) => x.kind === 'unsafe-path')).toHaveLength(2);
-    // unsafe entries are excluded from the other checks (not also 'dangling')
-    expect(v.filter((x) => x.kind === 'dangling')).toHaveLength(0);
+    // unsafe entries are excluded from the other checks (not also 'dangling'/'outside-census')
+    expect(v.filter((x) => x.kind === 'dangling' || x.kind === 'outside-census')).toHaveLength(0);
+  });
+
+  it('splits vanished files (dangling) from census-excluded files (outside-census)', () => {
+    const ownership: Ownership = { parser: ['src/gone.ts', 'build/gen.ts'] };
+    const declarations = decls({ parser: [] });
+    // build/gen.ts exists on disk but the census (skip-listed build/) never saw it;
+    // src/gone.ts is gone. Same input census, different disk truth → different kinds.
+    const v = validatePartition(ownership, declarations, ['src/parser.ts'], (f) => f === 'build/gen.ts');
+    expect(v.some((x) => x.kind === 'outside-census' && x.detail.includes('build/gen.ts') && x.detail.includes('skip-listed'))).toBe(true);
+    expect(v.some((x) => x.kind === 'dangling' && x.detail.includes('src/gone.ts'))).toBe(true);
   });
 });
 

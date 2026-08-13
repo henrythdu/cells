@@ -308,6 +308,9 @@ interface CoupledPair {
   union: number;
   jaccard: number;
   explained: boolean;
+  /** Up to 5 files that co-changed in this pair's commits (owned by either cell) —
+   *  what a model should actually look at. Sorted, capped at build time. */
+  sampleFiles: string[];
 }
 
 /** The full change-coupling result: surviving pairs + the commit window they were
@@ -360,6 +363,7 @@ export function classifyChangeCoupling(commits: { hash: string; files: string[] 
 
   const touches = new Map<string, number>(); // cell → commits touching it
   const coChange = new Map<string, number>(); // "a|b" (a < b) → commits touching both
+  const coChangeFiles = new Map<string, Set<string>>(); // "a|b" → files that co-changed (either cell's)
   let window = 0;
   for (const commit of commits) {
     const cells = new Set<string>();
@@ -382,6 +386,13 @@ export function classifyChangeCoupling(commits: { hash: string; files: string[] 
       for (let j = i + 1; j < sorted.length; j++) {
         const key = `${sorted[i]}|${sorted[j]}`;
         coChange.set(key, (coChange.get(key) ?? 0) + 1);
+        // Sample the co-changed files once per pair per commit (owned by either cell).
+        const files = coChangeFiles.get(key) ?? new Set<string>();
+        for (const f of commit.files) {
+          const cell = fileToCell.get(f);
+          if (cell === sorted[i] || cell === sorted[j]) files.add(f);
+        }
+        coChangeFiles.set(key, files);
       }
     }
   }
@@ -394,7 +405,7 @@ export function classifyChangeCoupling(commits: { hash: string; files: string[] 
     if (union <= 0) continue;
     const jaccard = count / union;
     if (jaccard < CHANGE_COUPLING.jaccard) continue;
-    pairs.push({ a, b, count, union, jaccard, explained: edgeSet.has(key) });
+    pairs.push({ a, b, count, union, jaccard, explained: edgeSet.has(key), sampleFiles: [...(coChangeFiles.get(key) ?? [])].sort().slice(0, 5) });
   }
   // unexplained (the smell) first, then by co-change count desc, then names — stable
   // and deterministic (window noise can't reorder beyond the primary keys).

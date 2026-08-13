@@ -407,6 +407,7 @@ describe('classifyChangeCoupling', () => {
     expect(r.window).toBe(6);
     expect(r.pairs).toHaveLength(1);
     expect(r.pairs[0]).toMatchObject({ a: 'a', b: 'b', count: 6, union: 6, jaccard: 1, explained: false });
+    expect(r.pairs[0].sampleFiles).toEqual(['src/a.ts', 'src/b.ts']); // co-changed files, capped + sorted
   });
 
   it('marks a pair explained when a crossing edge exists (dependency ripple is the null hypothesis)', () => {

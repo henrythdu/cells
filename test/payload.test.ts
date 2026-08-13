@@ -116,10 +116,11 @@ describe('change coupling hint', () => {
     const clean = assemblePayload(cell, [], {}, []);
     expect(clean).not.toContain('Change coupling');
     const withHint = assemblePayload(cell, [], {}, [], undefined, undefined, undefined, undefined, [
-      { cell: 'b', count: 42, window: 200 },
+      { cell: 'b', count: 42, window: 200, files: ['src/b.py', 'src/c.py'] },
       { cell: 'c', count: 17, window: 200 },
     ]);
     expect(withHint).toContain('## Change coupling');
-    expect(withHint).toContain("⚠ b co-changes with you (42/200 commits, no import edge) — pull b's payload when touching b's code");
+    expect(withHint).toContain("⚠ b co-changes with you (42/200 commits, no import edge) — pull b's payload before touching its code, its context is invisible to you; co-changing files: src/b.py, src/c.py");
+    expect(withHint).toContain("⚠ c co-changes with you (17/200 commits, no import edge) — pull c's payload before touching its code, its context is invisible to you"); // no files → no suffix
   });
 });

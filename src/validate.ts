@@ -55,6 +55,7 @@ export function isUnsafePath(p: string): boolean {
 type ViolationKind =
   | 'duplicate' // a file owned by 2+ cells (violates non-overlap)
   | 'dangling' // an owned file missing from disk
+  | 'outside-census' // an owned file that exists on disk but the census never sees (skip-listed dir / non-code ext / outside code-dirs)
   | 'undeclared-cell' // ownership references a cell with no declaration
   | 'unknown-require' // a cell requires a cell with no declaration
   | 'unsafe-path'; // an owned path that is absolute or escapes the repo root
@@ -66,13 +67,19 @@ export interface Violation {
 
 /**
  * Check partition integrity. Pure: takes parsed ownership + declarations +
- * the list of code files on disk (the CLI does the IO), returns violations.
+ * the list of code files on disk + a disk-truth probe (the CLI does the IO),
+ * returns violations.
  *
  * Non-overlap is the structural invariant; the rest surface the partition's
  * health. (Unowned files are NOT a violation — they're neutral visibility,
  * surfaced by `list`; `.cells/ignore` declares intentional cell-free files.)
+ *
+ * Legal ownership states: owned ∧ in-census (normal), owned ∧ on-disk ∧
+ * ¬in-census (illegal — `outside-census`: the census skipped it; ownership
+ * partitions the census, so the file is invisible to importers forever),
+ * owned ∧ ¬on-disk (dangling — vanished file, prune the entry).
  */
-export function validatePartition(ownership: Ownership, declarations: Record<string, Cell>, codeFiles: string[]): Violation[] {
+export function validatePartition(ownership: Ownership, declarations: Record<string, Cell>, codeFiles: string[], onDisk: (file: string) => boolean): Violation[] {
   const violations: Violation[] = [];
   const codeSet = new Set(codeFiles);
 
@@ -98,9 +105,17 @@ export function validatePartition(ownership: Ownership, declarations: Record<str
     }
   }
 
-  // 2. dangling: owned file not on disk.
+  // 2. dangling/outside-census: owned file the census never saw. On disk → the census
+  //    excluded it (skip-listed dir / non-code ext / outside code-dirs) — an illegal
+  //    state, ownership partitions the census. Not on disk → a vanished file (prune).
   for (const file of owned) {
-    if (!codeSet.has(file)) {
+    if (codeSet.has(file)) continue;
+    if (onDisk(file)) {
+      violations.push({
+        kind: 'outside-census',
+        detail: `${file} exists on disk but is not in the code census (skip-listed dir, non-code extension, or outside code-dirs) — ownership partitions the census; remove the entry, un-skip via skip-dirs, or fix code-dirs/code-exts`,
+      });
+    } else {
       violations.push({ kind: 'dangling', detail: `${file} listed but not on disk` });
     }
   }
