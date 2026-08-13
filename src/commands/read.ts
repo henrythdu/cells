@@ -268,7 +268,7 @@ export function cmdOwns(ctx: CellsContext, file: string): void {
 }
 
 /** `cells payload <name>` — assemble and print a cell's payload to stdout. */
-export function cmdPayload(ctx: CellsContext, name: string): void {
+export async function cmdPayload(ctx: CellsContext, name: string): Promise<void> {
   const { declarations, ownership } = ctx;
   const cell = requireCell(declarations, name);
 
@@ -286,7 +286,15 @@ export function cmdPayload(ctx: CellsContext, name: string): void {
   }
 
   const dependents = Object.values(declarations).filter((d) => d.requires.includes(name));
-  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependents.length, testFiles, testContents, dependents);
+  // ADR 0002: the payload's change-coupling hint — unexplained partners only, so the
+  // model knows its context is incomplete (zero tokens when the cell is clean).
+  const { crossings } = await loadCrossings(ownership);
+  const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
+  const coupled = coupling.pairs
+    .filter((p) => !p.explained && (p.a === name || p.b === name))
+    .slice(0, 3)
+    .map((p) => ({ cell: p.a === name ? p.b : p.a, count: p.count, window: coupling.window }));
+  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependents.length, testFiles, testContents, dependents, coupled);
   process.stdout.write(payload);
 
   const chars = payload.length;

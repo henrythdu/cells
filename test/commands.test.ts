@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cmdShow, extractSurface } from '../src/commands/read.js';
+import { cmdPayload, cmdShow, extractSurface } from '../src/commands/read.js';
 import { loadContext } from '../src/io.js';
 
 describe("extractSurface — the raw material for a cell's signatures field", () => {
@@ -107,8 +107,27 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     const rendered = out.join('');
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/c.py'); // dead — nothing imports it
-    expect(rendered).toContain("change-coupled cells in git history (last 5 commits — logical coupling imports can't see):");
+    expect(rendered).toContain("change-coupled cells in git history (5 analyzed commits — logical coupling imports can't see):");
     expect(rendered).toContain('  ⚠ b — unexplained, no import edge (5/5, 100%)'); // b.py + c.py co-changed in 5/5 commits
+  });
+
+  it('cmdPayload appends the change-coupling hint for an unexplained partner (ADR 0002 wiring)', async () => {
+    setupShowRepo();
+    const ctx = loadContext();
+    const out: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = (s: string | Uint8Array) => {
+      out.push(String(s));
+      return true;
+    };
+    try {
+      await cmdPayload(ctx, 'c');
+    } finally {
+      process.stdout.write = orig;
+    }
+    const rendered = out.join('');
+    expect(rendered).toContain('## Change coupling');
+    expect(rendered).toContain("⚠ b co-changes with you (5/5 commits, no import edge) — pull b's payload when touching b's code");
   });
 });
 

@@ -134,7 +134,7 @@ describe('formatCellShow', () => {
     const rendered = formatCellShow({ ...ctx, dead, coChange });
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/validate.ts');
-    expect(rendered).toContain("change-coupled cells in git history (last 200 commits — logical coupling imports can't see):");
+    expect(rendered).toContain("change-coupled cells in git history (200 analyzed commits — logical coupling imports can't see):");
     expect(rendered).toContain('  ⚠ ownership — unexplained, no import edge (12/200, 31%)');
   });
 

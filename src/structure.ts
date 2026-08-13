@@ -16,17 +16,6 @@ import type { Ownership } from './ownership.js';
  * All are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
  */
 
-/**
- * Structure governance — three Clean-Architecture principles as pure checks on
- * the crossing graph:
- *   - ADP (Acyclic Dependencies Principle): the cell graph must have no cycles.
- *   - Direction: edges should run toward the core (layer 0); an edge to a
- *     higher layer (core→peripheral) is a Dependency-Inversion smell.
- *   - SDP (Stable Dependencies Principle): edges should run toward stability
- *     (lower I); an edge from a stable cell to a less-stable one is a smell.
- * All are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
- */
-
 /** A cycle — the cells in one strongly-connected component (mutual dependency). */
 export interface Cycle {
   cells: string[]; // sorted; size > 1
@@ -183,7 +172,9 @@ export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetr
 
 /** Format SDP violations as an info-only report. Returns null when there are none. A long
  *  list (pandas: 100+ entries) dominates the structure output, so it's capped — the count
- *  and the first entries carry the signal; the tail of instability numbers is noise. Pure. */ export function formatSdpReport(violations: SdpViolation[]): string | null {
+ *  and the first entries carry the signal; the tail of instability numbers is noise. Pure.
+ */
+export function formatSdpReport(violations: SdpViolation[]): string | null {
   if (violations.length === 0) return null;
   const cap = 20;
   const lines = ['SDP (Stable Dependencies Principle) — edges depending away from stability:'];
@@ -344,7 +335,9 @@ function isCouplingNoise(file: string): boolean {
  * Filters (commit-hygiene, ADR 0002): wide commits (>30% of owned files — mass
  * reformat/rename would dominate every union) and commits whose only owned files
  * are lockfiles/generated are excluded BEFORE pair counting, so the window counts
- * only signal-bearing commits. Pure — the git-fetching lives in diff.ts.
+ * only signal-bearing commits. Pure — the git-fetching lives in diff.ts; the commit
+ * shape is structural (no type import: importing CommitFiles from diff.js would add
+ * a layer-6 edge to this layer-3 cell — a Direction violation).
  */
 export function classifyChangeCoupling(commits: { hash: string; files: string[] }[], ownership: Ownership, crossings: Crossing[]): CouplingResult {
   const fileToCell = new Map<string, string>();
@@ -415,7 +408,10 @@ export function classifyChangeCoupling(commits: { hash: string; files: string[] 
 export function formatChangeCouplingReport(result: CouplingResult): string | null {
   if (result.pairs.length === 0) return null;
   const cap = 20;
-  const lines = [`Change-coupled cells (last ${result.window} commits; co-change >= ${CHANGE_COUPLING.minCoChanges} commits and >= ${Math.round(CHANGE_COUPLING.jaccard * 100)}% of shared history):`];
+  const lines = [
+    `Change-coupled cells (${result.window} analyzed commits; co-change >= ${CHANGE_COUPLING.minCoChanges} commits and >= ${Math.round(CHANGE_COUPLING.jaccard * 100)}% of shared history):`,
+    `  resolutions: merge the cells, re-draw the membrane, declare the hidden channel as requires, or accept (test doubles and config legitimately couple).`,
+  ];
   for (const p of result.pairs.slice(0, cap)) {
     const mark = p.explained ? '  ' : '  ⚠ ';
     const why = p.explained ? 'explained — has import edge' : 'unexplained — no import edge';

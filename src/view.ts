@@ -168,7 +168,7 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   }
   if (coChange.length > 0) {
     lines.push('');
-    lines.push(`change-coupled cells in git history (last ${coChange[0].window} commits — logical coupling imports can't see):`);
+    lines.push(`change-coupled cells in git history (${coChange[0].window} analyzed commits — logical coupling imports can't see):`);
     for (const c of coChange) {
       const mark = c.explained ? '  ' : '  ⚠ ';
       const why = c.explained ? 'explained, has import edge' : 'unexplained, no import edge';

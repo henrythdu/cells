@@ -472,7 +472,7 @@ describe('classifyChangeCoupling', () => {
     expect(formatChangeCouplingReport({ pairs: [], window: 200 })).toBeNull();
     const r = classifyChangeCoupling(coupledCommits(6), ownership, [c('a', 'b')]);
     const report = formatChangeCouplingReport(r)!;
-    expect(report).toContain('Change-coupled cells (last 6 commits;');
+    expect(report).toContain('Change-coupled cells (6 analyzed commits;');
     expect(report).toContain('a ↔ b   explained — has import edge (6/6, 100%)');
     // unexplained gets the warning mark
     const r2 = classifyChangeCoupling(coupledCommits(6), ownership, []);
