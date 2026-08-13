@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveCrossings } from '../src/crossings.js';
-import { coChangePairs, crossingsDelta } from '../src/diff.js';
+import { crossingsDelta, recentCommitFiles } from '../src/diff.js';
 import { collectImportEdges } from '../src/importers.js';
 import type { Ownership } from '../src/ownership.js';
 
@@ -155,7 +155,7 @@ describe('cells crossings --diff (CLI)', () => {
   });
 });
 
-describe('coChangePairs', () => {
+describe('recentCommitFiles', () => {
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'cells-couchange-'));
     process.chdir(repo);
@@ -165,7 +165,7 @@ describe('coChangePairs', () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it('finds files that co-change in the same commit (logical coupling)', () => {
+  it('returns the window commits with FULL per-commit file lists (union math needs every file)', () => {
     mkdirSync(join(repo, 'src'), { recursive: true });
     writeFileSync(join(repo, 'src', 'a.ts'), 'a\n');
     writeFileSync(join(repo, 'src', 'b.ts'), 'b\n');
@@ -178,13 +178,69 @@ describe('coChangePairs', () => {
     writeFileSync(join(repo, 'src', 'c.ts'), 'c\n');
     git('add -A');
     git('commit -m two'); // a + c co-change
-    const pairs = coChangePairs(['src/a.ts']);
-    expect(pairs).toContainEqual({ file: 'src/b.ts', count: 1 });
-    expect(pairs).toContainEqual({ file: 'src/c.ts', count: 1 });
-    expect(coChangePairs([])).toEqual([]);
+    const commits = recentCommitFiles(['src/a.ts'], 10);
+    expect(commits).toHaveLength(2); // both commits touched src/a.ts
+    expect(commits[0]).toMatchObject({ files: expect.arrayContaining(['src/a.ts', 'src/c.ts']) });
+    expect(commits[1]).toMatchObject({ files: expect.arrayContaining(['src/a.ts', 'src/b.ts']) });
   });
 
-  it('returns [] outside a git repo', () => {
-    expect(coChangePairs(['src/a.ts'])).toEqual([]);
+  it('honors the window limit and the owned-files pathspec', () => {
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a\n');
+    writeFileSync(join(repo, 'src', 'b.ts'), 'b\n');
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m one');
+    writeFileSync(join(repo, 'src', 'b.ts'), 'b2\n');
+    git('add -A');
+    git('commit -m two'); // touches b only — outside the a pathspec
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a2\n');
+    git('add -A');
+    git('commit -m three');
+    expect(recentCommitFiles(['src/a.ts'], 1)).toHaveLength(1); // limit
+    expect(recentCommitFiles(['src/a.ts'], 10)).toHaveLength(2); // pathspec: commits touching a only
+  });
+
+  it('sees min(limit, depth) on a shallow clone — the graceful window', () => {
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a\n');
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m one');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a2\n');
+    git('add -A');
+    git('commit -m two');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a3\n');
+    git('add -A');
+    git('commit -m three');
+    const shallow = mkdtempSync(join(tmpdir(), 'cells-shallow-'));
+    try {
+      execSync(`git clone --depth 2 file://${repo} ${join(shallow, 'c')}`, { stdio: 'ignore' });
+      const before = process.cwd();
+      process.chdir(join(shallow, 'c'));
+      try {
+        expect(recentCommitFiles(['src/a.ts'], 10)).toHaveLength(2); // depth 2, not the asked-for 10
+      } finally {
+        process.chdir(before);
+      }
+    } finally {
+      rmSync(shallow, { recursive: true, force: true });
+    }
+  });
+
+  it('returns [] outside a git repo and for empty owned lists', () => {
+    expect(recentCommitFiles(['src/a.ts'])).toEqual([]);
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a\n');
+    git('init');
+    git('config user.email t@t');
+    git('config user.name t');
+    git('add -A');
+    git('commit -m one');
+    expect(recentCommitFiles([])).toEqual([]);
   });
 });

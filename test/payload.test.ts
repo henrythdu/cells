@@ -108,3 +108,18 @@ describe('assemblePayload', () => {
     expect(result).toContain("import { describe, it } from 'vitest';");
   });
 });
+
+describe('change coupling hint', () => {
+  const cell = { name: 'a', purpose: 'p', provides: [], requires: [], layer: 0 };
+
+  it('appends the Change coupling block only when coupled partners are passed (zero tokens when clean)', () => {
+    const clean = assemblePayload(cell, [], {}, []);
+    expect(clean).not.toContain('Change coupling');
+    const withHint = assemblePayload(cell, [], {}, [], undefined, undefined, undefined, undefined, [
+      { cell: 'b', count: 42, window: 200 },
+      { cell: 'c', count: 17, window: 200 },
+    ]);
+    expect(withHint).toContain('## Change coupling');
+    expect(withHint).toContain("⚠ b co-changes with you (42/200 commits, no import edge) — pull b's payload when touching b's code");
+  });
+});

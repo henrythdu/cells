@@ -6,12 +6,13 @@
 
 import { type CrossingsDelta, checkLeakage, computeMetrics } from '../crossings.js';
 import type { Cell } from '../declaration.js';
-import { coChangePairs, crossingsDelta } from '../diff.js';
+import { crossingsDelta, recentCommitFiles } from '../diff.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
 import { type CellsContext, listCodeFiles, readFiles } from '../io.js';
 import { owningCell } from '../ownership.js';
 import { assemblePayload, type CellSize, computePayloadSize, estimateTokens, neighborsOf } from '../payload.js';
 import { loadCrossings, requireCell, warnIfNoCodeFiles } from '../pipeline.js';
+import { classifyChangeCoupling } from '../structure.js';
 import { staleProvidesOf } from '../validate.js';
 import { type CellSmell, formatCellList, formatCellShow } from '../view.js';
 
@@ -176,8 +177,19 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const deadFiles = ownedFiles.filter((f) => !externallyImported.has(f));
   // Unresolved imports FROM this cell's files (loadCrossings already filtered to owned files).
   const cellUnresolved = unresolved.filter((u) => ownedSet.has(u.fromFile)).map((u) => u.import);
-  // Logical coupling: files that co-change with this cell's files in git history.
-  const coChange = coChangePairs(ownedFiles).map((c) => ({ ...c, cell: owningCell(ownership, c.file) }));
+  // Change coupling (ADR 0002): cell pairs that co-change with this cell in git
+  // history, classified against the crossing graph (explained = has import edge).
+  const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
+  const coChange = coupling.pairs
+    .filter((p) => p.a === name || p.b === name)
+    .slice(0, 5)
+    .map((p) => ({
+      cell: p.a === name ? p.b : p.a,
+      count: p.count,
+      window: coupling.window,
+      jaccard: p.jaccard,
+      explained: p.explained,
+    }));
   // Membrane drift: provides entries no owned file references (rides the contents read above).
   const staleProvides = staleProvidesOf(cell, ownedFiles, contents);
   process.stdout.write(

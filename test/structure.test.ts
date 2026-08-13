@@ -4,9 +4,11 @@ import type { Cell } from '../src/declaration.js';
 import {
   checkDirection,
   checkSDP,
+  classifyChangeCoupling,
   computeImpact,
   cycleCutCandidates,
   detectCycles,
+  formatChangeCouplingReport,
   formatImpactReport,
   formatLayerOverview,
   formatLayerSuggestions,
@@ -381,5 +383,99 @@ describe('formatLayerSuggestions', () => {
       a: { name: 'a', purpose: '', provides: [], requires: [], layer: 3 },
     };
     expect(formatLayerSuggestions(decls)).toBeNull();
+  });
+});
+
+describe('classifyChangeCoupling', () => {
+  /** A commit touching the given files (hash is irrelevant to classification). */
+  const commit = (files: string[]): { hash: string; files: string[] } => ({ hash: 'h', files });
+  const ownership: Record<string, string[]> = {
+    a: ['src/a.ts'],
+    b: ['src/b.ts'],
+    c: ['src/c.ts'],
+    d: ['src/d.ts'],
+  };
+  /** n commits each touching both a and b (the coupled pair), plus one untouched cell d. */
+  const coupledCommits = (n: number) => {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(commit(['src/a.ts', 'src/b.ts']));
+    return out;
+  };
+
+  it('flags an unexplained pair (no crossing edge) above floor + Jaccard', () => {
+    const r = classifyChangeCoupling(coupledCommits(6), ownership, []);
+    expect(r.window).toBe(6);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0]).toMatchObject({ a: 'a', b: 'b', count: 6, union: 6, jaccard: 1, explained: false });
+  });
+
+  it('marks a pair explained when a crossing edge exists (dependency ripple is the null hypothesis)', () => {
+    const r = classifyChangeCoupling(coupledCommits(6), ownership, [c('a', 'b')]);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0].explained).toBe(true);
+  });
+
+  it('drops pairs below the co-change floor', () => {
+    expect(classifyChangeCoupling(coupledCommits(4), ownership, [])).toEqual({ pairs: [], window: 4 });
+  });
+
+  it('drops pairs below the Jaccard threshold (rate, not raw count)', () => {
+    // 8 commits: 5 touch a+b, 10 more touch b alone → union 15, jaccard 5/15 = 0.33 — above.
+    // Push the union up: 12 b-only commits → union 17, jaccard 0.29 — below.
+    const commits = [...coupledCommits(5), ...Array.from({ length: 12 }, () => commit(['src/b.ts']))];
+    expect(classifyChangeCoupling(commits, ownership, [])).toEqual({ pairs: [], window: 17 });
+  });
+
+  it('excludes wide commits (mass refactor/format) — but only above the absolute floor', () => {
+    // 40 owned files: a commit touching 15 of them (37.5%) with >10 files = wide → excluded.
+    const bigOwnership: Record<string, string[]> = { a: ['src/a.ts'], b: ['src/b.ts'] };
+    for (let i = 0; i < 38; i++) bigOwnership[`x${i}`] = [`src/x${i}.ts`];
+    const wide = { hash: 'w', files: ['src/a.ts', 'src/b.ts', ...Array.from({ length: 13 }, (_, i) => `src/x${i}.ts`)] };
+    // 6 normal a+b commits + 1 wide a+b commit — if the wide one counted, count=7; excluded → 6.
+    const r = classifyChangeCoupling([...coupledCommits(6), wide], bigOwnership, []);
+    expect(r.window).toBe(6);
+    expect(r.pairs[0].count).toBe(6);
+    // but a small repo (3 owned files): a 2-file commit is 66% yet under the 10-file floor — kept
+    const small = classifyChangeCoupling(coupledCommits(6), ownership, []);
+    expect(small.window).toBe(6);
+  });
+
+  it('excludes lockfile/generated-only commits (dependency bumps)', () => {
+    const commits = [
+      ...coupledCommits(6),
+      commit(['src/a.ts', 'src/b.ts', 'pnpm-lock.yaml']), // mixed: kept, not noise-only
+      commit(['pnpm-lock.yaml', 'package-lock.json']), // noise-only: excluded, touches no owned cell anyway
+      commit(['dist/app.wasm']), // generated: excluded (also unowned here)
+    ];
+    const r = classifyChangeCoupling(commits, ownership, []);
+    expect(r.window).toBe(7); // 6 + the mixed one
+  });
+
+  it('returns empty for no commits, no ownership, or nothing over threshold', () => {
+    expect(classifyChangeCoupling([], ownership, [])).toEqual({ pairs: [], window: 0 });
+    expect(classifyChangeCoupling(coupledCommits(6), {}, [])).toEqual({ pairs: [], window: 0 });
+    // c+d co-change twice only — below floor
+    const r = classifyChangeCoupling([commit(['src/c.ts', 'src/d.ts']), commit(['src/c.ts', 'src/d.ts'])], ownership, []);
+    expect(r.pairs).toEqual([]);
+  });
+
+  it('sorts unexplained first, then by count desc, then names', () => {
+    const commits = [
+      ...coupledCommits(8), // a|b unexplained, count 8
+      ...Array.from({ length: 6 }, () => commit(['src/c.ts', 'src/d.ts'])), // c|d explained? no edge → unexplained count 6
+    ];
+    const r = classifyChangeCoupling(commits, ownership, [c('a', 'b')]); // explain a|b
+    expect(r.pairs.map((p) => `${p.a}|${p.b}`)).toEqual(['c|d', 'a|b']);
+  });
+
+  it('formatChangeCouplingReport renders the ranked list and nulls when clean', () => {
+    expect(formatChangeCouplingReport({ pairs: [], window: 200 })).toBeNull();
+    const r = classifyChangeCoupling(coupledCommits(6), ownership, [c('a', 'b')]);
+    const report = formatChangeCouplingReport(r)!;
+    expect(report).toContain('Change-coupled cells (last 6 commits;');
+    expect(report).toContain('a ↔ b   explained — has import edge (6/6, 100%)');
+    // unexplained gets the warning mark
+    const r2 = classifyChangeCoupling(coupledCommits(6), ownership, []);
+    expect(formatChangeCouplingReport(r2)!).toContain('⚠ a ↔ b   unexplained — no import edge (6/6, 100%)');
   });
 });

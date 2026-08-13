@@ -128,14 +128,21 @@ describe('formatCellShow', () => {
   const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [], staleProvides: [], unresolved: [] };
   const out2 = formatCellShow(ctx);
 
-  it('lists dead-at-boundary files and co-change partners when present', () => {
+  it('lists dead-at-boundary files and change-coupled partners when present', () => {
     const dead = ['src/validate.ts'];
-    const coChange = [{ file: 'src/ownership.ts', cell: 'ownership', count: 12 }];
+    const coChange = [{ cell: 'ownership', count: 12, window: 200, jaccard: 0.31, explained: false }];
     const rendered = formatCellShow({ ...ctx, dead, coChange });
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/validate.ts');
-    expect(rendered).toContain("co-changes in git history (same-commit pairs — logical coupling imports can't see):");
-    expect(rendered).toContain('  src/ownership.ts  (cell ownership · 12×)');
+    expect(rendered).toContain("change-coupled cells in git history (last 200 commits — logical coupling imports can't see):");
+    expect(rendered).toContain('  ⚠ ownership — unexplained, no import edge (12/200, 31%)');
+  });
+
+  it('marks an explained change partner (has import edge) without the warning mark', () => {
+    const coChange = [{ cell: 'ownership', count: 30, window: 200, jaccard: 0.15, explained: true }];
+    const rendered = formatCellShow({ ...ctx, coChange });
+    expect(rendered).toContain('  ownership — explained, has import edge (30/200, 15%)');
+    expect(rendered).not.toContain('⚠ ownership');
   });
 
   it("lists the cell's unresolved imports when present (structure fact, not a nudge)", () => {

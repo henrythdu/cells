@@ -5,12 +5,26 @@
  *  cells into one verdict — the surface CI and the stress agent run. */
 
 import { checkLeakage, computeMetrics } from './crossings.js';
+import { recentCommitFiles } from './diff.js';
 import { checkGrammars } from './importers.js';
 import type { UnresolvedImport } from './imports.js';
 import { type CellsContext, listCodeFiles, readFiles } from './io.js';
 import { computePayloadSize, estimateTokens, neighborsOf } from './payload.js';
 import { loadCrossings, requireCell, warnIfNoCodeFiles } from './pipeline.js';
-import { checkDirection, checkSDP, computeImpact, detectCycles, formatImpactReport, formatLayerOverview, formatLayerSuggestions, formatSdpReport, formatStructureReport, formatStructureSummary } from './structure.js';
+import {
+  checkDirection,
+  checkSDP,
+  classifyChangeCoupling,
+  computeImpact,
+  detectCycles,
+  formatChangeCouplingReport,
+  formatImpactReport,
+  formatLayerOverview,
+  formatLayerSuggestions,
+  formatSdpReport,
+  formatStructureReport,
+  formatStructureSummary,
+} from './structure.js';
 import { type StaleProvide, staleProvidesOf, validatePartition } from './validate.js';
 import { formatHealthReport, formatSizeReport, type PeelCandidate } from './view.js';
 
@@ -50,9 +64,17 @@ export async function cmdStructure(ctx: CellsContext, summary = false): Promise<
 
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const sdp = checkSDP(crossings, metrics);
+  // ADR 0002: change-coupled cells — advisory only (exit 0), history-derived signal
+  // with a past-tense bias, the opposite of the deterministic facts the gate is built on.
+  const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
 
   if (summary) {
-    process.stdout.write(formatStructureSummary(cycles, violations, anyLayered, crossings, sdp.length));
+    process.stdout.write(
+      formatStructureSummary(cycles, violations, anyLayered, crossings, sdp.length, {
+        unexplained: coupling.pairs.filter((p) => !p.explained).length,
+        total: coupling.pairs.length,
+      }),
+    );
     return;
   }
 
@@ -65,6 +87,9 @@ export async function cmdStructure(ctx: CellsContext, summary = false): Promise<
 
   const sdpReport = formatSdpReport(sdp);
   if (sdpReport !== null) process.stdout.write(`\n${sdpReport}`);
+
+  const couplingReport = formatChangeCouplingReport(coupling);
+  if (couplingReport !== null) process.stdout.write(`\n${couplingReport}`);
 }
 
 /** `cells impact <name>` — blast radius: who transitively depends on this cell? */

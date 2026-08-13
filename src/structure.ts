@@ -1,5 +1,20 @@
+import { CHANGE_COUPLING } from './config.js';
 import type { CellMetrics, Crossing } from './crossings.js';
 import type { Cell } from './declaration.js';
+import type { Ownership } from './ownership.js';
+
+/**
+ * Structure governance — three Clean-Architecture principles as pure checks on
+ * the crossing graph:
+ *   - ADP (Acyclic Dependencies Principle): the cell graph must have no cycles.
+ *   - Direction: edges should run toward the core (layer 0); an edge to a
+ *     higher layer (core→peripheral) is a Dependency-Inversion smell.
+ *   - SDP (Stable Dependencies Principle): edges should run toward stability
+ *     (lower I); an edge from a stable cell to a less-stable one is a smell.
+ * Plus change coupling (ADR 0002): cell pairs that co-change in git history
+ * without a crossing edge — shared change reason, invisible to imports.
+ * All are WARNINGS (exit 0). The IO/CLI layer supplies crossings + config.
+ */
 
 /**
  * Structure governance — three Clean-Architecture principles as pure checks on
@@ -168,8 +183,7 @@ export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetr
 
 /** Format SDP violations as an info-only report. Returns null when there are none. A long
  *  list (pandas: 100+ entries) dominates the structure output, so it's capped — the count
- *  and the first entries carry the signal; the tail of instability numbers is noise. Pure. */
-export function formatSdpReport(violations: SdpViolation[]): string | null {
+ *  and the first entries carry the signal; the tail of instability numbers is noise. Pure. */ export function formatSdpReport(violations: SdpViolation[]): string | null {
   if (violations.length === 0) return null;
   const cap = 20;
   const lines = ['SDP (Stable Dependencies Principle) — edges depending away from stability:'];
@@ -255,7 +269,7 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
  *  a Direction count, and a collapsed SDP count — the overview for high-cycle repos
  *  (kafka 19, elasticsearch 126) where the full cycle chains dominate the output.
  *  Cycles sorted by size desc (the mega-cycle is the headline). Pure. */
-export function formatStructureSummary(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, crossings: Crossing[] = [], sdpCount = 0): string {
+export function formatStructureSummary(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, crossings: Crossing[] = [], sdpCount = 0, coupling?: { unexplained: number; total: number }): string {
   const lines: string[] = [];
 
   if (cycles.length === 0) {
@@ -286,6 +300,128 @@ export function formatStructureSummary(cycles: Cycle[], violations: DirectionVio
   }
 
   lines.push(`SDP: ${sdpCount} violation(s).`);
+  if (coupling && coupling.total > 0) {
+    lines.push(`Change coupling: ${coupling.unexplained} unexplained pair(s), ${coupling.total} total.`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+/** A cell-pair change-coupling finding (ADR 0002): how often two cells co-change in git
+ *  history, and whether a crossing edge explains it. count = commits touching both;
+ *  union = commits touching either; jaccard = count/union. explained = a crossing edge
+ *  exists between the pair (dependency ripple — the null hypothesis). */
+interface CoupledPair {
+  a: string;
+  b: string;
+  count: number;
+  union: number;
+  jaccard: number;
+  explained: boolean;
+}
+
+/** The full change-coupling result: surviving pairs + the commit window they were
+ *  counted over (the window shrinks when history is short — the rate denominator). */
+export interface CouplingResult {
+  pairs: CoupledPair[];
+  window: number;
+}
+
+/** Is `file` a lockfile or generated artifact (co-changes with everything — noise)? */
+function isCouplingNoise(file: string): boolean {
+  if (CHANGE_COUPLING.lockfiles.some((l) => file === l || file.endsWith('/' + l))) return true;
+  return CHANGE_COUPLING.generated.some((g) => file.endsWith(g));
+}
+
+/**
+ * Classify cell-pair co-change from git history against the crossing graph.
+ * Per commit (post-filter): every touched cell pair gets +1 co-change; the Jaccard
+ * rate is count / union of per-cell touch counts. Pairs below the floor/threshold
+ * are dropped. `explained` = a crossing edge exists between the pair (dependency
+ * ripple — normal); unexplained pairs are the smell (shared change reason with no
+ * structural channel — the membrane split is wrong, or a hidden channel like a
+ * shared config/schema needs declaring).
+ *
+ * Filters (commit-hygiene, ADR 0002): wide commits (>30% of owned files — mass
+ * reformat/rename would dominate every union) and commits whose only owned files
+ * are lockfiles/generated are excluded BEFORE pair counting, so the window counts
+ * only signal-bearing commits. Pure — the git-fetching lives in diff.ts.
+ */
+export function classifyChangeCoupling(commits: { hash: string; files: string[] }[], ownership: Ownership, crossings: Crossing[]): CouplingResult {
+  const fileToCell = new Map<string, string>();
+  let ownedTotal = 0;
+  for (const [cell, files] of Object.entries(ownership)) {
+    for (const f of files) {
+      fileToCell.set(f, cell);
+      ownedTotal++;
+    }
+  }
+  if (ownedTotal === 0) return { pairs: [], window: 0 };
+
+  const edgeSet = new Set<string>();
+  for (const c of crossings) {
+    if (c.fromCell !== c.toCell) {
+      edgeSet.add(`${c.fromCell}|${c.toCell}`);
+      edgeSet.add(`${c.toCell}|${c.fromCell}`);
+    }
+  }
+
+  const touches = new Map<string, number>(); // cell → commits touching it
+  const coChange = new Map<string, number>(); // "a|b" (a < b) → commits touching both
+  let window = 0;
+  for (const commit of commits) {
+    const cells = new Set<string>();
+    let ownedInCommit = 0;
+    let noiseOnly = true;
+    for (const f of commit.files) {
+      const cell = fileToCell.get(f);
+      if (cell === undefined) continue;
+      ownedInCommit++;
+      cells.add(cell);
+      if (!isCouplingNoise(f)) noiseOnly = false;
+    }
+    if (cells.size === 0) continue;
+    if (ownedInCommit > CHANGE_COUPLING.wideCommitMin && ownedInCommit / ownedTotal > CHANGE_COUPLING.wideCommitRatio) continue; // mass refactor/format
+    if (noiseOnly) continue; // lockfile/generated-only commit (dependency bump)
+    window++;
+    for (const cell of cells) touches.set(cell, (touches.get(cell) ?? 0) + 1);
+    const sorted = [...cells].sort();
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const key = `${sorted[i]}|${sorted[j]}`;
+        coChange.set(key, (coChange.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  const pairs: CoupledPair[] = [];
+  for (const [key, count] of coChange) {
+    if (count < CHANGE_COUPLING.minCoChanges) continue;
+    const [a, b] = key.split('|');
+    const union = (touches.get(a) ?? 0) + (touches.get(b) ?? 0) - count;
+    if (union <= 0) continue;
+    const jaccard = count / union;
+    if (jaccard < CHANGE_COUPLING.jaccard) continue;
+    pairs.push({ a, b, count, union, jaccard, explained: edgeSet.has(key) });
+  }
+  // unexplained (the smell) first, then by co-change count desc, then names — stable
+  // and deterministic (window noise can't reorder beyond the primary keys).
+  pairs.sort((x, y) => Number(x.explained) - Number(y.explained) || y.count - x.count || x.a.localeCompare(y.a) || x.b.localeCompare(y.b));
+  return { pairs, window };
+}
+
+/** Format change-coupled pairs as an advisory report. Returns null when clean (no pairs
+ *  over threshold) — the section vanishes, matching formatSdpReport. Capped like SDP:
+ *  a 100-pair list is noise; the count + the worst entries carry the signal. Pure. */
+export function formatChangeCouplingReport(result: CouplingResult): string | null {
+  if (result.pairs.length === 0) return null;
+  const cap = 20;
+  const lines = [`Change-coupled cells (last ${result.window} commits; co-change >= ${CHANGE_COUPLING.minCoChanges} commits and >= ${Math.round(CHANGE_COUPLING.jaccard * 100)}% of shared history):`];
+  for (const p of result.pairs.slice(0, cap)) {
+    const mark = p.explained ? '  ' : '  ⚠ ';
+    const why = p.explained ? 'explained — has import edge' : 'unexplained — no import edge';
+    lines.push(`${mark}${p.a} ↔ ${p.b}   ${why} (${p.count}/${result.window}, ${Math.round(p.jaccard * 100)}%)`);
+  }
+  if (result.pairs.length > cap) lines.push(`  …and ${result.pairs.length - cap} more (${result.pairs.length} total)`);
   return lines.join('\n') + '\n';
 }
 

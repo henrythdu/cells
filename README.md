@@ -110,7 +110,7 @@ cells list                          # see the whole partition
 | `cells remove <cell> [--force]` | delete a cell's declaration (ownership freed → orphans unless `--force` also clears them) |
 | `cells owns <file>` | which cell owns this file? (reverse lookup; orphan-aware) |
 | `cells list [--verbose]` | partition overview: each cell's files / size / fan-in·fan-out / requires + orphans; `--verbose` adds a per-cell health line (size%, stale provides, unresolved) |
-| `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size + dead-at-boundary files + co-changes + stale provides + unresolved imports |
+| `cells show <name> [--verbose]` | one cell's membrane + in/out crossings (aggregated past 8 edges; `--verbose` for raw) + fan-in/fan-out/instability + size + dead-at-boundary files + change-coupled partners + stale provides + unresolved imports |
 | `cells surface <name>` | print the cell's export-like declaration lines (file:line) — the starting point for populating the membrane `signatures` field |
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors + the cells that depend on you) — the context to work it |

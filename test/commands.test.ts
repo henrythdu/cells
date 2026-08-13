@@ -51,22 +51,33 @@ function git(args: string): void {
   execSync(`git ${args}`, { cwd: repo, stdio: 'ignore' });
 }
 
-/** A python fixture: cells a + b (no imports anywhere) + a committed HEAD, so cmdShow can
- *  render dead-at-boundary (nobody imports c.py) and co-change (c.py + b.py share commit 1). */
+/** A python fixture: cells a + b + c (no imports anywhere) + a committed history where
+ *  b.py + c.py co-change in 5 commits (>= the floor) and a.py never moves — so cmdShow
+ *  can render dead-at-boundary (nobody imports c.py) and an UNEXPLAINED change-coupled
+ *  pair (b ↔ c, no crossing edge). a.py exists so b+c commits aren't 100% of owned
+ *  files; the wide-commit filter needs >10 files or >30% — 2/3 stays under both. */
 function setupShowRepo(): void {
   mkdirSync(join(repo, 'src'), { recursive: true });
   mkdirSync(join(repo, '.cells'), { recursive: true });
   writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".py"]\nmodule-root = "src"\n');
+  writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\nlayer = 0\n');
   writeFileSync(join(repo, '.cells', 'c.cell.toml'), 'name = "c"\npurpose = "p"\nprovides = ["z"]\nrequires = []\nlayer = 0\n');
-  writeFileSync(join(repo, '.cells', 'ownership.toml'), '[b]\nfiles = ["src/b.py"]\n[c]\nfiles = ["src/c.py"]\n');
-  writeFileSync(join(repo, 'src', 'b.py'), 'y = 2\n');
+  writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.py"]\n[b]\nfiles = ["src/b.py"]\n[c]\nfiles = ["src/c.py"]\n');
+  writeFileSync(join(repo, 'src', 'a.py'), 'x = 1\n');
+  writeFileSync(join(repo, 'src', 'b.py'), 'y = 1\n'); // must differ from the i=2 write or git stages nothing
   writeFileSync(join(repo, 'src', 'c.py'), 'z = 3\n');
   git('init');
   git('config user.email t@t');
   git('config user.name t');
   git('add -A');
-  git('commit -m one'); // b + c co-change (both new)
+  git('commit -m one'); // a + b + c co-change (all new)
+  for (let i = 2; i <= 5; i++) {
+    writeFileSync(join(repo, 'src', 'b.py'), `y = ${i}\n`);
+    writeFileSync(join(repo, 'src', 'c.py'), `z = ${i}\n`);
+    git('add -A');
+    git('commit -m two'); // b + c co-change (4 more times)
+  }
 }
 
 describe('commands/read — the assembly the CLI tests only reach indirectly', () => {
@@ -96,8 +107,8 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     const rendered = out.join('');
     expect(rendered).toContain('no other cell imports (static view — check for entry points before deleting):');
     expect(rendered).toContain('  src/c.py'); // dead — nothing imports it
-    expect(rendered).toContain('co-changes in git history');
-    expect(rendered).toContain('src/b.py  (cell b · 1×)'); // c.py + b.py co-changed in commit 1
+    expect(rendered).toContain("change-coupled cells in git history (last 5 commits — logical coupling imports can't see):");
+    expect(rendered).toContain('  ⚠ b — unexplained, no import edge (5/5, 100%)'); // b.py + c.py co-changed in 5/5 commits
   });
 });
 

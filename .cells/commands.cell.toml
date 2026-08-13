@@ -20,5 +20,6 @@ requires = [
   "declaration",
   "ownership",
   "validate",
+  "structure",
 ]
 layer = 6

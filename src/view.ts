@@ -107,7 +107,8 @@ export interface CellShowContext {
   size: CellSize;
   metrics: CellMetrics;
   dead: string[];
-  coChange: { file: string; cell: string | undefined; count: number }[];
+  /** Change partners above threshold, classified against crossings (ADR 0002). */
+  coChange: { cell: string; count: number; window: number; jaccard: number; explained: boolean }[];
   staleProvides: { cell: string; provide: string }[];
   /** Import specifiers from this cell's files that resolved to no owned file. */
   unresolved: string[];
@@ -167,8 +168,12 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   }
   if (coChange.length > 0) {
     lines.push('');
-    lines.push(`co-changes in git history (same-commit pairs — logical coupling imports can't see):`);
-    for (const c of coChange) lines.push(`  ${c.file}  (${c.cell ? `cell ${c.cell} · ` : ''}${c.count}×)`);
+    lines.push(`change-coupled cells in git history (last ${coChange[0].window} commits — logical coupling imports can't see):`);
+    for (const c of coChange) {
+      const mark = c.explained ? '  ' : '  ⚠ ';
+      const why = c.explained ? 'explained, has import edge' : 'unexplained, no import edge';
+      lines.push(`${mark}${c.cell} — ${why} (${c.count}/${c.window}, ${Math.round(c.jaccard * 100)}%)`);
+    }
   }
   return `${lines.join('\n')}\n`;
 }

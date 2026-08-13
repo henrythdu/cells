@@ -18,6 +18,34 @@ export interface CellsConfig {
  */
 export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
+/** Change-coupling analysis knobs (ADR 0002 — change-coupled cells). Fixed constants,
+ *  dogfooded on real repos before they'd ever move to config.toml. One tunable spot. */
+export const CHANGE_COUPLING = {
+  /** Recent-commit window: last N commits touching any owned file. The current
+   *  development focus, not ancient history — the axis of change is where change
+   *  happens now. Shallow clones see min(N, depth). */
+  window: 200,
+  /** Jaccard |A∩B| / |A∪B| floor — of every ~3 commits touching either cell, >=1
+   *  touches both. */
+  jaccard: 0.3,
+  /** Absolute co-change commit floor — kills small-sample noise on quiet repos. */
+  minCoChanges: 5,
+  /** A commit touching >30% of owned files is a mass refactor/format pass — it would
+   *  dominate every pair's union and union Jaccard is meaningless; excluded. Exactly
+   *  30% is NOT wide (matches the `> ratio` comparison). Absolute floor too: on a
+   *  small repo (4 files) a 2-file commit is 50% but is NOT a reformat pass — the
+   *  ratio only bites once the commit is ALSO larger than wideCommitMin files. */
+  wideCommitRatio: 0.3,
+  /** See wideCommitRatio — a commit smaller than this many owned files is never wide. */
+  wideCommitMin: 10,
+  /** Commits whose only owned files are these are dependency-bump noise — a lockfile
+   *  co-changes with every unrelated change. Root-level + nested. */
+  lockfiles: ['package-lock.json', 'pnpm-lock.yaml', 'Cargo.lock', 'yarn.lock', 'go.sum'],
+  /** Generated artifacts co-change with everything. Minimal list; .map deliberately
+   *  skipped (source maps sit beside real sources in commits). */
+  generated: ['.wasm', '.min.js'],
+} as const;
+
 /** Default `.cells/config.toml` written by `cells init` when no code is detected (empty repo).
  *  Filled with TS defaults + comments so every key is visible; deleting one reverts to its
  *  default (see `parseConfig`). Round-trips through `parseConfig` (verified in config.test.ts). */

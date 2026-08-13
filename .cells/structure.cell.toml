@@ -12,6 +12,8 @@ provides = [
   "computeImpact",
   "formatImpactReport",
   "formatStructureSummary",
+  "classifyChangeCoupling",
+  "formatChangeCouplingReport",
 ]
-requires = ["crossings", "declaration"]
+requires = ["crossings", "declaration", "config", "ownership"]
 layer = 3

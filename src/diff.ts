@@ -76,19 +76,27 @@ export async function crossingsDelta(working: Crossing[], ownership: Ownership):
   }
 }
 
+/** One commit's full changed-file list (the change-coupling input shape). */
+export interface CommitFiles {
+  hash: string;
+  files: string[];
+}
+
 /**
- * Logical coupling: files that co-change with `files` in git history (same-commit
- * co-occurrence) — dependencies the import graph can't see. Top partners by count,
- * the shown cell's own files excluded. [] when not a git repo or no history. Source-
- * based (reads git history, never executes code) — the behavioral axis crossings lack.
+ * The last `limit` commits touching any owned file, each with its FULL changed-file
+ * list (not pathspec-limited — union/Jaccard math needs every file in the commit).
+ * The change-coupling analysis (ADR 0002) builds on this; [] when not a git repo,
+ * no history, or a git call blew up (shallow clone → min(limit, depth) commits).
+ * Source-based (reads git history, never executes code) — the behavioral axis
+ * crossings lack.
  */
-export function coChangePairs(files: string[]): { file: string; count: number }[] {
-  if (files.length === 0 || !isGitRepo()) return [];
-  // Step 1: the commits that touched these files (pathspec limits --name-only to the
-  // matching files, so the full per-commit file lists must come from a second call).
+export function recentCommitFiles(ownedFiles: string[], limit = 200): CommitFiles[] {
+  if (ownedFiles.length === 0 || !isGitRepo()) return [];
+  // Step 1: the commits that touched these files (pathspec limits the log to the
+  // matching files — the full per-commit file lists come from a second call).
   let hashes: string;
   try {
-    hashes = execFileSync('git', ['log', '--format=%H', '--', ...files], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    hashes = execFileSync('git', ['log', '-n', String(limit), '--format=%H', '--', ...ownedFiles], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   } catch {
     return []; // no HEAD yet / history unavailable
   }
@@ -100,29 +108,22 @@ export function coChangePairs(files: string[]): { file: string; count: number }[
   // Step 2: each commit's FULL changed-file list (git show does not traverse ancestry).
   // --diff-merges=first-parent: git show defaults to a COMBINED diff for merge commits, which
   // omits cleanly-merged files — the first-parent view lists everything the merge brought in.
-  // ponytail: hashList length is bounded by commits touching the cell's files; ~41 chars/hash,
-  // ARG_MAX ~2MB → tens of thousands of hashes would overflow, caught below as [] (no co-changes).
+  // ponytail: limit bounds hashList (~41 chars/hash, 200 ≈ 8KB — ARG_MAX safe); the 64MB
+  // maxBuffer bounds pathological commits; overflow → [] (no coupling signal, same as today).
   let out: string;
   try {
     out = execFileSync('git', ['show', '--name-only', '--diff-merges=first-parent', '--format=%H', ...hashList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   } catch {
     return [];
   }
-  const owned = new Set(files);
-  const counts = new Map<string, number>();
+  const commits: { hash: string; files: string[] }[] = [];
   // Per commit: `hash\n\nfile1\nfile2\n` — commits separated by a single \n, so split
   // on the hash that starts each record rather than on blank lines (which only separate
   // the hash from its own file list).
   const commitRe = /([0-9a-f]{40,64})\n\n([\s\S]*?)(?=\n[0-9a-f]{40,64}\n\n|$)/g;
   for (const m of out.matchAll(commitRe)) {
     const changed = m[2].split('\n').filter((f) => f.length > 0);
-    if (!changed.some((f) => owned.has(f))) continue; // only commits touching the cell's files
-    for (const f of changed) {
-      if (!owned.has(f)) counts.set(f, (counts.get(f) ?? 0) + 1);
-    }
+    if (changed.length > 0) commits.push({ hash: m[1], files: changed });
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([file, count]) => ({ file, count }));
+  return commits;
 }

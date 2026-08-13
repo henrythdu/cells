@@ -17,5 +17,6 @@ requires = [
   "importers",
   "imports",
   "validate",
+  "diff",
 ]
 layer = 6

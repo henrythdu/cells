@@ -35,7 +35,17 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], fileContent
  * Pure: takes resolved data (no FS access). The CLI layer reads files
  * from disk and resolves neighbors from the declarations map.
  */
-export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], dependedByCount?: number, testFiles?: string[], testContents?: Record<string, string>, dependents?: Cell[]): string {
+export function assemblePayload(
+  cell: Cell,
+  ownedFiles: string[],
+  fileContents: Record<string, string>,
+  neighbors: Cell[],
+  dependedByCount?: number,
+  testFiles?: string[],
+  testContents?: Record<string, string>,
+  dependents?: Cell[],
+  coupled?: { cell: string; count: number; window: number }[],
+): string {
   const lines: string[] = [];
 
   lines.push(`# Cell: ${cell.name}`);
@@ -48,6 +58,16 @@ export function assemblePayload(cell: Cell, ownedFiles: string[], fileContents: 
     lines.push('');
     lines.push('## Context');
     lines.push(dependedByCount > 0 ? `impact: ${dependedByCount} cell(s) directly depend on this cell. Run \`cells impact ${cell.name}\` for full transitive blast radius.` : `impact: no cells depend on this cell (leaf).`);
+  }
+  if (coupled && coupled.length > 0) {
+    // ADR 0002: unexplained change partners make THIS payload incomplete — the model
+    // can't see the other cell, and touching it would trip the undeclared-crossing gate.
+    // Only in the coupled case: zero tokens when the cell is clean.
+    lines.push('');
+    lines.push('## Change coupling');
+    for (const c of coupled) {
+      lines.push(`- ⚠ ${c.cell} co-changes with you (${c.count}/${c.window} commits, no import edge) — pull ${c.cell}'s payload when touching ${c.cell}'s code`);
+    }
   }
   lines.push('');
   lines.push('## Your code');

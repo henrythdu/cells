@@ -75,7 +75,7 @@ const COMMANDS: Record<string, Command> = {
   owns: { usage: 'cells owns <file>', desc: 'which cell owns this file? (reverse lookup)', minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdOwns(ctx!, a[0]) },
   show: {
     usage: 'cells show <name> [--verbose]',
-    desc: 'one cell: membrane + in/out crossings + fan-in/out/instability + size, dead-at-boundary files, co-changes, stale provides, unresolved imports',
+    desc: 'one cell: membrane + in/out crossings + fan-in/out/instability + size, dead-at-boundary files, change-coupled partners, stale provides, unresolved imports',
     minArgs: 1,
     needsCells: true,
     run: (a, _d, ctx) => cmdShow(ctx!, a.filter((x) => !x.startsWith('--'))[0]!, a.includes('--verbose')),
