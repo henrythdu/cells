@@ -41,12 +41,6 @@ export function serializeOwnership(ownership: Ownership): string {
   // The map is the one central write hotspot in a multi-author repo; with this format
   // two branches touching different cells produce disjoint line ranges and git
   // auto-merges them — the format must not amplify the hotspot into whole-file conflicts.
-  // Deterministic serialization: cells sorted, files sorted, one file per line. Default
-  // .sort() = plain code-unit order — deliberately NOT localeCompare, which is
-  // host-locale-dependent and would betray the determinism this format exists for.
-  // The map is the one central write hotspot in a multi-author repo; with this format
-  // two branches touching different cells produce disjoint line ranges and git
-  // auto-merges them — the format must not amplify the hotspot into whole-file conflicts.
   return Object.keys(ownership)
     .sort()
     .map((cell) => {

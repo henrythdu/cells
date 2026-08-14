@@ -87,14 +87,14 @@ describe('checkOffMembrane — the provides contract check (warning-only)', () =
     const declarations = decls({ a: [], b: [] });
     declarations.b.provides = ['parse']; // stringify missing
     const off = checkOffMembrane(edges, ownership, declarations);
-    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', imported: ['parse', 'stringify'], missing: ['stringify'], emptyProvides: false }]);
+    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', importedCount: 2, missing: ['stringify'], emptyProvides: false }]);
   });
 
   it('an empty provides list is the membrane-incomplete form (all imports missing)', () => {
     const edges: ImportEdge[] = [{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b', symbols: ['parse'] }];
     const declarations = decls({ a: [], b: [] }); // b.provides = []
     const off = checkOffMembrane(edges, ownership, declarations);
-    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', imported: ['parse'], missing: ['parse'], emptyProvides: true }]);
+    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', importedCount: 1, missing: ['parse'], emptyProvides: true }]);
   });
 
   it('all symbols in provides → clean; symbolless edges (module deps) are exempt by construction', () => {

@@ -122,10 +122,9 @@ function derivedFacts(ctx: ResolveCtx): { localPackages: Set<string>; codeDirs: 
       const firstSeg = mod.split('.')[0];
       if (firstSeg) localPackages.add(firstSeg);
     }
-    const baseDir = ctx.baseDir ?? '.';
     const bd = ctx.baseDir;
     const codeDirs = bd ? ctx.codeDirs.map((d) => (d.startsWith(`${bd}/`) ? d.slice(bd.length + 1) : d)) : ctx.codeDirs;
-    facts = { localPackages, codeDirs, baseDir };
+    facts = { localPackages, codeDirs, baseDir: bd ?? '.' };
     factsByCtx.set(ctx, facts);
   }
   return facts;

@@ -157,7 +157,7 @@ describe('planGroups', () => {
     expect(g.has('.')).toBe(false); // never the catch-all
   });
 
-  it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion ', () => {
+  it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('Cargo.toml', '[package]\nname = "cxx"\n');
     touch('src/lib.rs');
@@ -210,7 +210,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['crates/uv', 'crates/uv/xtask']);
   });
 
-  it('Python __init__.py dirs are hard boundaries — nested packages stay separate ', () => {
+  it('Python __init__.py dirs are hard boundaries — nested packages stay separate', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('zerver/__init__.py');
     touch('zerver/views/__init__.py');

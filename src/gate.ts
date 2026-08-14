@@ -101,14 +101,11 @@ export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> 
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
 
-/** `cells health` — all four checks at once (validate + crossings + structure + size).
- *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
- *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
-
 /** The strict-gate rule: what fails `cells health` (exit 1) — integrity violations,
  *  undeclared leakage, or a broken grammar bundle. Size and structure are warnings:
- *  they never fail the gate (the renderer draws their ⚠ lines). Pure — the decision
- *  lives in the gate module; view.formatHealthReport only renders it. */
+ *  they never fail the gate (the renderer draws their ⚠ lines). Pure — the exit-code
+ *  conjunction lives here; view re-derives the per-check booleans it needs to draw
+ *  its ✓/✗ lines. */
 export function healthVerdict(v: HealthValues): boolean {
   const valOk = v.violationCount === 0;
   const xOk = v.undeclaredCount === 0;
@@ -130,6 +127,9 @@ export function groupUnresolved(unresolved: UnresolvedImport[]): string[] {
   return [...byFile.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).map(([f, g]) => `${f}: ${g.count} unresolved (e.g. "${g.example}")`);
 }
 
+/** `cells health` — all four checks at once (validate + crossings + structure + size).
+ *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
+ *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
 export async function cmdHealth(ctx: CellsContext, verbose = false, summary = false): Promise<void> {
   const started = performance.now();
   const { config, declarations, ownership } = ctx;
@@ -182,7 +182,7 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     offMembraneDetails: offMembrane.map((o) =>
       o.emptyProvides
         ? `${o.fromCell} → ${o.toCell}: consumes ${o.missing.join(', ')} but ${o.toCell}.provides is empty`
-        : `${o.fromCell} → ${o.toCell}: ${o.missing.length}/${o.imported.length} symbol(s) not in provides: ${o.missing.join(', ')}`,
+        : `${o.fromCell} → ${o.toCell}: ${o.missing.length}/${o.importedCount} symbol(s) not in provides: ${o.missing.join(', ')}`,
     ),
     cycleCount: cycles.length,
     dirViolationCount: dirViolations.length,

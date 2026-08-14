@@ -34,7 +34,9 @@ function editDeclFile(readPath: string, writePath: string, decl: Cell, edit: (te
 /** Rename a cell: its declaration file (atomic — write new first, delete old), its
  *  ownership entry, and every requires reference in other cells' declarations.
  *  Throws on: invalid names, missing source cell, existing target cell, or an
- *  ownership-only [newName] entry that the move would clobber. */
+ *  ownership-only [newName] entry that the move would clobber. Both names are a trust
+ *  boundary — they become filenames under .cells/; a `..`-laden name would move a file
+ *  outside the store (validated before any path is constructed). */
 export function renameCell(oldName: string, newName: string): { ownedCount: number; requiresUpdated: number } {
   if (!validCellName(oldName) || !validCellName(newName)) {
     throw new Error(`invalid cell name "${oldName}" → "${newName}" — use only letters, numbers, dashes, underscores.`);
@@ -135,20 +137,18 @@ export function removeCell(name: string, force: boolean): { ownedCount: number; 
 
 /** The stale-requires analysis (the listing both the dry run and --apply print):
  *  requires entries with no matching import, grouped by cell. */
-export async function findStaleRequires(): Promise<{ stale: { fromCell: string; toCell: string }[]; byCell: Map<string, string[]> }> {
+export async function findStaleRequires(): Promise<Map<string, string[]>> {
   const ownership = loadOwnership();
   const { crossings } = await loadCrossings(ownership, false);
   const declarations = loadDeclarations();
-  const stale = checkLeakage(crossings, declarations)
-    .filter((l) => l.kind === 'stale')
-    .map((l) => ({ fromCell: l.fromCell, toCell: l.toCell }));
   const byCell = new Map<string, string[]>();
-  for (const s of stale) {
-    const list = byCell.get(s.fromCell) ?? [];
-    list.push(s.toCell);
-    byCell.set(s.fromCell, list);
+  for (const l of checkLeakage(crossings, declarations)) {
+    if (l.kind !== 'stale') continue;
+    const list = byCell.get(l.fromCell) ?? [];
+    list.push(l.toCell);
+    byCell.set(l.fromCell, list);
   }
-  return { stale, byCell };
+  return byCell;
 }
 
 /** Apply a stale-requires removal: strip the dead entries from each cell's declaration

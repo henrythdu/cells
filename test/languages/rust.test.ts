@@ -136,7 +136,7 @@ describe('resolveImportPath', () => {
     expect(unresolved).toHaveLength(0);
   });
 
-  it('resolves enum-variant / deep item chains to the deepest real module ', () => {
+  it('resolves enum-variant / deep item chains to the deepest real module', () => {
     // crate::token::TokenKind::Wildcard — TokenKind is an enum in module crate::token;
     // the variant lives in the module's file. Two drops, not one.
     expect(resolveImportPath('crate::reading::tokenization::Token::Kind', 'crate::app', m2f)).toBe('src/reading/tokenization.rs');
@@ -238,7 +238,7 @@ describe('rust importer', () => {
     expect(unresolved).toHaveLength(0);
   });
 
-  it('honors explicit `as` aliases inside use groups + pub(crate) ', async () => {
+  it('honors explicit `as` aliases inside use groups + pub(crate)', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod svc;\npub(crate) use svc::{osv as oz, filter};\n' },
       { path: 'src/svc.rs', content: 'pub mod osv;\npub mod filter;\n' },
@@ -374,7 +374,7 @@ describe('rust importer', () => {
       });
       // cross-crate import resolves to the sibling's file
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan', symbols: ['Plan'] });
-      // a broken mid-chain path  resolves to the
+      // a broken mid-chain path resolves to the
       // deepest real module — `signals` exists, `missing` doesn't (same shape as an enum
       // variant path; no source-based way to tell a missing module from an item without type
       // info). The edge lands on the nearest real module so the agent can inspect, and the
@@ -492,7 +492,7 @@ describe('rust bare-first-segment resolution (module-relative walk-up)', () => {
     expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
   });
 
-  it('a pub use of an external crate in a NESTED module stays external ', async () => {
+  it('a pub use of an external crate in a NESTED module stays external', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod ui;\n' },
       { path: 'src/ui.rs', content: 'pub use owo_colors;\n' },

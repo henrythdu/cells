@@ -68,13 +68,16 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
     }
   };
 
+  const emitRoot = (node: string): void => {
+    visited.add(node);
+    onStack.add(node);
+    lines.push(node);
+    emitSiblings(adj.get(node) ?? [], '');
+    onStack.delete(node);
+  };
   for (const root of start) {
     if (visited.has(root)) continue;
-    visited.add(root);
-    onStack.add(root);
-    lines.push(root);
-    emitSiblings(adj.get(root) ?? [], '');
-    onStack.delete(root);
+    emitRoot(root);
   }
   // Roots only reach what points at them. A cycle with no root path into it (an
   // isolated SCC, or reachable only through another cycle) never got a start entry and the
@@ -82,11 +85,7 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
   // still-unvisited node as a start of its own.
   for (const node of [...nodes].sort()) {
     if (visited.has(node)) continue;
-    visited.add(node);
-    onStack.add(node);
-    lines.push(node);
-    emitSiblings(adj.get(node) ?? [], '');
-    onStack.delete(node);
+    emitRoot(node);
   }
 
   return lines.length > 0 ? `${lines.join('\n')}\n` : '';

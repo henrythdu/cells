@@ -23,7 +23,7 @@ export interface Crossing {
 export interface OffMembraneImport {
   fromCell: string;
   toCell: string;
-  imported: string[];
+  importedCount: number;
   missing: string[];
   emptyProvides: boolean;
 }
@@ -54,9 +54,8 @@ export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, decl
     // provides entries may be authored prose ("checkGrammars() - the grammar-bundle check") -
     // the leading identifier is the offered symbol; the prose after it is documentation.
     const offered = new Set(decl.provides.map((p) => p.match(/^[$\w]+/)?.[0] ?? p));
-    const imported = [...symbols];
-    const missing = imported.filter((s) => !offered.has(s));
-    if (missing.length > 0) out.push({ fromCell, toCell, imported, missing, emptyProvides: decl.provides.length === 0 });
+    const missing = [...symbols].filter((s) => !offered.has(s));
+    if (missing.length > 0) out.push({ fromCell, toCell, importedCount: symbols.size, missing, emptyProvides: decl.provides.length === 0 });
   }
   return out;
 }

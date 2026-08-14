@@ -100,10 +100,6 @@ export function cmdInit(dryRun = false): void {
   console.log('Next: `cells assign <cell> <file...>` to start partitioning.');
 }
 
-/** `cells rename <old> <new>` — rename a cell across the store: .cell.toml file,
- *  ownership.toml key, and every other cell's requires reference. BOTH names are a trust
- *  boundary: they become filenames under .cells/ — a `..`-laden oldName would move a file
- *  outside the store (validated before any path is constructed). */
 /** `cells rename <old> <new>` — printing adapter over the cell edit seam. Refusal
  *  messages surface via main().catch (`cells: <message>`, exit 1) — the same stderr the
  *  CLI tests pin. */
@@ -114,9 +110,6 @@ export function cmdRename(oldName: string, newName: string): void {
   if (requiresUpdated > 0) console.log(`  Requires: updated ${requiresUpdated} cell(s).`);
 }
 
-/** `cells remove <cell> [--force]` — delete a cell from the store. Refuses if the cell
- *  owns files or is required by others (state must be resolved first); --force orphans
- *  the files (→ unowned) and strips requires references from other cells. */
 /** `cells remove <cell> [--force]` — printing adapter over the cell edit seam. */
 export function cmdRemove(name: string, force: boolean): void {
   const { ownedCount, dependents } = removeCell(name, force);
@@ -312,12 +305,13 @@ export function cmdNew(args: string[]): void {
  *  Stale stays info-level in health ("maybe a data dependency or future plan") — this command is the
  *  explicit opt-in cleanup; the agent decides, the tool applies. */
 export async function cmdPruneStale(apply: boolean): Promise<void> {
-  const { stale, byCell } = await findStaleRequires();
-  if (stale.length === 0) {
+  const byCell = await findStaleRequires();
+  const staleCount = [...byCell.values()].reduce((n, reqs) => n + reqs.length, 0);
+  if (staleCount === 0) {
     console.log('No stale requires — every declared requirement is imported.');
     return;
   }
-  const lines = [`${stale.length} stale require(s) — declared but no import found:`];
+  const lines = [`${staleCount} stale require(s) — declared but no import found:`];
   for (const [cell, reqs] of byCell) lines.push(`  ${cell} → ${reqs.join(', ')}`);
   if (!apply) {
     lines.push('Dry run — nothing changed. Re-run with --apply to remove them.');

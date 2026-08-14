@@ -59,7 +59,7 @@ export function formatCellList(
   if (orphanFiles.length > 0) {
     lines.push('');
     lines.push('unowned (assign or add to .cells/ignore):');
-    const sorted = [...orphanFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // copy — the caller's array stays untouched
+    const sorted = [...orphanFiles].sort(); // copy — the caller's array stays untouched
     const shown = sorted.slice(0, ORPHAN_LIST_CAP);
     for (const f of shown) {
       // An orphan with inbound imports is the file the partition actually needs — the

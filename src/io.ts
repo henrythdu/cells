@@ -143,7 +143,7 @@ function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visit
       continue; // dangling symlink / vanished entry — not code; a crash would sink the census
     }
     if (st.isDirectory()) out.push(...listFiles(path, exts, skip, visited));
-    else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path);
+    else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path); // case-insensitive: some toolchains emit .TS/.Cpp — a case gap would blind-spot real code
   }
   return out;
 }

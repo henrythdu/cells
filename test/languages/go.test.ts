@@ -93,7 +93,7 @@ describe('resolvePackageImport', () => {
     expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false }); // cgo
   });
 
-  it('resolves nested go.mod sub-module imports from any importer ', () => {
+  it('resolves nested go.mod sub-module imports from any importer', () => {
     // terraform shape: internal/legacy has its OWN go.mod → its files' keys carry the full
     // module path as the first segment; a ROOT-module importer strips the root path only.
     const nested = new Map<string, string>([

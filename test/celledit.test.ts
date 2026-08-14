@@ -22,13 +22,15 @@ function setupRepo(): void {
   writeFileSync(join(repo, 'src', 'b.ts'), "import { x } from './a.js';\nexport const y = x;\n");
 }
 
+const startCwd = process.cwd();
+
 describe('renameCell — the seam interface', () => {
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'cells-edit-'));
     process.chdir(repo);
   });
   afterEach(() => {
-    process.chdir('/home/hdu/Projects/Cells');
+    process.chdir(startCwd);
     rmSync(repo, { recursive: true, force: true });
   });
 
@@ -83,7 +85,7 @@ describe('removeCell — the seam interface', () => {
     process.chdir(repo);
   });
   afterEach(() => {
-    process.chdir('/home/hdu/Projects/Cells');
+    process.chdir(startCwd);
     rmSync(repo, { recursive: true, force: true });
   });
 
@@ -120,20 +122,18 @@ describe('findStaleRequires — the analysis half', () => {
     process.chdir(repo);
   });
   afterEach(() => {
-    process.chdir('/home/hdu/Projects/Cells');
+    process.chdir(startCwd);
     rmSync(repo, { recursive: true, force: true });
   });
 
   it('classifies declared-but-unimported requires as stale (b→a has a real import, so it is NOT stale)', async () => {
     setupRepo();
-    const { stale, byCell } = await findStaleRequires();
-    expect(stale).toEqual([]); // b requires a AND imports it — nothing stale
+    const byCell = await findStaleRequires();
     expect(byCell.size).toBe(0);
     // declare a stale one: c requires a but nothing in c imports a
     writeFileSync(join(repo, '.cells', 'c.cell.toml'), 'name = "c"\npurpose = "p"\nprovides = ["z"]\nrequires = ["a"]\n');
     writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n[c]\nfiles = []\n');
     const next = await findStaleRequires();
-    expect(next.stale).toEqual([{ fromCell: 'c', toCell: 'a' }]);
-    expect(next.byCell.get('c')).toEqual(['a']);
+    expect(next.get('c')).toEqual(['a']);
   });
 });
