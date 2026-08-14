@@ -67,6 +67,9 @@ export function parseCell(content: string): Cell {
 /**
  * Serialize a Cell back to `.cell.toml` — the write-inverse of parseCell.
  * Round-trips: parseCell(serializeCell(cell)) ≡ cell.
+ *
+ * For REWRITING an authored file prefer the edit* helpers below: serializeCell re-emits
+ * from the parsed AST and silently drops the author's comments.
  */
 export function serializeCell(cell: Cell): string {
   const lines = [`name = ${tomlString(cell.name)}`, `purpose = ${tomlString(cell.purpose)}`, `provides = ${tomlArray(cell.provides)}`, `requires = ${tomlArray(cell.requires)}`];
@@ -75,4 +78,64 @@ export function serializeCell(cell: Cell): string {
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
   if (cell.ceiling !== undefined) lines.push(`ceiling = ${cell.ceiling}`);
   return lines.join('\n') + '\n';
+}
+
+/**
+ * Comment-preserving rewrite of a .cell.toml's `name` value — text surgery on the one
+ * line, never parse+serialize (which would drop the author's comments). Used by rename.
+ * Throws when no `name = ...` line exists (the store's files always have one — a silent
+ * no-op would leave file name and declared name mismatched and brick loadDeclarations).
+ */
+export function editCellName(content: string, newName: string): string {
+  const m = /^name[ \t]*=[ \t]*(?:"[^"\n]*"|'[^'\n]*')/m.exec(content);
+  if (m === null) throw new Error(`cannot rewrite name: no \`name = ...\` line found`);
+  return content.slice(0, m.index) + `name = ${tomlString(newName)}` + content.slice(m.index + m[0].length);
+}
+
+/**
+ * Comment-preserving rewrite of a .cell.toml's `requires` array: remove entries and/or
+ * rename one — used by rename (fixing refs), remove --force (stripping refs), and
+ * prune-stale. Text surgery: comments (even per-entry ones) and formatting survive.
+ * Removing every entry collapses to `requires = []`. A no-`requires` file is returned
+ * unchanged (nothing to edit); a malformed array is left for parseCell to report.
+ */
+export function editCellRequires(content: string, opts: { remove?: string[]; rename?: [string, string] }): string {
+  const key = /^[ \t]*requires[ \t]*=[ \t]*\[/m.exec(content);
+  if (key === null) return content;
+  const start = key.index + key[0].length; // just past '['
+  // Scan to the MATCHING ']' — strings and # comments can contain ']' / '[', so a lazy
+  // regex would truncate on the first one inside a comment.
+  let i = start;
+  let depth = 1;
+  while (i < content.length) {
+    const c = content[i];
+    if (c === '"') {
+      i++;
+      while (i < content.length && content[i] !== '"') {
+        if (content[i] === '\\') i++;
+        i++;
+      }
+    } else if (c === "'") {
+      i++;
+      while (i < content.length && content[i] !== "'") i++;
+    } else if (c === '#') {
+      while (i < content.length && content[i] !== '\n') i++;
+    } else if (c === '[') depth++;
+    else if (c === ']') {
+      depth--;
+      if (depth === 0) break;
+    }
+    i++;
+  }
+  if (depth !== 0) return content; // unterminated array — let parseCell report it
+  const end = i; // index of the matching ']'
+  let body = content.slice(start, end);
+  for (const r of opts.remove ?? []) body = body.split(tomlString(r)).join('');
+  if (opts.rename) body = body.split(tomlString(opts.rename[0])).join(tomlString(opts.rename[1]));
+  if (!body.includes('"')) {
+    // every entry gone — collapse the husk (comments and stray commas) to an empty array
+    return content.slice(0, key.index) + 'requires = []' + content.slice(end + 1);
+  }
+  body = body.replace(/,\s*,/g, ',').replace(/(^|\n)[ \t]*,[ \t]*/g, '$1'); // no doubled or head-less commas (TOML allows a trailing one)
+  return content.slice(0, start) + body + content.slice(end);
 }

@@ -1,5 +1,5 @@
 import { parse as parseToml } from 'smol-toml';
-import { tomlArray } from './toml.js';
+import { tomlArray, tomlString } from './toml.js';
 
 /**
  * Ownership map: cell name → owned file paths.
@@ -31,8 +31,12 @@ export function parseOwnership(content: string): Ownership {
  * parseOwnership(serializeOwnership(o)) ≡ o. Empty map → ''.
  */
 export function serializeOwnership(ownership: Ownership): string {
+  // A non-bare cell name (dot, space…) MUST be quoted — `[a.b]` parses as a NESTED
+  // table and the files silently vanish from the round-trip. CLI paths validate names
+  // (validCellName); this guards hand-edited stores, the documented way to write the map.
+  const key = (cell: string) => (/^[A-Za-z0-9_-]+$/.test(cell) ? cell : tomlString(cell));
   return Object.entries(ownership)
-    .map(([cell, files]) => `[${cell}]\nfiles = ${tomlArray(files)}\n`)
+    .map(([cell, files]) => `[${key(cell)}]\nfiles = ${tomlArray(files)}\n`)
     .join('\n');
 }
 

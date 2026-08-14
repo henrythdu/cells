@@ -69,7 +69,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(unresolved.some((u) => u.import === '@/b')).toBe(true); // …but surfaced, not swallowed
   });
 
-  it('reads `paths` from a jsonc tsconfig (trailing comma — bug #11: turborepo apps/web)', async () => {
+  it('reads `paths` from a jsonc tsconfig (trailing comma — turborepo apps/web)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-tsc-jsonc-'));
     fixtures.add(dir);
     // jsonc: trailing comma after the last `paths` entry — legal TS, invalid strict JSON
@@ -145,14 +145,14 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(unresolved.some((u) => u.import === '@turbo/nope')).toBe(false);
   });
 
-  it('resolves a no-exports workspace subpath the Node way — pkgdir + rest (stress #16: @turbo/utils/src/get-turbo-configs)', async () => {
+  it('resolves a no-exports workspace subpath the Node way — pkgdir + rest (@turbo/utils)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ws-subpath-'));
     fixtures.add(dir);
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'turbo-utils', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils'), { recursive: true });
-    // NO exports field — the old entry-dir probe looked in src/src/ and flagged this
-    // resolvable import as unresolved (the stress agent's #16)
+    // NO exports field — an entry-dir-relative probe would look in src/src/ and flag this
+    // resolvable import as unresolved
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'package.json'), JSON.stringify({ name: '@turbo/utils', main: 'src/index.ts' }));
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'index.ts'), 'export const a = 1;\n');
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'get-turbo-configs.ts'), 'export const b = 2;\n');
@@ -199,7 +199,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(unresolved.some((u) => u.import === '@vitejs/test/module-runner')).toBe(false);
   });
 
-  it('merges nested per-app tsconfig paths so @/ aliases resolve (wave-3 #3: turborepo)', async () => {
+  it('merges nested per-app tsconfig paths so @/ aliases resolve (turborepo)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-merge-'));
     fixtures.add(dir);
     mkdirSync(join(dir, 'apps', 'docs', 'lib'), { recursive: true });
@@ -222,7 +222,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(unresolved.some((u) => u.import === '@/lib/create-metadata')).toBe(false);
   });
 
-  it('resolves directory + dist-artifact relative imports (stress #6/#8: require(..), dist→src)', async () => {
+  it('resolves directory + dist-artifact relative imports (require(..), dist→src)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-rel-'));
     fixtures.add(dir);
     mkdirSync(join(dir, 'lib', 'util', 'test'), { recursive: true });
@@ -265,15 +265,20 @@ describe('typescriptImporter (tree-sitter)', () => {
     writeFileSync(join(dir, 'src', 'reex.ts'), 'export const r = 1;\n');
     writeFileSync(join(dir, 'src', 'cjs.js'), 'module.exports = 1;\n');
     writeFileSync(join(dir, 'src', 'eq.ts'), 'export const e = 1;\n');
+    writeFileSync(join(dir, 'src', 'refs.d.ts'), 'declare const r: number;\n'); // triple-slash target — resolver probes disk, so it must exist for real
     writeFileSync(join(dir, 'src', 'side.css'), 'body { color: red; }\n');
     const { edges, unresolved } = await typescriptImporter.extract({
       codeDirs: ['src'],
       files: [
-        { path: 'src/a.ts', content: "import { b } from './b';\nimport './side.css';\nexport * from './reex';\nimport('dynamic/m').then(() => {});\nconst c = require('./cjs');\nimport z = require('./eq');\n" },
+        {
+          path: 'src/a.ts',
+          content: "import { b } from './b';\nimport './side.css';\nexport * from './reex';\nimport('dynamic/m').then(() => {});\nconst c = require('./cjs');\nimport z = require('./eq');\n/// <reference path=\"./refs\" />\n",
+        },
         { path: 'src/b.ts', content: 'export const b = 1;\n' },
         { path: 'src/reex.ts', content: 'export const r = 1;\n' },
         { path: 'src/cjs.js', content: 'module.exports = 1;\n' },
         { path: 'src/eq.ts', content: 'export const e = 1;\n' },
+        { path: 'src/refs.d.ts', content: 'declare const r: number;\n' },
       ],
       baseDir: dir,
     });
@@ -281,6 +286,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(edges.some((e) => e.import === './reex')).toBe(true); // export * from
     expect(edges.some((e) => e.import === './cjs')).toBe(true); // require()
     expect(edges.some((e) => e.import === './eq')).toBe(true); // import x = require()
+    expect(edges.some((e) => e.import === './refs')).toBe(true); // triple-slash reference directive
     expect(edges.some((e) => e.import === 'dynamic/m')).toBe(false); // dynamic → external, silent
     expect(unresolved.some((u) => u.import === 'dynamic/m')).toBe(false);
     expect(unresolved.some((u) => u.import === './side.css')).toBe(false); // existing non-code → silent, NOT flagged

@@ -48,7 +48,7 @@ export async function loadCrossings(ownership: Ownership, warn = true): Promise<
   if (warn) warnIfBlind(uncoveredExts, ignoreBlindExts);
   // Unresolved imports only matter for the partition: an unowned file's broken specifier
   // affects nothing until the file is owned. Filtering here keeps health/crossings info
-  // sections actionable (stress test: 280 noise entries from unowned files).
+  // sections actionable (on a repo with hundreds of unowned files, their noise otherwise drowns the list).
   const ownedUnresolved = unresolved.filter((u) => owningCell(ownership, u.fromFile) !== undefined);
   return { edges, crossings: deriveCrossings(edges, ownership), uncoveredExts, unresolved: ownedUnresolved };
 }
@@ -62,7 +62,7 @@ function assertNoImporterFailures(failures: { importer: string; error: string }[
 
 /** `cells imports [--json]` — the raw file→file import graph: every resolved edge (same-cell
  *  included, unowned files included) + every unresolved specifier. Machine surface for
- *  external tooling (the oracle harness in cells_stress_test consumes it); the gate never
+ *  external tooling (import-graph oracles consume it); the gate never
  *  reads it. */
 export async function cmdImports(opts: { json?: boolean } = {}): Promise<void> {
   const { edges, unresolved, uncoveredExts, failures } = await collectImportEdges();

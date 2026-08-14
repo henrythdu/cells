@@ -76,6 +76,18 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
     emitSiblings(adj.get(root) ?? [], '');
     onStack.delete(root);
   }
+  // Roots only reach what points at them. A cycle with no root path into it (an
+  // isolated SCC, or reachable only through another cycle) never got a start entry and the
+  // old loop ended without emitting it — the graph silently lost components. Sweep every
+  // still-unvisited node as a start of its own.
+  for (const node of [...nodes].sort()) {
+    if (visited.has(node)) continue;
+    visited.add(node);
+    onStack.add(node);
+    lines.push(node);
+    emitSiblings(adj.get(node) ?? [], '');
+    onStack.delete(node);
+  }
 
   return lines.length > 0 ? `${lines.join('\n')}\n` : '';
 }

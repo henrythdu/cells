@@ -25,6 +25,11 @@ describe('serializeOwnership', () => {
   it('serializes an empty map to an empty string', () => {
     expect(serializeOwnership({})).toBe('');
   });
+
+  it('a non-bare cell name is quoted — the round-trip keeps the files (no nested table)', () => {
+    const o: Ownership = { 'a.b': ['src/x.ts'] };
+    expect(parseOwnership(serializeOwnership(o))).toEqual(o);
+  });
 });
 
 describe('owningCell', () => {

@@ -87,7 +87,7 @@ function collectImports(node: Node, out: string[]): void {
  *  module'd repo: the go.mod `module` directive; a NESTED go.mod (sub-module — terraform's
  *  internal/legacy + internal/backend/remote-state/*) makes those files' keys carry the full
  *  module path as their first segment). Stripping ANY of them resolves cross-sub-module imports
- *  from any importer (stress #9/#10). Longest-first: a sub-module's path is the more specific
+ *  from any importer. Longest-first: a sub-module's path is the more specific
  *  owner. Derived from the census map — no extra go.mod reads. The map is stable
  *  during phase-2 resolution, so callers compute this ONCE and pass it down (python's
  *  localPackages precedent). */

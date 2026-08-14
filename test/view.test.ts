@@ -61,7 +61,7 @@ describe('formatCellList', () => {
     expect(out).toContain('and 10 more');
   });
 
-  it('shapes the truncated orphan tail by top dirs (stress finding: 672-file frontend invisible)', () => {
+  it('shapes the truncated orphan tail by top dirs', () => {
     const many = Array.from({ length: 30 }, (_, i) => `web/src/${i}.ts`);
     const out = formatCellList(decls, sizes, listMetrics, many);
     expect(out).toContain('and 10 more (web/src: 10)');
@@ -255,7 +255,8 @@ describe('formatSizeReport', () => {
     const out = formatSizeReport(entries, 16000);
     expect(out).toMatch(/big[\s\S]*small/); // ranked biggest first
     expect(out).toContain('16000'); // ceiling echoed
-    expect(out).toContain('⚠'); // over-ceiling flagged
+    expect(out).toMatch(/big[^\n]*⚠/); // the over-ceiling flag sits on BIG's row…
+    expect(out).not.toMatch(/small[^\n]*⚠/); // …and only there
   });
 
   it('caps a huge over-ceiling list (transformers: 502/1103) with a count', () => {
@@ -345,9 +346,8 @@ describe('formatHealthReport', () => {
     grammarResults: [{ lang: 'python', ok: true }],
   };
 
-  it('all-clear: all ✓, gateOk true, "All checks passed"', () => {
-    const { report, gateOk } = formatHealthReport(clear);
-    expect(gateOk).toBe(true);
+  it('all-clear: all ✓, "All checks passed"', () => {
+    const report = formatHealthReport(clear, false, true);
     expect(report).toContain('✓ validate');
     expect(report).toContain('✓ crossings');
     expect(report).toContain('✓ grammars');
@@ -357,35 +357,32 @@ describe('formatHealthReport', () => {
   });
 
   it('renders the elapsed time on the gate line when provided', () => {
-    const { report } = formatHealthReport({ ...clear, elapsedSec: 1.234 });
+    const report = formatHealthReport({ ...clear, elapsedSec: 1.234 }, false, true);
     expect(report).toContain('All checks passed.  (1.2s)');
-    expect(report).toContain('health: 1.2s'); // machine-parseable tail (stress-agent ask)
-    const { report: plain } = formatHealthReport(clear);
+    expect(report).toContain('health: 1.2s'); // machine-parseable tail
+    const plain = formatHealthReport(clear, false, true);
     expect(plain).not.toMatch(/\(\d+\.\ds\)/);
     expect(plain).not.toContain('health: ');
   });
 
-  it('undeclared leakage gate-fails (✗ crossings, exit 1)', () => {
-    const { report, gateOk } = formatHealthReport({ ...clear, undeclaredCount: 2 });
-    expect(gateOk).toBe(false);
+  it('failed verdict renders ✗ crossings, "Gate failed", drill hint', () => {
+    const report = formatHealthReport({ ...clear, undeclaredCount: 2 }, false, false);
     expect(report).toContain('✗ crossings');
     expect(report).toContain('Gate failed');
     expect(report).toContain('`cells crossings`'); // drill hint
   });
 
   it('--verbose names undeclared edges inline and drops the crossings drill hint', () => {
-    const { report, gateOk } = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ["b imports a (src/b.ts → src/a.ts) but doesn't require it"] }, true);
-    expect(gateOk).toBe(false);
+    const report = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ["b imports a (src/b.ts → src/a.ts) but doesn't require it"] }, true, false);
     expect(report).toContain('b imports a (src/b.ts → src/a.ts)');
     expect(report).not.toContain('`cells crossings`');
     // terse default still names nothing
-    const terse = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ['b imports a'] });
-    expect(terse.report).not.toContain('b imports a');
+    const terse = formatHealthReport({ ...clear, undeclaredCount: 1, undeclaredEdges: ['b imports a'] }, false, false);
+    expect(terse).not.toContain('b imports a');
   });
 
-  it('size warning keeps the gate green (⚠, "Gate passed with warning")', () => {
-    const { report, gateOk } = formatHealthReport({ ...clear, maxPercent: 1.17 });
-    expect(gateOk).toBe(true);
+  it('size warning renders ⚠ + "Gate passed with warning" under a passing verdict', () => {
+    const report = formatHealthReport({ ...clear, maxPercent: 1.17 }, false, true);
     expect(report).toContain('⚠ size');
     expect(report).toContain('over ceiling');
     expect(report).toContain('Gate passed with 1 warning(s)');
@@ -393,8 +390,7 @@ describe('formatHealthReport', () => {
   });
 
   it('renders stale requires as an info section (not a gate failure)', () => {
-    const { report, gateOk } = formatHealthReport({ ...clear, staleCount: 1, staleEdges: ['a → b'] });
-    expect(gateOk).toBe(true);
+    const report = formatHealthReport({ ...clear, staleCount: 1, staleEdges: ['a → b'] }, false, true);
     expect(report).toContain('(info) 1 stale require(s)');
     expect(report).toContain('a → b');
   });

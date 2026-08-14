@@ -84,7 +84,7 @@ function crateRootOf(path: string, baseDir = '.'): string | null {
  *  which need NOT match the directory. Virtual workspace manifests have no [package] → null.
  *  The factory uses it to alias workspace module keys so `use sibling_crate::…` resolves.
  *  LIMITATION: `name.workspace = true` (workspace-inherited name) resolves to null — such a
- *  crate's cross-crate imports stay silently external (pre-fix behavior, not a false positive).
+ *  crate's cross-crate imports stay silently external (a documented limitation, not a false positive).
  *  Package names are overwhelmingly literal in practice; revisit if a real repo hits it. */
 function crateNameOf(crateRoot: string, baseDir = '.'): string | null {
   let content: string;
@@ -207,7 +207,7 @@ function collectUses(node: Node, out: UseDesc[], modChain: string[]): void {
  *  itself) whose target file is a crate ROOT — lib.rs/main.rs, or a file directly under
  *  tests/benches/examples. Integration tests are separate crates: `crate::http_util` in
  *  tests/it/ssl_certs.rs anchors to the `tests/it` dir (whose root file is tests/it/main.rs),
- *  NOT the lib's root (stress: uv-client's 8). Falls back to null (caller uses the
+ *  NOT the lib's root (e.g. uv-client's 8 test crates). Falls back to null (caller uses the
  *  namespace's first segment). Pure over the module map. */
 function crateRootOfModule(importerModule: string, moduleToFile: Map<string, string>): string | null {
   const parts = importerModule.split('::');
@@ -300,7 +300,7 @@ function resolveBareFirstSegment(effective: string, imp: string, moduleToFile: M
 /** Resolve a Rust use path to a source file via the module→file map.
  *  Matches the module OR the deepest owned module prefix — a use names a module OR an item
  *  chain in one (`crate::token::TokenKind::Wildcard` = an enum variant inside the module
- *  `crate::token`; stress #5). Trailing segments are dropped until a module in the map is
+ *  `crate::token`). Trailing segments are dropped until a module in the map is
  *  found, but never below 2 — a path whose only map hit is the crate root has no real
  *  intermediate module (broken import: stays unresolved; a root edge would be a false hit).
  *  `reexports` = pub-use alias map (module → alias → absolute target) — followed through
@@ -325,10 +325,10 @@ export function resolveImportPath(imp: string, importerModule: string, moduleToF
   };
   let abs: string | null = absoluteModulePath(imp, importerModule, crateNames, moduleToFile);
   // Bare first segment: Rust resolves `use foo::bar` to a crate-LOCAL module when foo isn't
-  // an extern crate — module-relative, walking up the importer's chain (wave-3 #2 target —
-  // `pub use service::osv` refers to crate::service::osv; Speedy bug 4). No ancestor matches
-  // = external crate (std::…, owo_colors) or broken local — null (the old crate-root fallback
-  // drew a false edge to the root file for 2-segment externals).
+  // an extern crate — module-relative, walking up the importer's chain (`pub use service::osv`
+  // refers to crate::service::osv). No ancestor matches
+  // = external crate (std::…, owo_colors) or broken local — null (a crate-root fallback here
+  // would draw a false edge to the root file for 2-segment externals).
   if (abs === null) abs = resolveBareFirstSegment(importerModule, imp, moduleToFile);
   if (abs === null) return null;
   // Direct hit wins — re-export rewriting only on miss, else item aliases (e.g. a function
@@ -404,7 +404,7 @@ function collectModDecls(root: Node, sourcePath: string, fileSet: ReadonlySet<st
  *  lives here, not in the generic factory.
  *  A `pub use` of an EXTERNAL crate (`pub use owo_colors;`) is marked `external` (empty target)
  *  instead — the alias points outside the partition, so a chain target would never match a file
- *  and imports routing through it would false-flag as broken local (stress #7). The factory
+ *  and imports routing through it would false-flag as broken local. The factory
  *  registers external re-exports in ctx.externalReexports, not the chain map. */
 function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: string, ctx: ResolveCtx): Reexport[] {
   const out: Reexport[] = [];
@@ -426,7 +426,7 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
       // `pub use tokenization::tokenize_text;`) or an external crate (`pub use owo_colors;`).
       // Rust 2018 resolves it module-relative up the effective module chain; probing only the
       // crate root misclassified a nested re-export as EXTERNAL and every import routed
-      // through it was silently dropped (no edge, no unresolved — Speedy bug 4).
+      // through it was silently dropped (no edge, no unresolved — a real-workspace failure mode).
       const resolved = resolveBareFirstSegment(effective, imp, ctx.moduleToFile);
       local = resolved !== null;
       real = resolved ?? '';
@@ -436,7 +436,7 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
     }
     if (!local) {
       // external crate — the re-export leaves the partition; registered as external (silenced
-      // at resolution — stress #7), under both the module key and the crate-name form.
+      // at resolution), under both the module key and the crate-name form.
       push(effective, '', true, alias);
       if (name) push(name, '', true, alias);
       continue;
@@ -454,7 +454,7 @@ function collectReexports(uses: UseDesc[], sourcePath: string, importerModule: s
 
 /** Does this import route through a re-export of an EXTERNAL crate (an alias registered in
  *  ctx.externalReexports)? The target is real code but outside the partition — no edge to draw
- *  and no broken-local to flag (stress #7: `uv_warnings::owo_colors::OwoColorize` via
+ *  and no broken-local to flag (`uv_warnings::owo_colors::OwoColorize` via
  *  `pub use owo_colors;`). Walks the path's module prefixes longest-first. Pure — takes the
  *  already-computed absolute path (callers compute it once per import). */
 function isExternalReexport(abs: string, external: ReadonlyMap<string, ReadonlySet<string>>): boolean {
@@ -486,13 +486,13 @@ export const rustImporter = createTreeSitterImporter<UseDesc[]>({
     const unresolved: UnresolvedImport[] = [];
     for (const { imp, modChain } of uses) {
       // Inline mod blocks deepen the importer's module — super/self arithmetic must count
-      // them (wave-3 #1: `mod tests { use super::super::ir::X }` is 2 levels above the file).
+      // them (`mod tests { use super::super::ir::X }` is 2 levels above the file).
       const effective = modChain.length > 0 ? `${importerModule}::${modChain.join('::')}` : importerModule;
       const abs = absoluteModulePath(imp, effective, ctx.crateNames, ctx.moduleToFile);
       // Routes through a re-export of an EXTERNAL crate? The target is real code but outside
       // the partition — no edge to draw, no broken-local to flag. Checked BEFORE resolution:
       // the deepest-module fallback would otherwise draw a false edge to the re-exporting
-      // module (stress #7: `uv_warnings::owo_colors::OwoColorize` → warnings.rs).
+      // module (`uv_warnings::owo_colors::OwoColorize` → warnings.rs).
       if (abs && isExternalReexport(abs, ctx.externalReexports)) continue;
       const toFile = resolveImportPath(imp, effective, ctx.moduleToFile, ctx.crateNames, ctx.reexports);
       if (toFile && toFile !== sourcePath) {

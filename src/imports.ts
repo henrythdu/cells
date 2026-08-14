@@ -24,7 +24,7 @@ export interface SourceFile {
 }
 
 /** Context handed to every importer. */
-interface ImportContext {
+export interface ImportContext {
   codeDirs: string[];
   files: SourceFile[];
   /** Where code lives ('.' = the working repo). Set to a HEAD-tree dir for `crossings --diff`;

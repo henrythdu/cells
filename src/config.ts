@@ -15,7 +15,6 @@ export interface CellsConfig {
  * model quality degrades at an ABSOLUTE ~32k+ tokens (not proportional to the
  * nominal window). A cell's payload is one part of the model's working context
  * (task + reasoning + output take the rest), so 16k keeps total under the onset.
- * See `.scratch` grill notes / web research.
  */
 export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
@@ -113,6 +112,11 @@ export function parseConfig(content: string): CellsConfig {
     'skip-dirs'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
+  // Wrong TYPE must throw, not silently default — `= "8000"` (a quoted typo) would otherwise
+  // run at 16000 while the user debugs a ceiling that "doesn't work". Absent → default.
+  if (maxPayloadTokens !== undefined && typeof maxPayloadTokens !== 'number') {
+    throw new Error(`invalid config.toml: 'max-payload-tokens' must be a positive number (got ${typeof maxPayloadTokens})`);
+  }
   if (typeof maxPayloadTokens === 'number' && (!Number.isFinite(maxPayloadTokens) || maxPayloadTokens <= 0)) {
     throw new Error(`invalid config.toml: 'max-payload-tokens' must be a positive number (got ${maxPayloadTokens})`);
   }
@@ -132,10 +136,15 @@ export function parseConfig(content: string): CellsConfig {
       const n = Number(k);
       if (Number.isInteger(n) && typeof v === 'string') layers[n] = v;
     }
+  } else if (layersRaw !== undefined) {
+    throw new Error(`invalid config.toml: 'layers' must be a table of layer number → name (got ${Array.isArray(layersRaw) ? 'an array' : typeof layersRaw})`);
   }
   const codeDirs = raw['code-dirs'];
   const codeExts = raw['code-exts'];
   const moduleRoot = raw['module-root'];
+  if (moduleRoot !== undefined && typeof moduleRoot !== 'string') {
+    throw new Error(`invalid config.toml: 'module-root' must be a string (got ${typeof moduleRoot})`);
+  }
   const ignoreBlindExts = raw['ignore-blind-exts'];
   const skipDirs = raw['skip-dirs'];
   // Array keys are passed to path.join / extension matching — a non-string element (e.g.
@@ -147,11 +156,11 @@ export function parseConfig(content: string): CellsConfig {
     return v as string[];
   };
   return {
-    maxPayloadTokens: typeof maxPayloadTokens === 'number' ? maxPayloadTokens : DEFAULT_MAX_PAYLOAD_TOKENS,
+    maxPayloadTokens: maxPayloadTokens ?? DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
     codeDirs: strArray(codeDirs, 'code-dirs', ['src', 'test']),
     codeExts: strArray(codeExts, 'code-exts', ['.ts']),
-    moduleRoot: typeof moduleRoot === 'string' ? moduleRoot : undefined,
+    moduleRoot,
     ignoreBlindExts: strArray(ignoreBlindExts, 'ignore-blind-exts', []),
     skipDirs: skipDirs === undefined ? undefined : strArray(skipDirs, 'skip-dirs', []),
   };

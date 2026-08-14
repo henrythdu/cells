@@ -41,7 +41,7 @@ describe('includeCandidates (probe order)', () => {
     expect(includeCandidates({ path: '../../out.h', quoted: true }, 'src/a.cpp', ['.', 'src'])).toEqual([]);
   });
 
-  it('resolves `..`-relative includes against a root that cancels them (llama bug #13: -I src + ../src/x.h)', () => {
+  it('resolves `..`-relative includes against a root that cancels them (llama: -I src + ../src/x.h)', () => {
     // from tools/fit-params/fit-params.cpp, `../src/llama-ext.h` — the importer-dir probe gives
     // tools/src/llama-ext.h (miss); the `src` root probe normalizes to src/llama-ext.h (hit).
     const cands = includeCandidates({ path: '../src/llama-ext.h', quoted: true }, 'tools/fit-params/fit-params.cpp', ['.', 'common', 'src', 'tools']);
@@ -50,7 +50,7 @@ describe('includeCandidates (probe order)', () => {
   });
 });
 
-describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
+describe('suffix-match fallback (deep -I roots)', () => {
   it('resolves a bare header via a depth-2 root (llama: ggml/include)', async () => {
     const { edges, unresolved } = await extract({
       'ggml/src/ggml.c': '#include "ggml-backend.h"\n',
@@ -97,7 +97,7 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     expect(unresolved).toEqual([{ fromFile: 'src/a.cpp', import: 'never/here.h' }]);
   });
 
-  it('resolves `..`-relative includes against a deep root via stripped suffix (llama bug #13: ggml-cann)', async () => {
+  it('resolves `..`-relative includes against a deep root via stripped suffix (llama: ggml-cann)', async () => {
     const { edges, unresolved } = await extract({
       'ggml/src/ggml-cann/common.h': '#include "../include/ggml-cann.h"\n#include "../include/ggml.h"\n',
       'ggml/include/ggml-cann.h': '#pragma once\n',
@@ -108,7 +108,7 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('resolves `..`-relative includes that cancel against a top-level root (llama bug #13: fit-params)', async () => {
+  it('resolves `..`-relative includes that cancel against a top-level root (llama: fit-params)', async () => {
     const { edges, unresolved } = await extract({
       'tools/fit-params/fit-params.cpp': '#include "../src/llama-ext.h"\n',
       'src/llama-ext.h': '#pragma once\n',
@@ -126,7 +126,7 @@ describe('suffix-match fallback (deep -I roots, stress bug #12)', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('normalizes ./ prefixes before the suffix scan (ocr MEDIUM — ./include/x.h into a deep root)', async () => {
+  it('normalizes ./ prefixes before the suffix scan', async () => {
     const { edges, unresolved } = await extract({
       'ggml/src/ggml-cann/common.h': '#include "./../include/ggml-cann.h"\n',
       'ggml/include/ggml-cann.h': '#pragma once\n',

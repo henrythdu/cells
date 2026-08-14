@@ -118,7 +118,7 @@ describe('resolveImportPath', () => {
     expect(resolveImportPath('crate::nonexistent::X', 'crate::cli', m2f)).toBe(null);
   });
 
-  it('anchors crate:: to the TEST crate root for integration-test files (stress: uv-client tests)', async () => {
+  it('anchors crate:: to the TEST crate root for integration-test files (uv-client)', async () => {
     // tests/it/ssl_certs.rs does `use crate::http_util::SelfSigned` — http_util is a module of
     // the TEST crate (tests/it.rs), not the lib. crate:: must anchor to the test root.
     const files: SourceFile[] = [
@@ -136,7 +136,7 @@ describe('resolveImportPath', () => {
     expect(unresolved).toHaveLength(0);
   });
 
-  it('resolves enum-variant / deep item chains to the deepest real module (stress #5)', () => {
+  it('resolves enum-variant / deep item chains to the deepest real module ', () => {
     // crate::token::TokenKind::Wildcard — TokenKind is an enum in module crate::token;
     // the variant lives in the module's file. Two drops, not one.
     expect(resolveImportPath('crate::reading::tokenization::Token::Kind', 'crate::app', m2f)).toBe('src/reading/tokenization.rs');
@@ -191,7 +191,7 @@ describe('rust importer', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('resolves super:: chains inside inline mod blocks (wave-3 #1: headroom mod tests)', async () => {
+  it('resolves super:: chains inside inline mod blocks (headroom mod tests)', async () => {
     const files: SourceFile[] = [
       { path: 'src/compaction/compactor.rs', content: 'mod tests {\n  use super::super::ir::OpaqueKind;\n}\nuse super::ir::SimpleKind;\n' },
       { path: 'src/compaction/ir.rs', content: 'pub struct OpaqueKind;\npub struct SimpleKind;\n' },
@@ -205,7 +205,7 @@ describe('rust importer', () => {
     expect(unresolved).toHaveLength(0);
   });
 
-  it('silences re-exports of EXTERNAL crates — no false unresolved (stress #7: uv owo_colors)', async () => {
+  it('silences re-exports of EXTERNAL crates — no false unresolved (uv owo_colors)', async () => {
     // uv-warnings does `pub use owo_colors;` — the re-export leaves the partition; imports
     // routing through it (uv_warnings::owo_colors::OwoColorize) are real code but no owned
     // file exists to draw an edge to — they must NOT flag as broken local.
@@ -223,7 +223,7 @@ describe('rust importer', () => {
     expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toHaveLength(0);
   });
 
-  it('resolves pub use re-export chains (wave-3 #2: uv_audit::osv::Filter)', async () => {
+  it('resolves pub use re-export chains (uv_audit::osv::Filter)', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod service;\npub use service::osv;\n' },
       { path: 'src/service.rs', content: 'pub mod osv;\n' },
@@ -238,7 +238,7 @@ describe('rust importer', () => {
     expect(unresolved).toHaveLength(0);
   });
 
-  it('honors explicit `as` aliases inside use groups + pub(crate) (ocr on wave-3 re-exports)', async () => {
+  it('honors explicit `as` aliases inside use groups + pub(crate) ', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod svc;\npub(crate) use svc::{osv as oz, filter};\n' },
       { path: 'src/svc.rs', content: 'pub mod osv;\npub mod filter;\n' },
@@ -350,7 +350,7 @@ describe('rust importer', () => {
     }
   });
 
-  it('cross-crate workspace imports resolve to the sibling crate (wave-1 stress bug)', async () => {
+  it('cross-crate workspace imports resolve to the sibling crate', async () => {
     // `use headroom_core::…` from headroom-cli: the crate NAME (not the dir path) must
     // resolve to the sibling's file — previously silently dropped as "external".
     const root = mkdtempSync(join(tmpdir(), 'cells-ws-x-'));
@@ -374,7 +374,7 @@ describe('rust importer', () => {
       });
       // cross-crate import resolves to the sibling's file
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan' });
-      // a broken mid-chain path (stress #5: `Mod::Enum::Variant` item chains) resolves to the
+      // a broken mid-chain path  resolves to the
       // deepest real module — `signals` exists, `missing` doesn't (same shape as an enum
       // variant path; no source-based way to tell a missing module from an item without type
       // info). The edge lands on the nearest real module so the agent can inspect, and the
@@ -458,7 +458,7 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
   });
 });
 
-describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', () => {
+describe('rust bare-first-segment resolution (module-relative walk-up)', () => {
   it('pub use in a NESTED module re-exports locally — imports through it keep their edge (was silently dropped)', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod app;\npub mod reading;\n' },
@@ -492,7 +492,7 @@ describe('rust bare-first-segment resolution (module-relative, Speedy bug 4)', (
     expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
   });
 
-  it('a pub use of an external crate in a NESTED module stays external (stress #7 still holds)', async () => {
+  it('a pub use of an external crate in a NESTED module stays external ', async () => {
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod ui;\n' },
       { path: 'src/ui.rs', content: 'pub use owo_colors;\n' },

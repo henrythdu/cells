@@ -1,11 +1,12 @@
 name = "gate"
-purpose = "The audit family — health (the gate: all four checks at once), size, structure, impact. Composes the four check cells (validate + crossings + structure + size) into one verdict; the surface CI and the stress agent run. Read/query commands stay in commands; this cell only aggregates + renders verdicts."
+purpose = "The audit family — health (the gate: all four checks at once), size, structure, impact. Composes the four check cells (validate + crossings + structure + size) into one verdict; the surface CI and external stress runs consume it. Read/query commands stay in commands; this cell only aggregates + renders verdicts."
 provides = [
   "cmdHealth",
   "cmdSize",
   "cmdStructure",
   "cmdImpact",
   "groupUnresolved",
+  "healthVerdict",
 ]
 requires = [
   "pipeline",

@@ -258,7 +258,7 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
 
 /** The triage view of the structure report: one line per cycle (size + cheapest edges),
  *  a Direction count, and a collapsed SDP count — the overview for high-cycle repos
- *  (kafka 19, elasticsearch 126) where the full cycle chains dominate the output.
+ *  (huge monorepos hit 100+ cycles) where the full cycle chains dominate the output.
  *  Cycles sorted by size desc (the mega-cycle is the headline). Pure. */
 export function formatStructureSummary(cycles: Cycle[], violations: DirectionViolation[], layersConfigured: boolean, crossings: Crossing[] = [], sdpCount = 0, coupling?: { unexplained: number; total: number }): string {
   const lines: string[] = [];

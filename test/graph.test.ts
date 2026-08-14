@@ -67,6 +67,16 @@ describe('formatCellGraphAscii', () => {
     expect(formatCellGraphAscii([e('a', 'b'), e('c', 'd')])).toBe('a\n└── b\nc\n└── d\n');
   });
 
+  it('a root tree plus an unreachable cycle — the cycle is still emitted (not dropped)', () => {
+    // roots=[c] reach only c→d; the isolated a↔b SCC has no root path into it. The old
+    // root-only start list ended without emitting a/b at all — the graph lost a component.
+    const out = formatCellGraphAscii([e('a', 'b'), e('b', 'a'), e('c', 'd')], ['a', 'b', 'c', 'd']);
+    expect(out).toContain('a');
+    expect(out).toContain('↻ cycle');
+    expect(out).toContain('c');
+    expect(out).toContain('d');
+  });
+
   it('renders isolated cells with no edges (turborepo: 2 cells, 0 edges)', () => {
     expect(formatCellGraphAscii([], ['alpha', 'beta'])).toBe('alpha\nbeta\n');
   });

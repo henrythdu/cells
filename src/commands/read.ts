@@ -33,7 +33,12 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       // (declared-but-unused) is a full-tree property an added-subset can't answer.
       const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
       const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
-      showCrossingsDelta(delta, undeclaredKeys, declarations);
+      if (opts.json) {
+        // machine consumers always get valid JSON — the delta itself, not the human table
+        process.stdout.write(JSON.stringify({ added: delta.added, removed: delta.removed, undeclared: leakage }, null, 2) + '\n');
+      } else {
+        showCrossingsDelta(delta, undeclaredKeys, declarations);
+      }
       if (leakage.length > 0) {
         console.error(`\nUndeclared crossings (${leakage.length}) — the [UNDECLARED] edges above need a requires entry (or remove the import):`);
         for (const l of leakage) console.error(`  ${l.detail}`);
@@ -77,6 +82,13 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   const leakage = checkLeakage(crossings, declarations);
   const stale = leakage.filter((l) => l.kind === 'stale');
   const undeclared = leakage.filter((l) => l.kind === 'undeclared');
+  if (opts.json && opts.warnings) {
+    // --warnings --json: the actionable tail AS data (stdout must always be valid JSON
+    // under --json — the listing is skipped by design, so emit leakage + unresolved here)
+    process.stdout.write(JSON.stringify({ leakage, unresolved }, null, 2) + '\n');
+    if (undeclared.length > 0) process.exitCode = 1; // gate parity with the text path
+    return;
+  }
   if (stale.length > 0) {
     // stale = declared-but-never-imported — info (exit 0), same as health. Gate fails on undeclared only.
     console.error(`(info) ${stale.length} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
@@ -99,7 +111,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
 }
 
 /** Render a crossings delta: +/− edges, then a summary. */
-function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string> = new Set(), declarations: Record<string, Cell> = {}): void {
+function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string>, declarations: Record<string, Cell>): void {
   if (delta.added.length === 0 && delta.removed.length === 0) {
     console.log('No crossing changes since HEAD.');
     return;
@@ -130,7 +142,14 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read — reused for size, stale provides, dead files
     sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
-    if (verbose) smells[name] = { pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens), staleProvides: 0, unresolved: 0 };
+    // stale provides computed HERE (contents already in hand — a second pass would re-read
+    // every file); no provides = nothing to scan, skip the check entirely.
+    if (verbose)
+      smells[name] = {
+        pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens),
+        staleProvides: cell.provides.length === 0 ? 0 : staleProvidesOf(cell, owned, contents).length,
+        unresolved: 0,
+      };
   }
   const { crossings, unresolved, edges } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
@@ -151,12 +170,8 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
       if (owner) unresolvedByCell.set(owner, (unresolvedByCell.get(owner) ?? 0) + 1);
     }
     for (const name of Object.keys(declarations)) {
-      const cell = declarations[name];
       const s = smells[name];
       s.unresolved = unresolvedByCell.get(name) ?? 0;
-      // No provides = nothing to check (staleProvidesOf scans the whole cell's contents) —
-      // skip the re-read for the common provides-less cell.
-      s.staleProvides = cell.provides.length === 0 ? 0 : staleProvidesOf(cell, ownership[name] ?? [], readFiles(ownership[name] ?? [])).length;
     }
   }
   process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined, magnetCounts));

@@ -14,7 +14,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('loadOwnership (ignored files are unowned — wave-3 #7)', () => {
+describe('loadOwnership (ignored files are unowned)', () => {
   it('excludes owned files matching .cells/ignore patterns', () => {
     const repo = mkdtempSync(join(tmpdir(), 'cells-ig-own-'));
     mkdirSync(join(repo, '.cells'), { recursive: true });
@@ -150,8 +150,8 @@ describe('detectProject', () => {
       return; // no symlink permission (some CI) — skip
     }
     const { codeExts, codeDirs } = detectProject(dir);
-    expect(codeExts).toContain('.ts');
-    expect(codeDirs).toContain('src');
+    expect(codeExts).toEqual(['.ts']);
+    expect(codeDirs).toEqual(['src']);
   });
 
   it('detects C++ extensions the cpp importer supports (.cxx/.hh/.hxx)', () => {
@@ -159,8 +159,7 @@ describe('detectProject', () => {
     writeFileSync(join(dir, 'src', 'main.cxx'), 'int main() {}');
     writeFileSync(join(dir, 'src', 'widget.hh'), 'class W {};');
     const { codeExts } = detectProject(dir);
-    expect(codeExts).toContain('.cxx');
-    expect(codeExts).toContain('.hh');
+    expect(codeExts).toEqual(['.cxx', '.hh']);
   });
 });
 
@@ -264,6 +263,21 @@ describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] mus
     writeFileSync(join(repo, 'src', 'a.ts'), 'x');
     writeFileSync(join(repo, 'node_modules', 'pkg', 'dep.ts'), 'x');
     writeFileSync(join(repo, 'dist', 'bundle.ts'), 'x');
+    const prev = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(listCodeFiles()).toEqual(['src/a.ts']);
+    } finally {
+      process.chdir(prev);
+    }
+  });
+
+  it('extension matching is case-insensitive on BOTH sides (configured .TS matches a.ts)', () => {
+    repo = mkdtempSync(join(tmpdir(), 'cells-census-skip-'));
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".TS"]\n');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'x');
     const prev = process.cwd();
     process.chdir(repo);
     try {

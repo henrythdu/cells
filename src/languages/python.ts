@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
 import { createTreeSitterImporter, nearestCandidate } from './tree-sitter.js';
@@ -112,6 +112,7 @@ function resolveImportDesc(
   codeDirs: string[],
   files: ReadonlySet<string>,
   memo: Map<string, boolean>,
+  baseDir: string,
 ): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   let base: string;
   if (desc.dots === 0) {
@@ -127,7 +128,7 @@ function resolveImportDesc(
     const targetPkg = pkg.slice(0, keep);
     base = desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
   }
-  // Self-package absolute import (`python -m uv` style — stress run finding): base is a
+  // Self-package absolute import (`python -m uv` style): base is a
   // package dir under a code-dir, but map keys are code-dir-prefixed (python.uv), so the
   // bare name misses the map. The probe proved the physical target exists; if exactly one
   // map key ends with '.'+base IN THE IMPORTER'S OWN code-dir family, the resolution is
@@ -151,8 +152,8 @@ function resolveImportDesc(
   const edges: ImportEdge[] = [];
   const seen = new Set<string>();
   for (const cand of candidates) {
-    // F4: duplicate module names (mirror trees) resolve same-tree via nearestCandidate —
-    // the old winner map gave every import whichever file won the census walk.
+    // Duplicate module names (mirror trees) resolve same-tree via nearestCandidate —
+    // a winner map would give every import whichever file won the census walk.
     const toFile = nearestCandidate(moduleCandidates.get(cand) ?? [], sourcePath);
     if (toFile && !seen.has(toFile)) {
       seen.add(toFile);
@@ -166,8 +167,8 @@ function resolveImportDesc(
   if (edges.length === 0 && base && (looksLocal(base, desc.dots, localPackages) || probeModuleRootMismatch(base.split('.')[0], codeDirs, files, memo))) {
     // A compiled extension module (pyo3/cython: `headroom._core` → _core.cpython-*.so) is
     // legitimately unresolvable — the file exists but isn't code. Silencing it keeps the
-    // unresolved list honest (wave-3 #5: headroom's 73/81 entries were this one specifier).
-    if (!isCompiledModule(base, moduleCandidates, sourcePath)) unresolved.push({ fromFile: sourcePath, import: base });
+    // unresolved list honest (on a pyo3-heavy repo, 73/81 flagged entries collapsed to one real issue).
+    if (!isCompiledModule(base, moduleCandidates, sourcePath, baseDir)) unresolved.push({ fromFile: sourcePath, import: base });
   }
   return { edges, unresolved };
 }
@@ -182,7 +183,9 @@ function looksLocal(candidate: string, dots: number, localPackages: Set<string>)
 const COMPILED_EXTS = ['.so', '.pyd']; // Python extension modules — .so everywhere incl. macOS, .pyd on Windows
 
 /** Directory listings for compiled-module checks — memoized per process (many unresolved imports
- *  may probe the same package dir; the census doesn't change mid-run). */
+ *  may probe the same package dir; the census doesn't change mid-run). Keyed by the ABSOLUTE
+ *  dir path (resolve(baseDir, …)) so distinct baseDirs — a HEAD-tree run alongside the working
+ *  tree — never collide; a relative key would list the CWD instead. */
 const compiledDirCache = new Map<string, string[]>();
 
 /** Does `module` (dotted, e.g. `headroom._core`) resolve to a compiled extension file on disk
@@ -190,19 +193,19 @@ const compiledDirCache = new Map<string, string[]>();
  *  map (moduleRoot/src-layout aware — `src/headroom/__init__.py` → dir `src/headroom`), so the
  *  compiled artifact is found wherever the package actually lives. Only called for local-looking
  *  unresolved imports; a missing dir (or no parent in the map) → false. */
-function isCompiledModule(module: string, moduleCandidates: Map<string, string[]>, sourcePath: string): boolean {
+function isCompiledModule(module: string, moduleCandidates: Map<string, string[]>, sourcePath: string, baseDir: string): boolean {
   const lastDot = module.lastIndexOf('.');
   if (lastDot === -1) return false;
   const parentMod = module.slice(0, lastDot);
   const name = module.slice(lastDot + 1);
   const parentFile = nearestCandidate(moduleCandidates.get(parentMod) ?? [], sourcePath);
   if (!parentFile) return false;
-  const dir = dirname(parentFile);
+  const absDir = resolve(baseDir, dirname(parentFile));
   try {
-    let entries = compiledDirCache.get(dir);
+    let entries = compiledDirCache.get(absDir);
     if (!entries) {
-      entries = readdirSync(dir);
-      compiledDirCache.set(dir, entries);
+      entries = readdirSync(absDir);
+      compiledDirCache.set(absDir, entries);
     }
     return entries.some((entry) => entry.startsWith(`${name}.`) && COMPILED_EXTS.some((ext) => entry.endsWith(ext)));
   } catch {
@@ -250,7 +253,7 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {
-      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleCandidates, localPackages, codeDirs, ctx.files, ctx.memo);
+      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleCandidates, localPackages, codeDirs, ctx.files, ctx.memo, baseDir ?? '.');
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
     }

@@ -1,9 +1,9 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cmdPayload, cmdShow, extractSurface } from '../src/commands/read.js';
+import { cmdCrossings, cmdPayload, cmdShow, extractSurface } from '../src/commands/read.js';
 import { loadContext } from '../src/io.js';
 import { cmdAssign } from '../src/mutate.js';
 
@@ -153,6 +153,80 @@ describe('commands/read — the assembly the CLI tests only reach indirectly', (
     process.exitCode = 0;
     cmdAssign('newcell', ['src/build/gen.py']);
     expect(process.exitCode).toBe(0);
+    // success must mean WRITTEN, not just silent: the file moved into [newcell]'s ownership
+    expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).toContain('src/build/gen.py');
+    expect(existsSync(join(repo, '.cells', 'newcell.cell.toml'))).toBe(true); // stub created
+  });
+});
+
+describe('cmdCrossings --json — machine consumers always get valid JSON', () => {
+  let repo: string;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  /** Two cells, a committed clean HEAD, then a working-tree b→a import (undeclared). */
+  function setupDeltaRepo(): void {
+    repo = mkdtempSync(join(tmpdir(), 'cells-json-'));
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    mkdirSync(join(repo, '.cells'), { recursive: true });
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\ncode-exts = [".ts"]\n');
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\n');
+    writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\n');
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'export const x = 1;\n');
+    writeFileSync(join(repo, 'src', 'b.ts'), 'export const y = 2;\n');
+    execSync(`git -C ${repo} init`, { stdio: 'ignore' });
+    execSync(`git -C ${repo} config user.email t@t`, { stdio: 'ignore' });
+    execSync(`git -C ${repo} config user.name t`, { stdio: 'ignore' });
+    execSync(`git -C ${repo} add -A`, { stdio: 'ignore' });
+    execSync(`git -C ${repo} commit -m head`, { stdio: 'ignore' });
+    // working tree: b now imports a — an UNDECLARED crossing (b requires nothing)
+    writeFileSync(join(repo, 'src', 'b.ts'), "import { x } from './a.js';\nexport const y = x;\n");
+  }
+
+  function captureStdout(fn: () => Promise<void>): Promise<string> {
+    const chunks: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = (s: string | Uint8Array) => {
+      chunks.push(String(s));
+      return true;
+    };
+    return fn().then(() => {
+      process.stdout.write = orig;
+      return chunks.join('');
+    });
+  }
+
+  it('--json --diff emits {added, removed, undeclared} and nothing else on stdout', async () => {
+    setupDeltaRepo();
+    process.chdir(repo);
+    try {
+      process.exitCode = 0;
+      const out = await captureStdout(() => cmdCrossings(loadContext(), { diff: true, json: true }));
+      const parsed = JSON.parse(out) as { added: unknown[]; removed: unknown[]; undeclared: unknown[] };
+      expect(parsed.added).toHaveLength(1);
+      expect(parsed.removed).toHaveLength(0);
+      expect(parsed.undeclared).toHaveLength(1); // b→a has no requires
+      expect(process.exitCode).toBe(1); // undeclared still fails the gate
+    } finally {
+      process.chdir(startCwd);
+    }
+  });
+
+  it('--json --warnings emits {leakage, unresolved} and nothing else on stdout', async () => {
+    setupDeltaRepo();
+    // an unresolved import too: c-style local that matches nothing on disk
+    writeFileSync(join(repo, 'src', 'b.ts'), "import { x } from './a.js';\nimport { z } from './missing.js';\nexport const y = x;\n");
+    process.chdir(repo);
+    try {
+      const out = await captureStdout(() => cmdCrossings(loadContext(), { warnings: true, json: true }));
+      const parsed = JSON.parse(out) as { leakage: unknown[]; unresolved: { import: string }[] };
+      expect(parsed.leakage.length).toBeGreaterThanOrEqual(1);
+      expect(parsed.unresolved.some((u) => u.import.includes('missing'))).toBe(true);
+    } finally {
+      process.chdir(startCwd);
+    }
   });
 });
 

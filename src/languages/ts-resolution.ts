@@ -97,7 +97,7 @@ function stripJsonc(s: string): string {
 }
 
 /** Parse a tsconfig.json (jsonc: comments + trailing commas are legal). Null on failure —
- *  same contract as the old typescript.readConfigFile wrapper. */
+ *  the jsonc-strip + JSON.parse equivalent of typescript's readConfigFile. */
 function readTsconfig(filePath: string): Record<string, unknown> | null {
   try {
     return JSON.parse(stripJsonc(readFileSync(filePath, 'utf8'))) as Record<string, unknown>;
@@ -113,7 +113,7 @@ function readTsconfig(filePath: string): Record<string, unknown> | null {
  * Package-name extends (`@tsconfig/...`) are skipped — source-based only, no node_modules
  * reads; those configs rarely carry the paths that matter. Keyed by the config FILE path:
  * extends may name any file (a same-dir tsconfig.base.json, a repo-root ../../tsconfig.json)
- * — the old dir-keyed probe re-read THIS config on same-dir extends → infinite recursion →
+ * — a dir-keyed probe would re-read THIS config on same-dir extends → infinite recursion →
  * the importer died on every repo with a base config (RangeError). The visiting guard
  * (cache-set-before-recurse) additionally terminates cross-file cycles. Memoized per file.
  * Pure.
@@ -126,6 +126,12 @@ function configAliases(configPath: string, baseDir: string, cache: Map<string, M
   if (existsSync(join(baseDir, configPath))) {
     const cfg = readTsconfig(join(baseDir, configPath)) as { extends?: string; compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } } | null;
     if (cfg) {
+      // An EXISTING (parseable) config is TERMINAL for aliasesForFile's ancestor
+      // walk — return an (at least) empty map, never null. Null previously meant both
+      // "no config here" and "config without paths", so the walk continued PAST a nested
+      // paths-less project and applied the ROOT's aliases to its files — exactly the
+      // cross-project contamination the owning-program model forbids.
+      merged = new Map();
       if (typeof cfg.extends === 'string' && !cfg.extends.startsWith('@')) {
         const ext = posix.normalize(posix.join(posix.dirname(configPath), cfg.extends));
         const parent = configAliases(ext, baseDir, cache);
@@ -133,7 +139,6 @@ function configAliases(configPath: string, baseDir: string, cache: Map<string, M
       }
       const paths = cfg.compilerOptions?.paths;
       if (paths) {
-        merged ??= new Map();
         const dir = posix.dirname(configPath);
         const base = cfg.compilerOptions?.baseUrl && cfg.compilerOptions.baseUrl !== '.' ? posix.normalize(`${dir}/${cfg.compilerOptions.baseUrl}`) : dir;
         for (const [alias, targets] of Object.entries(paths)) {
@@ -257,7 +262,10 @@ function isWorkspaceMember(dir: string, globs: string[]): boolean {
     // Escape glob metachars that are regex metachars (dots, parens, brackets…)
     // BEFORE the wildcard translation: 'packages/foo.bar' must not match 'fooXbar'.
     const escaped = pattern.replace(/[.+(){}[\]|\\]/g, '\\$&');
-    const re = new RegExp(`^${escaped.split('**').join('.*').split('*').join('[^/]*')}$`);
+    // Single-pass translation: `**` → `.*` (any depth incl. /), lone `*` → `[^/]*`.
+    // A chained split/join rewrites the inserted `.*` again (`.` + `*` → `.[^/]*`) —
+    // `packages/**` then matched one level only and nested member dirs silently left the map.
+    const re = new RegExp(`^${escaped.replace(/\*\*|\*/g, (m) => (m === '**' ? '.*' : '[^/]*'))}$`);
     return re.test(dir);
   };
   const positives = globs.filter((g) => !g.startsWith('!'));
@@ -425,9 +433,9 @@ function resolvePackageSpec(spec: string, map: Map<string, PkgInfo>, ctx: Resolv
       if (t) return { matched: true, toFile: t };
     }
     // 3) heuristic: no exports field → Node semantics — `name/rest` resolves to
-    //    <pkgdir>/rest (stress #16: @turbo/utils/src/get-turbo-configs →
-    //    packages/turbo-utils/src/get-turbo-configs.ts; the old entry-dir probe
-    //    looked in src/src/ and flagged a resolvable import as broken). With
+    //    <pkgdir>/rest (@turbo/utils/src/get-turbo-configs →
+    //    packages/turbo-utils/src/get-turbo-configs.ts; an entry-dir-relative probe
+    //    would look in src/src/ and flag a resolvable import as broken). With
     //    exports, subpaths live under the entry's dir (the ./subpath shape).
     const entryDir = pkg.entry ? pkg.entry.slice(0, pkg.entry.lastIndexOf('/')) : pkg.dir;
     const base = pkg.exports ? entryDir : pkg.dir;

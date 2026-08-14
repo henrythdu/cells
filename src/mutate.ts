@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { cellNameOf, planApply, planAssignment, planGroups, unassignFiles, validCellName } from './assign.js';
 import { buildConfig, parseConfig } from './config.js';
 import { checkLeakage } from './crossings.js';
-import { type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
+import { editCellName, editCellRequires, type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
 import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
 import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, SKIP_DIRS, skippedManifestDirs, writeOwnership } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
@@ -122,15 +122,35 @@ export function cmdRename(oldName: string, newName: string): void {
 
   const decls = loadDeclarations();
   const oldDecl = decls[oldName];
-
-  renameSync(join(CELLS_DIR, `${oldName}.cell.toml`), join(CELLS_DIR, `${newName}.cell.toml`));
-
-  if (oldDecl) {
-    oldDecl.name = newName;
-    writeFileSync(join(CELLS_DIR, `${newName}.cell.toml`), serializeCell(oldDecl));
+  const ownership = loadOwnership();
+  // An ownership-only [newName] entry (no declaration) would be silently CLOBBERED by
+  // the move — its files vanish from the partition. Check BEFORE any write; the store is
+  // already odd (undeclared cell), so name it instead of destroying data.
+  if (ownership[newName] !== undefined && !decls[newName]) {
+    console.error(`cells: ownership.toml already has a [${newName}] entry with no cell declaration — rename would overwrite it and orphan its files. Fix .cells/ownership.toml first.`);
+    process.exit(1);
   }
 
-  const ownership = loadOwnership();
+  // Atomicity: write the NEW declaration BEFORE removing the old file. The old order
+  // (renameSync, then rewrite) left `new.cell.toml` declaring `name = "old"` on a write
+  // failure — loadDeclarations throws on the mismatch and every command dies until hand-fix.
+  const newPath = join(CELLS_DIR, `${newName}.cell.toml`);
+  const oldPath = join(CELLS_DIR, `${oldName}.cell.toml`);
+  if (oldDecl) {
+    // Text surgery, not parse+serialize — the author's comments survive the rename.
+    // (The parse result is only the fallback when the file can't be read as text.)
+    let content: string;
+    try {
+      content = editCellName(readFileSync(oldPath, 'utf8'), newName);
+    } catch {
+      content = serializeCell({ ...oldDecl, name: newName });
+    }
+    writeFileSync(newPath, content);
+    rmSync(oldPath);
+  } else {
+    renameSync(oldPath, newPath); // declaration-less store entry — nothing to rewrite
+  }
+
   const ownedCount = ownership[oldName]?.length ?? 0;
   if (ownership[oldName]) {
     ownership[newName] = ownership[oldName];
@@ -142,8 +162,14 @@ export function cmdRename(oldName: string, newName: string): void {
   for (const [name, decl] of Object.entries(decls)) {
     if (name === oldName) continue;
     if (decl.requires.includes(oldName)) {
+      // comment-preserving requires rewrite (parse+serialize would drop author comments)
+      const depPath = join(CELLS_DIR, `${name}.cell.toml`);
+      try {
+        writeFileSync(depPath, editCellRequires(readFileSync(depPath, 'utf8'), { rename: [oldName, newName] }));
+      } catch {
+        writeFileSync(depPath, serializeCell({ ...decl, requires: decl.requires.map((r) => (r === oldName ? newName : r)) }));
+      }
       decl.requires = decl.requires.map((r) => (r === oldName ? newName : r));
-      writeFileSync(join(CELLS_DIR, `${name}.cell.toml`), serializeCell(decl));
       requiresUpdated++;
     }
   }
@@ -192,7 +218,12 @@ export function cmdRemove(name: string, force: boolean): void {
   for (const dep of dependents) {
     const decl = decls[dep];
     decl.requires = decl.requires.filter((r) => r !== name);
-    writeFileSync(join(CELLS_DIR, `${dep}.cell.toml`), serializeCell(decl));
+    const depPath = join(CELLS_DIR, `${dep}.cell.toml`);
+    try {
+      writeFileSync(depPath, editCellRequires(readFileSync(depPath, 'utf8'), { remove: [name] }));
+    } catch {
+      writeFileSync(depPath, serializeCell(decl));
+    }
   }
 
   console.log(`Removed cell "${name}".`);
@@ -222,7 +253,7 @@ export function cmdAssign(cell: string, files: string[], dryRun = false): void {
   }
   const declPath = join(CELLS_DIR, `${cell}.cell.toml`);
   const declarations = loadDeclarations();
-  // Symlink aliases (stress finding: cxx): the census walks through symlinks and records the
+  // Symlink aliases: the census walks through symlinks and records the
   // ALIAS path; users type canonical ones. Assigning a canonical path when the same inode is
   // already owned under its alias would double-own the file (validate catches it later,
   // silently). Normalize each assigned file to its already-owned path so ownership stays
@@ -276,7 +307,7 @@ export function cmdAssign(cell: string, files: string[], dryRun = false): void {
     }
     normalized.push(f);
   }
-  // F3 (stress finding: cli internal/build): ownership partitions the CENSUS. A skip-listed
+  // Ownership partitions the CENSUS. A skip-listed
   // or non-code target would be owned yet invisible to importers — validate would flag it
   // "outside-census" forever and no command could reconcile it. Refuse at the write side
   // (like the unsafe-path check): the fix is config (skip-dirs / code-dirs / code-exts),
@@ -411,7 +442,12 @@ export async function cmdPruneStale(apply: boolean): Promise<void> {
   for (const [cellName, reqs] of byCell) {
     const decl = declarations[cellName];
     decl.requires = decl.requires.filter((r) => !reqs.includes(r));
-    writeFileSync(join(CELLS_DIR, `${cellName}.cell.toml`), serializeCell(decl));
+    const declPath2 = join(CELLS_DIR, `${cellName}.cell.toml`);
+    try {
+      writeFileSync(declPath2, editCellRequires(readFileSync(declPath2, 'utf8'), { remove: reqs }));
+    } catch {
+      writeFileSync(declPath2, serializeCell(decl));
+    }
   }
   lines.push(`Removed from ${byCell.size} cell declaration(s). Run \`cells health\` to confirm.`);
   console.log(lines.join('\n'));

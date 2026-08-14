@@ -66,8 +66,8 @@ function looksLocal(imp: JavaImport, pkg: string | undefined): boolean {
  *  is source-based and the map builds before parse — the AST is unavailable here (analyze
  *  still sees it for imports; the identity is a lookup key, not an analysis). Comments are
  *  stripped first: `package` must be the first statement, but a commented-out decl (block or
- *  `//` line) would otherwise match first and forge the identity (ocr HIGH — the old
- *  AST-based packageOf was immune). */
+ *  `//` line) would otherwise match first and forge the identity (an AST-based package
+ *  lookup is immune by construction). */
 function moduleKeyOf(file: SourceFile): string | undefined {
   const stripped = file.content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const pkg = stripped.match(/^\s*package\s+([\w.$]+)\s*;/m)?.[1];
@@ -79,8 +79,8 @@ function moduleKeyOf(file: SourceFile): string | undefined {
 
 /** package → its deterministic representative FQN (shortest, then alpha — Go's
  *  package-representative model), computed ONCE per module→file map. Called once per WILDCARD
- *  import — a full map scan per wildcard would be O(wildcards × modules) on big repos (ocr
- *  HIGH; elasticsearch ~31k modules). memoizeWeak: the map dies with the extract, no
+ *  import — a full map scan per wildcard would be O(wildcards × modules) on big repos
+ *  (elasticsearch ~31k modules). memoizeWeak: the map dies with the extract, no
  *  cross-run staleness. */
 const representativeOf = memoizeWeak((moduleToFile: Map<string, string>) => {
   const byPkg = new Map<string, string>();
@@ -99,7 +99,7 @@ const representativeOf = memoizeWeak((moduleToFile: Map<string, string>) => {
  *  fully-qualified class (or package, for wildcards), so resolution is an exact key lookup.
  *  No build-system reads — the package DECL is the identity (Maven/Gradle/Ant layouts all
  *  work; a path-derived FQN would need src-root probes and lie on layout mismatch).
- *  ponytail: wildcards resolve to ONE representative file per package (Go parity); a package
+ *  Deliberate ceiling: wildcards resolve to ONE representative file per package (Go parity); a package
  *  whose members span cells is drawn as a single edge — upgrade to per-file edges if a real
  *  repo's graph needs the granularity. Kotlin files are invisible (no kotlin grammar). */
 export const javaImporter = createTreeSitterImporter<JavaImport[]>({
@@ -129,14 +129,30 @@ export const javaImporter = createTreeSitterImporter<JavaImport[]>({
         const best = reps.get(imp.fqn);
         const rep = best ? nearestCandidate(ctx.moduleCandidates.get(best) ?? [], sourcePath) : null;
         if (rep && rep !== sourcePath) edges.push({ fromFile: sourcePath, toFile: rep, import: `${imp.fqn}.*` });
+        else if (!best) {
+          // `import static X.*` — a STATIC wildcard of a CLASS, not a package. reps
+          // keys are packages, so it always missed and the real dependency vanished. Same
+          // progressive-strip as the member form: X (or its nesting prefix) → the class FILE.
+          let f = imp.fqn;
+          for (;;) {
+            const t = nearestCandidate(ctx.moduleCandidates.get(f) ?? [], sourcePath);
+            if (t) {
+              if (t !== sourcePath) edges.push({ fromFile: sourcePath, toFile: t, import: `${imp.fqn}.*` });
+              break;
+            }
+            const i = f.lastIndexOf('.');
+            if (i <= 0) break;
+            f = f.slice(0, i);
+          }
+        }
         continue;
       }
       // exact class, then progressively shorter prefixes: inner classes + static members
       // address the class FILE, possibly through nesting (`SampleElements.Strings.AFTER_LAST`
       // → `SampleElements`; a same-file nested enum resolves to its own file and is dropped
       // as a self-edge). First hit wins — most specific. The package-only candidate can never
-      // hit (no package-level keys). F4: duplicate FQNs (mirror trees) resolve same-tree via
-      // nearestCandidate — the old flat map gave every import whichever tree won the walk.
+      // hit (no package-level keys). Duplicate FQNs (mirror trees) resolve same-tree via
+      // nearestCandidate — a flat winner map would give every import whichever tree won the walk.
       let target: string | null = null;
       let f = imp.fqn;
       for (;;) {

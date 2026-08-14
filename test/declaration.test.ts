@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Cell, parseCell, serializeCell } from '../src/declaration.js';
+import { type Cell, editCellName, editCellRequires, parseCell, serializeCell } from '../src/declaration.js';
 
 describe('parseCell', () => {
   it('parses a well-formed cell declaration', () => {
@@ -120,5 +120,51 @@ describe('serializeCell', () => {
       tests: ['test/parser.test.ts', 'test/integration.test.ts'],
     };
     expect(parseCell(serializeCell(cell))).toEqual(cell);
+  });
+});
+
+describe('comment-preserving rewrites (editCellName / editCellRequires)', () => {
+  const authored = ['# the parser membrane', 'name = "parser"', 'purpose = "p" # inline purpose note', 'provides = ["parseCell"]', 'requires = [', '  "toml", # shared codec', '  "ownership",', '] # trailing note', 'layer = 1'].join('\n');
+
+  it('editCellName rewrites only the name value — comments and layout survive', () => {
+    const out = editCellName(authored, 'parser2');
+    expect(out).toContain('name = "parser2"');
+    expect(out).toContain('# the parser membrane');
+    expect(out).toContain('  "toml", # shared codec');
+    expect(parseCell(out).name).toBe('parser2');
+  });
+
+  it('editCellName throws when no name line exists (never a silent no-op)', () => {
+    expect(() => editCellName('purpose = "p"\n', 'x')).toThrow(/name/);
+  });
+
+  it('editCellRequires renames an entry in place — comments survive', () => {
+    const out = editCellRequires(authored, { rename: ['toml', 'toml2'] });
+    expect(parseCell(out).requires).toEqual(['toml2', 'ownership']);
+    expect(out).toContain('# shared codec');
+    expect(out).toContain('] # trailing note');
+  });
+
+  it('editCellRequires removes entries — remaining entries and comments survive', () => {
+    const out = editCellRequires(authored, { remove: ['toml'] });
+    expect(parseCell(out).requires).toEqual(['ownership']);
+    expect(out).toContain('# shared codec');
+  });
+
+  it('editCellRequires removing every entry collapses to requires = [] (valid TOML)', () => {
+    const out = editCellRequires(authored, { remove: ['toml', 'ownership'] });
+    expect(parseCell(out).requires).toEqual([]);
+    expect(out).toContain('name = "parser"');
+  });
+
+  it('editCellRequires scans past a "]" inside a comment (matching-bracket scanner)', () => {
+    const tricky = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = [ # note with ] bracket\n  "x",\n]\n';
+    const out = editCellRequires(tricky, { remove: ['x'] });
+    expect(parseCell(out).requires).toEqual([]);
+  });
+
+  it('editCellRequires leaves a file without requires unchanged', () => {
+    const noReq = 'name = "a"\npurpose = "p"\nprovides = []\n';
+    expect(editCellRequires(noReq, { remove: ['x'] })).toBe(noReq);
   });
 });

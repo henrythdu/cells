@@ -177,22 +177,28 @@ async function main(): Promise<void> {
   // Unknown-flag gate: the usage string is the single source of truth — every
   // flag a command accepts appears in its usage (no second list to drift).
   // Without this, an unknown flag silently flows into positional args
-  // (assign would treat `--verbose` as a filename).
+  // (assign would treat `--verbose` as a filename). Single-dash tokens are gated
+  // too — `-x` previously bypassed the check entirely (misleading "no cell named -x"
+  // errors, or silent ignore under minArgs:0 commands). `--` ends the flag zone:
+  // everything after it is a literal positional (a file named like a flag).
+  const sepIdx = args.indexOf('--');
+  const flagZone = sepIdx === -1 ? args : args.slice(0, sepIdx);
+  const rest = sepIdx === -1 ? [] : args.slice(sepIdx + 1);
   const knownFlags: string[] = command.usage.match(/--[\w-]+/g) ?? [];
-  const unknownFlag = args.find((a) => a.startsWith('--') && a !== '--dry-run' && !knownFlags.includes(a));
+  const unknownFlag = flagZone.find((a) => a.startsWith('-') && a.length > 1 && !knownFlags.includes(a));
   if (unknownFlag !== undefined) {
     console.error(`unknown flag "${unknownFlag}" for cells ${cmd}`);
     console.error(`usage: ${command.usage}`);
     process.exit(1);
   }
   if (command.needsCells) requireCells();
-  // --dry-run is a pure boolean flag (never takes a value) — strip it before the arg-count
-  // gate so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args. The gate
-  // counts only non-flag args, but commands still receive the full array (they read their
-  // own flags like --diff/--force/--mermaid/--verbose from it via .includes()).
+  // --dry-run is a pure boolean flag (never takes a value) — stripped from the arg-count
+  // gate's tally so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args.
+  // Only the commands that declare it in their usage (init/assign/unassign/plan) accept
+  // it; the unknown-flag gate rejects it everywhere else.
   const dryRun = args.includes('--dry-run');
-  const positional = args.filter((a) => a !== '--dry-run');
-  const realArgs = positional.filter((a) => !a.startsWith('--')).length;
+  const positional = [...flagZone.filter((a) => a !== '--dry-run'), ...rest];
+  const realArgs = [...flagZone.filter((a) => !a.startsWith('-')), ...rest].length;
   if (realArgs < command.minArgs) {
     console.error(`usage: ${command.usage}`);
     process.exit(1);

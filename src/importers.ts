@@ -1,6 +1,6 @@
 import { extname, join } from 'node:path';
 import { applyBridges, buildBridgeMap } from './bridges.js';
-import type { ImportEdge, Importer, SourceFile, UnresolvedImport } from './imports.js';
+import type { ImportContext, ImportEdge, Importer, SourceFile, UnresolvedImport } from './imports.js';
 import { listCodeFiles, loadConfig, readFiles } from './io.js';
 import { cppImporter } from './languages/cpp.js';
 import { goImporter } from './languages/go.js';
@@ -63,7 +63,7 @@ export function importableExts(exts: readonly string[], importers: readonly Impo
  * The only language-coupled seam in Cells; everything downstream consumes ImportEdge[].
  * Also returns unresolved local imports (diagnostics — imports that look local but resolved to no file).
  * Sequential dispatch: web-tree-sitter's shared WASM state races when two grammars load
- * concurrently (silent empty results — see headroom P0). Importer failures are surfaced
+ * concurrently (silent empty results). Importer failures are surfaced
  * in `failures`, never swallowed — a zero-edge result on a blind graph must not fake green.
  */
 export async function collectImportEdges(
@@ -92,7 +92,7 @@ export async function collectImportEdges(
   // Tree-sitter reads `files`; point both at `baseDir` so a HEAD tree can be derived
   // for `crossings --diff`. `.cells/` stays in the working repo.
   const dirs = codeDirs.map((d) => join(baseDir, d));
-  const ctx = { codeDirs: dirs, files, baseDir, moduleRoot };
+  const ctx: ImportContext = { codeDirs: dirs, files, baseDir, moduleRoot }; // the typed contract — drift between construction and Importer.extract's shape fails HERE
   const edges: ImportEdge[] = [];
   const unresolved: UnresolvedImport[] = [];
   const failures: ImporterFailure[] = [];

@@ -21,7 +21,7 @@ describe('java: module identity (package decl + basename)', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('ignores commented-out package decls (ocr HIGH — a block comment containing a line starting `package` would forge the identity; the old AST packageOf was immune)', async () => {
+  it('ignores commented-out package decls (a block comment containing a line starting `package` would forge the identity)', async () => {
     const { edges, unresolved } = await extract({
       'com/acme/util/Util.java': '/*\npackage com.acme.old;\n*/\npackage com.acme.util;\npublic class Util {}\n',
       'com/acme/core/Service.java': '// package com.acme.other;\npackage com.acme.core;\nimport com.acme.util.Util;\npublic class Service {}\n',
@@ -66,6 +66,15 @@ describe('java: resolution', () => {
       'com/acme/app/Main.java': 'package com.acme.app;\nimport static com.acme.util.Helper.escape;\npublic class Main {}\n',
     });
     expect(edges.find((e) => e.import === 'com.acme.util.Helper.escape')?.toFile).toBe('com/acme/util/Helper.java');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('static wildcard of a class (`import static X.*`) resolves to the class file', async () => {
+    const { edges, unresolved } = await extract({
+      'com/acme/util/Helper.java': 'package com.acme.util;\npublic class Helper { public static String escape(String s) { return s; } }\n',
+      'com/acme/app/Main.java': 'package com.acme.app;\nimport static com.acme.util.Helper.*;\npublic class Main {}\n',
+    });
+    expect(edges.find((e) => e.import === 'com.acme.util.Helper.*')?.toFile).toBe('com/acme/util/Helper.java');
     expect(unresolved).toEqual([]);
   });
 
@@ -175,11 +184,11 @@ describe('java: unresolved classification (importer-package rule)', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('duplicate-FQN mirror trees resolve same-tree (F4: guava android/guava mirrors — no more fabricated cross-tree edges)', async () => {
+  it('duplicate-FQN mirror trees resolve same-tree (guava android/guava mirrors)', async () => {
     const { edges, unresolved } = await extract({
-      // Two trees declare the SAME FQN; the census sorts android/ before guava/ (the old
-      // winner map's last-write went to guava/ — every android import pointed at the
-      // desktop twin: 4541 fabricated edges on real guava). nearestCandidate must pick
+      // Two trees declare the SAME FQN; the census sorts android/ before guava/ (a
+      // last-write-wins map resolves everything to guava/ — every android import points
+      // at the desktop twin). nearestCandidate must pick
       // the importer's own tree.
       'android/guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',
       'guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',

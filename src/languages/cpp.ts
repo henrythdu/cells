@@ -62,15 +62,15 @@ const includeRootsCached = memoizeWeak(includeRoots);
 const sortedCppFiles = memoizeWeak((moduleToFile: Map<string, string>) => [...moduleToFile.keys()].sort((a, b) => a.length - b.length || (a < b ? -1 : 1)));
 
 /** Suffix-match fallback: an include no probe reached but that SOME census file ends with —
- *  a header found via a DEEP `-I` root (llama ggml/include, pandas _libs/include — stress
- *  bug #12; the grilled probes cover only top-level roots). UNIQUE twin only: two files ending
+ *  a header found via a DEEP `-I` root (llama's ggml/include, pandas's _libs/include — the
+ *  probe roots cover only top-level dirs). UNIQUE twin only: two files ending
  *  with the same include (common names like config.h under two roots) are indistinguishable
  *  without -I reads — a guessed pick would be a wrong edge, an honest unresolved instead.
- *  Leading `../` segments are stripped (bug #13): `../include/ggml-cann.h` from
+ *  Leading `../` segments are stripped: `../include/ggml-cann.h` from
  *  ggml/src/ggml-cann/ is `-I ggml/include` + the relative prefix — the meaningful part for
  *  a suffix scan is `include/ggml-cann.h`; the `..`s cancel inside the root and are
  *  meaningless to a bare path scan. The include is normalized first (`.`/`..` segments
- *  resolve — ocr MEDIUM), then stripped; census paths never contain `.`/`..` segments, so
+ *  resolve), then stripped; census paths never contain `.`/`..` segments, so
  *  the raw form can never match. */
 function suffixMatch(include: string, files: readonly string[]): string | undefined {
   const target = `/${posix.normalize(include).replace(/^(\.\.\/)+/, '')}`;
@@ -97,7 +97,7 @@ export function includeCandidates(inc: CppInclude, sourcePath: string, roots: re
   if (clean !== '.') {
     for (const root of roots) {
       // Join + normalize per root, drop only if the RESULT escapes the repo. `..`-relative
-      // includes (bug #13) are NOT pre-dropped: `-I src` + `../src/x.h` = `src/../src/x.h`
+      // includes are NOT pre-dropped: `-I src` + `../src/x.h` = `src/../src/x.h`
       // → `src/x.h` — a valid in-repo target the importer-dir probe (a different dir)
       // can't reach. Only escapes (`../../out.h` from `src/`) drop.
       const probe = root === '.' ? clean : posix.normalize(`${root}/${clean}`);
@@ -116,7 +116,7 @@ const fileToModule = (path: string): string => path;
  *  includes are local by definition (missing → unresolved, the LLM's problem); angle
  *  includes are external unless a census hit proves them owned. No build system, no -I
  *  reads — source-based only (design philosophy).
- *  ponytail: -I roots = top-level code dirs only (census-derived). The suffix fallback covers
+ *  Deliberate ceiling: -I roots = top-level code dirs only (census-derived). The suffix fallback covers
  *  DEEPER roots (ggml/include, pandas _libs/include, vendored gtest at test/gtest/…), but a
  *  header whose suffix appears nowhere in the census — or whose suffix is shared by several
  *  twins (ambiguous common names like config.h under two deep roots) — stays unresolved

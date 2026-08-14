@@ -3,9 +3,58 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { groupUnresolved } from '../src/gate.js';
+import { groupUnresolved, healthVerdict } from '../src/gate.js';
+import type { HealthValues } from '../src/view.js';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
+
+/** Base for healthVerdict tests: every gate input green (size/structure irrelevant to
+ *  the rule — they are warnings). */
+const green: HealthValues = {
+  cellCount: 1,
+  fileCount: 1,
+  orphanCount: 0,
+  crossingCount: 0,
+  violationCount: 0,
+  violationDetails: [],
+  undeclaredCount: 0,
+  undeclaredEdges: [],
+  staleCount: 0,
+  staleEdges: [],
+  staleProvidesCount: 0,
+  staleProvidesDetails: [],
+  cycleCount: 0,
+  dirViolationCount: 0,
+  maxPercent: 0.5,
+  uncoveredExts: [],
+  unresolvedCount: 0,
+  unresolvedDetails: [],
+  grammarResults: [{ lang: 'python', ok: true }],
+};
+
+describe('healthVerdict — the strict-gate rule (exit-1 set)', () => {
+  it('all green passes', () => {
+    expect(healthVerdict(green)).toBe(true);
+  });
+  it('integrity violations fail the gate', () => {
+    expect(healthVerdict({ ...green, violationCount: 1, violationDetails: ['outside-census — src/x.rs'] })).toBe(false);
+  });
+  it('undeclared leakage fails the gate', () => {
+    expect(healthVerdict({ ...green, undeclaredCount: 1 })).toBe(false);
+  });
+  it('a broken grammar bundle fails the gate (named inline, still strict)', () => {
+    expect(healthVerdict({ ...green, grammarResults: [{ lang: 'python', ok: true }, { lang: 'rust', ok: false, error: 'wasm missing' }] })).toBe(false);
+  });
+  it('empty grammar results fail (never silently green)', () => {
+    expect(healthVerdict({ ...green, grammarResults: [] })).toBe(false);
+  });
+  it('size over ceiling stays a WARNING — never fails the gate', () => {
+    expect(healthVerdict({ ...green, maxPercent: 1.5 })).toBe(true);
+  });
+  it('cycles + direction violations stay WARNINGS — never fail the gate', () => {
+    expect(healthVerdict({ ...green, cycleCount: 3, dirViolationCount: 2 })).toBe(true);
+  });
+});
 
 describe('cells health', () => {
   describe('on a healthy repo', () => {

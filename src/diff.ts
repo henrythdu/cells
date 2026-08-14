@@ -108,7 +108,7 @@ export function recentCommitFiles(ownedFiles: string[], limit = 200): CommitFile
   // Step 2: each commit's FULL changed-file list (git show does not traverse ancestry).
   // --diff-merges=first-parent: git show defaults to a COMBINED diff for merge commits, which
   // omits cleanly-merged files — the first-parent view lists everything the merge brought in.
-  // ponytail: limit bounds hashList (~41 chars/hash, 200 ≈ 8KB — ARG_MAX safe); the 64MB
+  // Deliberate bound: limit caps hashList (~41 chars/hash, 200 ≈ 8KB — ARG_MAX safe); the 64MB
   // maxBuffer bounds pathological commits; overflow → [] (no coupling signal, same as today).
   let out: string;
   try {

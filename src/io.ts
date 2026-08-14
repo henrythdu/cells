@@ -84,7 +84,7 @@ export function loadOwnership(): Ownership {
   const path = join(CELLS_DIR, 'ownership.toml');
   if (!existsSync(path)) return {};
   const ownership = readParsed(path, parseOwnership, '.cells/ownership.toml');
-  // wave-3 #7: `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
+  // `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
   // (stale ownership.toml entries drop on the next write of the store; size/payload stop
   // counting them without a manual unassign).
   return filterIgnored(ownership);
@@ -143,7 +143,7 @@ function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visit
       continue; // dangling symlink / vanished entry — not code; a crash would sink the census
     }
     if (st.isDirectory()) out.push(...listFiles(path, exts, skip, visited));
-    else if (exts.some((e) => entry.endsWith(e))) out.push(path);
+    else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path);
   }
   return out;
 }
@@ -354,9 +354,9 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   if (extCounts.size === 0) return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
   const codeExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
   let codeDirs = [...dirHasCode].sort();
-  // Drop dirs covered by another included dir: "." covers everything (root code files make
-  // the list collapse to ["."] — otherwise every file double-counts in ownership/plan).
-  codeDirs = codeDirs.includes('.') ? ['.'] : codeDirs.filter((d) => !codeDirs.some((o) => o !== d && (d + '/').startsWith(o + '/')));
+  // Root code files make the list collapse to ["."] — otherwise every file
+  // double-counts in ownership/plan.
+  if (dirHasCode.has('.')) codeDirs = ['.'];
   if (codeDirs.length === 0) codeDirs = ['src', 'test'];
   return { codeExts, codeDirs };
 }

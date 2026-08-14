@@ -26,7 +26,7 @@ files = ["src/config.ts", "test/config.test.ts"]
 files = ["src/cli.ts", "test/remove.test.ts", "test/workflow.test.ts"]
 
 [mutate]
-files = ["src/mutate.ts"]
+files = ["src/mutate.ts", "test/mutate.test.ts"]
 
 [io]
 files = ["src/io.ts", "test/io.test.ts"]

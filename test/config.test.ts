@@ -70,6 +70,19 @@ describe('parseConfig', () => {
     expect(parseConfig('module-root = "src"\n').moduleRoot).toBe('src');
   });
 
+  it("wrong-typed 'max-payload-tokens' throws instead of silently defaulting", () => {
+    expect(() => parseConfig('max-payload-tokens = "8000"\n')).toThrow(/max-payload-tokens.*number.*string/);
+  });
+
+  it("wrong-typed 'module-root' throws instead of vanishing", () => {
+    expect(() => parseConfig('module-root = 5\n')).toThrow(/module-root.*string.*number/);
+  });
+
+  it("wrong-typed 'layers' (string/array) throws instead of silently ignoring the legend", () => {
+    expect(() => parseConfig('layers = "ui"\n')).toThrow(/layers.*table.*string/);
+    expect(() => parseConfig('layers = ["ui"]\n')).toThrow(/layers.*table.*array/);
+  });
+
   it('reads ignore-blind-exts (per-ext blind-warning silence)', () => {
     expect(parseConfig('ignore-blind-exts = [".c", ".h"]\n').ignoreBlindExts).toEqual(['.c', '.h']);
     expect(parseConfig('').ignoreBlindExts).toEqual([]);

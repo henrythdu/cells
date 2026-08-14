@@ -56,7 +56,7 @@ describe('python importer', () => {
     expect(set).toEqual(new Set(['app/cli.py -> src/stages/predict.py', 'app/cli.py -> src/stages/enrich.py']));
   });
 
-  it('silences imports backed by compiled extension modules on disk (wave-3 #5: pyo3 _core.so)', async () => {
+  it('silences imports backed by compiled extension modules on disk (pyo3 _core.so)', async () => {
     const prev = process.cwd();
     const repo = mkdtempSync(join(tmpdir(), 'cells-pycore-'));
     mkdirSync(join(repo, 'headroom'), { recursive: true });
@@ -80,6 +80,33 @@ describe('python importer', () => {
     } finally {
       process.chdir(prev);
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('compiled-module probe is baseDir-scoped — two trees probing one cache cannot collide', async () => {
+    // same relative layout in two trees; only tree A has the compiled _core.so on disk.
+    // The probe cache is keyed by resolve(baseDir, dir) — a relative key would let tree B
+    // inherit tree A's hit and silently swallow a REAL unresolved import.
+    const files: SourceFile[] = [
+      { path: 'headroom/__init__.py', content: '\n' },
+      { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
+    ];
+    const mk = (withSo: boolean): string => {
+      const repo = mkdtempSync(join(tmpdir(), 'cells-pyscope-'));
+      mkdirSync(join(repo, 'headroom', 'transforms'), { recursive: true });
+      if (withSo) writeFileSync(join(repo, 'headroom', '_core.cpython-312-x86_64-linux-gnu.so'), 'binary\n');
+      return repo;
+    };
+    const a = mk(true);
+    const b = mk(false);
+    try {
+      const ra = await pythonImporter.extract({ codeDirs: ['headroom'], baseDir: a, files });
+      const rb = await pythonImporter.extract({ codeDirs: ['headroom'], baseDir: b, files });
+      expect(ra.unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
+      expect(rb.unresolved.some((u) => u.import === 'headroom._core')).toBe(true); // no .so in B → honest unresolved
+    } finally {
+      rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
     }
   });
 });
@@ -149,7 +176,7 @@ describe('unresolved local imports', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('REG: self-package absolute import (`python -m uv` style — stress finding 3): code-dir-prefixed map, bare-name import resolves', async () => {
+  it('self-package absolute import (`python -m uv` style): code-dir-prefixed map, bare-name import resolves', async () => {
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['python'],
       files: [
@@ -161,7 +188,7 @@ describe('unresolved local imports', () => {
     expect(unresolved).toEqual([]);
   });
 
-  it('REG: ambiguous self-name (two same-family packages share it) stays unresolved — never guess', async () => {
+  it('ambiguous self-name (two same-family packages share it) stays unresolved — never guess', async () => {
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       files: [
@@ -175,7 +202,7 @@ describe('unresolved local imports', () => {
   });
 
   it('src-layout WITHOUT module-root: unambiguous imports resolve; cross-family ones stay flagged', async () => {
-    // The griller's hole: fileToModule derives src.util, imports say util → first segment
+    // src-layout: fileToModule derives src.util, imports say util → first segment
     // not a local package → previously classified external → silently dropped → gate shows
     // "0 edges" on a repo full of imports. Physical existence under a code-dir beats the
     // map's silence: same-family unique → resolved; cross-family (tests → src.core.engine)
@@ -295,7 +322,7 @@ describe('unresolved local imports', () => {
       expect(fileToModule('src/algos.pyx', 'src')).toBe('algos');
     });
 
-    it('relative imports inside __init__.pyx resolve from the package itself (ocr fix)', async () => {
+    it('relative imports inside __init__.pyx resolve from the package itself', async () => {
       const files: SourceFile[] = [
         { path: 'pkg/__init__.pyx', content: 'from . import bar\n' },
         { path: 'pkg/bar.pyx', content: 'x = 1\n' },

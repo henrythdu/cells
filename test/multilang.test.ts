@@ -2,10 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { collectImportEdges } from '../src/importers.js';
+import { collectImportEdges, DEFAULT_IMPORTERS } from '../src/importers.js';
 import type { Importer } from '../src/imports.js';
 
-// Regression for the headroom P0: two tree-sitter grammars loaded concurrently (Promise.all
+// Regression guard: two tree-sitter grammars loaded concurrently (Promise.all
 // dispatch) raced web-tree-sitter's shared WASM state — one importer silently returned empty
 // and `cells crossings` printed "No cross-cell imports" while `health` stayed green. The
 // dispatch is now sequential + failure-surfacing; this asserts both languages actually
@@ -58,20 +58,21 @@ describe('collectImportEdges (failure surfacing)', () => {
     expect(failures).toEqual([{ importer: 'broken', error: 'boom' }]);
   });
 
-  it('keeps other importers results when one fails', async () => {
+  it('keeps other importers results when one fails (per-importer failure, sequential dispatch)', async () => {
     writeFileSync(join(repo, 'a.py'), 'import b\n');
     writeFileSync(join(repo, 'b.py'), 'x = 1\n');
-    writeFileSync(join(repo, 'x.rs'), 'fn main() {}\n');
+    writeFileSync(join(repo, 'x.zzz'), 'whatever\n');
     const broken: Importer = {
       name: 'broken',
-      extensions: ['.rs'],
+      extensions: ['.zzz'],
       async extract() {
         throw new Error('boom');
       },
     };
-    const { edges, failures } = await collectImportEdges('.', [broken]);
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({ importer: 'broken', error: 'boom' });
-    expect(edges).toEqual([]); // the broken importer owned .rs — its edges are missing, reported
+    // broken rides ALONGSIDE the defaults — the healthy importers must still produce their
+    // edges while the failure is reported, never swallowed
+    const { edges, failures } = await collectImportEdges('.', [...DEFAULT_IMPORTERS, broken]);
+    expect(failures).toEqual([{ importer: 'broken', error: 'boom' }]);
+    expect(edges.some((e) => e.fromFile === 'a.py' && e.toFile === 'b.py')).toBe(true); // python's edge survived
   });
 });

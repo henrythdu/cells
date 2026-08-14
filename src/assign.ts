@@ -72,13 +72,13 @@ export function cellNameOf(key: string): string {
 export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, string[]> {
   // The repo-root Cargo.toml is usually a [workspace] manifest (headroom, uv), not a crate —
   // a crate owns its subtree, so a root workspace manifest would swallow every file outside
-  // crates/ into '.', which plan drops (key === '.') — headroom's 1333 python files vanished
-  // from the plan. Only a root Cargo.toml WITH a [package] section (ripgrep: root crate +
+  // crates/ into '.', which plan drops (key === '.') — on one real repo that swallowed
+  // 1333 python files out of the plan. Only a root Cargo.toml WITH a [package] section (ripgrep: root crate +
   // workspace; cxx: single crate) is a real unit root. It gets its OWN cell named after the
-  // package (stress #17: the old behavior recognized the root crate and then dropped it —
-  // 126 orphans, 1 edge, main crate invisible to crossings). Mirrors the root-package.json
+  // package (recognizing the root crate and then dropping it left 126 orphans and the
+  // main crate invisible to crossings). Mirrors the root-package.json
   // rule below. `name.workspace = true` → unparseable name → null → root falls back to the
-  // '.' drop (pre-fix behavior; rust.ts's crateNameOf has the same documented limitation).
+  // '.' drop (rust.ts's crateNameOf has the same documented limitation).
   let rootCargoIsPackage = false;
   let rootCrateName: string | null = null;
   try {
@@ -114,8 +114,8 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
     if (ancestors.length === 0) return null;
     // a crate owns its whole subtree — bundled python/ dirs stay in the crate (uv embeds one).
     // The root crate (' . ' ancestor) is keyed by its package NAME, not '.', so the
-    // `key === '.'` drop below never sees it (stress #17: the root crate was recognized,
-    // then orphaned).
+    // `key === '.'` drop below never sees it (the root crate is a real unit,
+    // not junk).
     for (const a of ancestors) {
       if (a.kind === 'cargo') return a.dir === '.' && rootCrateName ? rootCrateName : a.dir;
     }
@@ -142,7 +142,7 @@ export function planGroups(codeFiles: string[], baseDir = '.'): Map<string, stri
       key = dirname(key);
     }
     // Files with no unit (and no valid-name dir) are NOT proposed — they stay unowned,
-    // which is neutral (wave-3 #8: the old catch-all `root` cell swept junk into a 5.9M-tok
+    // which is neutral (a catch-all `root` cell would sweep junk into a multi-million-token
     // cell; unowned files are listed as orphans instead, and plan --apply leaves them be).
     if (key === '.') continue;
     const list = groups.get(key);

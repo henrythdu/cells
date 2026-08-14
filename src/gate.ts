@@ -2,7 +2,7 @@
  *  structure; these shells gather I/O and delegate. The read/query commands (crossings,
  *  list, show, graph, owns, payload) live in commands/read.ts; the shared pipeline
  *  (loadCrossings + guards) lives in pipeline.ts. The gate composes the four check
- *  cells into one verdict — the surface CI and the stress agent run. */
+ *  cells into one verdict — the surface CI and external stress runs consume it. */
 
 import { existsSync } from 'node:fs';
 import { checkLeakage, computeMetrics } from './crossings.js';
@@ -27,7 +27,7 @@ import {
   formatStructureSummary,
 } from './structure.js';
 import { type StaleProvide, staleProvidesOf, validatePartition } from './validate.js';
-import { formatHealthReport, formatSizeReport, type PeelCandidate } from './view.js';
+import { formatHealthReport, formatSizeReport, type HealthValues, type PeelCandidate } from './view.js';
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
 export async function cmdSize(ctx: CellsContext): Promise<void> {
@@ -104,6 +104,18 @@ export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> 
 /** `cells health` — all four checks at once (validate + crossings + structure + size).
  *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
  *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
+
+/** The strict-gate rule: what fails `cells health` (exit 1) — integrity violations,
+ *  undeclared leakage, or a broken grammar bundle. Size and structure are warnings:
+ *  they never fail the gate (the renderer draws their ⚠ lines). Pure — the decision
+ *  lives in the gate module; view.formatHealthReport only renders it. */
+export function healthVerdict(v: HealthValues): boolean {
+  const valOk = v.violationCount === 0;
+  const xOk = v.undeclaredCount === 0;
+  const grammarsOk = v.grammarResults.length > 0 && v.grammarResults.every((g) => g.ok);
+  return valOk && xOk && grammarsOk;
+}
+
 /** `health --summary`: collapse per-entry unresolved lines into per-FILE groups (the triage
  *  unit — llama.cpp's 161 OpenCL headers from ONE file become one line), sorted desc, with a
  *  representative specifier. Source-based, no language heuristics: the from-file is the honest
@@ -147,36 +159,35 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     staleProvides.push(...staleProvidesOf(cell, owned, contents));
   }
 
-  // Pure render + gate verdict live in view.formatHealthReport; this shell only gathers (I/O).
+  // The strict-gate rule lives HERE (the gate module), not in the renderer: exit 1 on
+  // integrity violations, undeclared leakage, or a broken grammar bundle. Size/structure
+  // are warnings — the renderer draws their ✓/⚠ lines and the warning list itself.
   const undeclared = leakage.filter((l) => l.kind === 'undeclared');
   const unresolvedFiles = summary ? groupUnresolved(unresolved) : undefined;
-  const { report, gateOk } = formatHealthReport(
-    {
-      cellCount: cellNames.length,
-      fileCount: codeFiles.length,
-      orphanCount,
-      crossingCount: crossings.length,
-      violationCount: violations.length,
-      violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
-      undeclaredCount: undeclared.length,
-      undeclaredEdges: undeclared.map((u) => u.detail),
-      staleCount: stale.length,
-      staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
-      staleProvidesCount: staleProvides.length,
-      staleProvidesDetails: staleProvides.map((s) => `${s.cell} provides "${s.provide}"`),
-      cycleCount: cycles.length,
-      dirViolationCount: dirViolations.length,
-      maxPercent,
-      uncoveredExts: visibleUncoveredExts,
-      unresolvedCount: unresolved.length,
-      unresolvedDetails: unresolvedFiles ?? unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
-      unresolvedFiles: unresolvedFiles?.length,
-      grammarResults,
-      elapsedSec: (performance.now() - started) / 1000,
-    },
-    verbose,
-  );
-
-  process.stdout.write(report);
+  const values: HealthValues = {
+    cellCount: cellNames.length,
+    fileCount: codeFiles.length,
+    orphanCount,
+    crossingCount: crossings.length,
+    violationCount: violations.length,
+    violationDetails: violations.map((v) => `${v.kind} — ${v.detail}`),
+    undeclaredCount: undeclared.length,
+    undeclaredEdges: undeclared.map((u) => u.detail),
+    staleCount: stale.length,
+    staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
+    staleProvidesCount: staleProvides.length,
+    staleProvidesDetails: staleProvides.map((s) => `${s.cell} provides "${s.provide}"`),
+    cycleCount: cycles.length,
+    dirViolationCount: dirViolations.length,
+    maxPercent,
+    uncoveredExts: visibleUncoveredExts,
+    unresolvedCount: unresolved.length,
+    unresolvedDetails: unresolvedFiles ?? unresolved.map((u) => `${u.fromFile} imports "${u.import}"`),
+    unresolvedFiles: unresolvedFiles?.length,
+    grammarResults,
+    elapsedSec: (performance.now() - started) / 1000,
+  };
+  const gateOk = healthVerdict(values);
+  process.stdout.write(formatHealthReport(values, verbose, gateOk));
   if (!gateOk) process.exitCode = 1; // exitCode, not exit(): the report (esp. on failure) must flush before the process ends
 }

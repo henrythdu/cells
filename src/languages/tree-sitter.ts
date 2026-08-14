@@ -92,7 +92,7 @@ export function memoizeWeak<K extends object, V>(compute: (key: K) => V): (key: 
   const cache = new WeakMap<K, V>();
   return (key) => {
     // `has`, not `get === undefined`: a stored `undefined` is indistinguishable from a miss
-    // with a get-sentinel, and would re-execute compute on every call (ocr low).
+    // with a get-sentinel, and would re-execute compute on every call.
     if (cache.has(key)) return cache.get(key)!;
     const v = compute(key);
     cache.set(key, v);
@@ -102,7 +102,7 @@ export function memoizeWeak<K extends object, V>(compute: (key: K) => V): (key: 
 
 /** Run-wide resolution facts every language importer resolves against — ONE object instead of
  *  a positional param list (the external ImportContext already set that precedent; the internal
- *  seam kept growing a param per wave — crateNames in wave-1, reexports in wave-3). */
+ *  seam grew a param per feature until this object absorbed them). */
 export interface ResolveCtx {
   /** module path → source file. Enriched by the factory (fileToModule keys + declared
    *  submodules + name aliases) BEFORE any resolution runs. */
@@ -150,8 +150,8 @@ const MODULE_SEP = '::';
 /** Pick the file declaring `key` that sits in the importer's own tree — the deepest shared
  *  dir-prefix with sourcePath wins (mirror trees: guava's android/guava/src import must
  *  resolve to android/guava/src/…, not the desktop twin). Tie → lexicographically last
- *  (the old winner-map's last-write on the sorted census — preserves .pyx-over-.pxd and
- *  every stable single-tree pick). Empty → null. F4: the general fix for duplicate-FQN
+ *  (last-write on the sorted census — preserves .pyx-over-.pxd and
+ *  every stable single-tree pick). Empty → null. This is the general fix for duplicate-FQN
  *  trees. */
 export function nearestCandidate(candidates: string[], sourcePath: string): string | null {
   if (candidates.length === 0) return null;
@@ -271,7 +271,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
           // Path-identity only: the crate-prefix shape (`crate::` → `<crate>::`) is rust's
           // module-key grammar; content-keyed languages (java's moduleKeyOf) have no crate
           // concept, and grafting `<crate>::` onto a plain FQN would forge identities. The
-          // two hooks are mutually exclusive by construction (ocr medium — kept honest with
+          // two hooks are mutually exclusive by construction (kept honest with
           // a comment rather than a dead branch).
           moduleKey = (f) => {
             const m = pathKey(f);
@@ -293,7 +293,7 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
             // The scan-root crate ('.') keeps plain `crate::…` keys — it is NEVER aliased by
             // name. Its name must NOT count as a workspace member: a bin referencing the root
             // lib by name would otherwise classify internal, fail to resolve, and false-flag as
-            // unresolved (it was silently external before). Rare; stays external, as pre-fix.
+            // unresolved (it would otherwise be silently external). Rare; stays external.
             const scanRootName = roots.has('.') ? (nameByRoot.get('.') ?? null) : null;
             if (scanRootName) crateNames.delete(scanRootName);
             // Namespaced keys are addressed by crate ROOT PATH; a use addresses the crate by
@@ -316,8 +316,8 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       const moduleToFile = new Map<string, string>();
       const moduleCandidates = new Map<string, string[]>();
       // module path → file, keeping EVERY declarer (winner map = last-write-wins, for the
-      // path-key languages; candidates = all, for FQN collisions — F4 stress finding:
-      // guava's mirror trees fabricated 4541 edges by resolving to whichever tree won the
+      // path-key languages; candidates = all, for FQN collisions — guava's mirror
+      // trees fabricated thousands of edges by resolving to whichever tree won the
       // sorted walk; nearestCandidate at resolve time picks the same-tree twin).
       const addModule = (key: string, file: string): void => {
         moduleToFile.set(key, file);

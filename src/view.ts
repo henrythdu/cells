@@ -59,19 +59,20 @@ export function formatCellList(
   if (orphanFiles.length > 0) {
     lines.push('');
     lines.push('unowned (assign or add to .cells/ignore):');
-    const shown = orphanFiles.sort().slice(0, ORPHAN_LIST_CAP);
+    const sorted = [...orphanFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // copy — the caller's array stays untouched
+    const shown = sorted.slice(0, ORPHAN_LIST_CAP);
     for (const f of shown) {
       // An orphan with inbound imports is the file the partition actually needs — the
-      // import magnet (stress finding: lodash's monolith, silently invisible).
+      // import magnet (a monorepo's vendor blob imported everywhere, otherwise invisible).
       const n = magnetCounts?.get(f) ?? 0;
       lines.push(n > 0 ? `  ${f} — imported by ${n} file${n === 1 ? '' : 's'}` : `  ${f}`);
     }
     const rest = orphanFiles.length - shown.length;
     if (rest > 0) {
       // The truncated tail is the adoption queue — shape it by top dirs so "… and 658 more"
-      // says WHERE they are (stress finding: zulip's 672-file frontend was invisible).
+      // says WHERE they are (a 672-file frontend dir drowned here before the grouping).
       const byDir = new Map<string, number>();
-      for (const f of orphanFiles.slice(shown.length)) {
+      for (const f of sorted.slice(shown.length)) {
         const d = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '(root)';
         byDir.set(d, (byDir.get(d) ?? 0) + 1);
       }
@@ -204,7 +205,7 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
   const eff = (e: { ceiling?: number }): number => e.ceiling ?? globalCeiling;
   const overCount = ranked.filter((e) => e.size.tokens > eff(e)).length;
-  const cap = 20; // transformers: 502/1103 over ceiling — 500 bar rows drown the signal; the count + top rows carry it
+  const cap = 20; // a huge repo lands 500+ of 1100 cells over ceiling — 500 bar rows drown the signal; the count + top rows carry it
   const shown = ranked.slice(0, cap);
   const width = Math.max(...shown.map((e) => e.name.length), 4);
   const perCell = ranked.some((e) => e.ceiling !== undefined);
@@ -261,26 +262,19 @@ export interface HealthValues {
   elapsedSec?: number;
 }
 
-export interface HealthReport {
-  report: string;
-  gateOk: boolean;
-}
-
 /**
  * Render the health report (validate / crossings / structure / size / grammars)
- * + the strict-gate verdict. Pure: takes the pre-computed values, returns the
- * formatted report and whether the gate holds (exit 1 on integrity, undeclared
- * leakage, or a broken grammar bundle — size/structure are warnings; a failing
- * grammar is named inline on the line itself). Joins the format* pattern
+ * for an already-decided verdict. Pure: takes the pre-computed values + the gate
+ * verdict (computed by gate.healthVerdict — the strict-gate rule lives with the gate,
+ * the renderer renders it), returns the formatted report. Joins the format* pattern
  * (formatCellList / formatSizeReport / …) and is unit-testable.
  */
-export function formatHealthReport(v: HealthValues, verbose = false): HealthReport {
+export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boolean): string {
   const valOk = v.violationCount === 0;
   const xOk = v.undeclaredCount === 0;
   const structOk = v.cycleCount === 0 && v.dirViolationCount === 0;
   const sizeOk = v.maxPercent <= 1;
   const grammarsOk = v.grammarResults.length > 0 && v.grammarResults.every((g) => g.ok);
-  const gateOk = valOk && xOk && grammarsOk; // strict gate: integrity + undeclared leakage + packaged grammars
 
   const structParts: string[] = [];
   if (v.cycleCount > 0) structParts.push(`${v.cycleCount} cycle(s)`);
@@ -326,7 +320,7 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
     lines.push(`→ Gate failed.${aside}${drillHint}${timing}`);
   }
-  // Machine-parseable timing line (stress-agent ask): stable `health: X.Xs` tail for grep/sed
+  // Machine-parseable timing line: stable `health: X.Xs` tail for grep/sed
   // consumers — the prose `(X.Xs)` above is human-facing; this is the automation contract.
   if (v.elapsedSec !== undefined) lines.push(`health: ${v.elapsedSec.toFixed(1)}s`);
 
@@ -346,5 +340,5 @@ export function formatHealthReport(v: HealthValues, verbose = false): HealthRepo
     );
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
-  return { report: lines.join('\n') + '\n', gateOk };
+  return lines.join('\n') + '\n';
 }

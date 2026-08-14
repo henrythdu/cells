@@ -163,7 +163,7 @@ describe('cells config', () => {
   });
 });
 
-describe("python src-layout cold start (the griller's hole)", () => {
+describe('python src-layout cold start', () => {
   let repo: string;
 
   afterEach(() => {
@@ -184,7 +184,7 @@ describe("python src-layout cold start (the griller's hole)", () => {
     return dir;
   }
 
-  it('REG: plan names skip-named dirs that hold real code — "0 orphans" cannot hide a swallowed package (cli internal/build stress finding)', () => {
+  it('plan names skip-named dirs that hold real code — "0 orphans" cannot hide a swallowed package', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-skip-'));
     mkdirSync(join(dir, 'internal/build'), { recursive: true });
     mkdirSync(join(dir, 'internal/ghcmd'), { recursive: true });
@@ -201,7 +201,7 @@ describe("python src-layout cold start (the griller's hole)", () => {
 
   it('never reports a silent 0-edge green gate: same-family imports resolve to REAL edges (gated), cross-family stay unresolved with a module-root hint', () => {
     repo = setupPythonRepo();
-    // The griller's hole is dead twice over: `from util import setup` now RESOLVES (the
+    // src-layout cold start, checked twice over: `from util import setup` now RESOLVES (the
     // probe proved src/util.py exists; unique in the importer's family) — the resulting
     // crossing is undeclared, so crossings exits 1 demanding requires. The cross-family
     // `core.engine` (tests → src) stays unresolved with the module-root hint.
@@ -218,7 +218,7 @@ describe("python src-layout cold start (the griller's hole)", () => {
     expect(h.stdout + h.stderr).toContain('unresolved');
   });
 
-  it('REG: crossings --warnings skips the pair listing — leakage + unresolved only (stress feedback: warnings drown on big repos)', () => {
+  it('crossings --warnings skips the pair listing — leakage + unresolved only', () => {
     repo = setupPythonRepo();
     const r = spawnSync(`node`, [cellsBin, 'crossings', '--warnings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
@@ -236,6 +236,7 @@ describe("python src-layout cold start (the griller's hole)", () => {
     // Edges exist now — undeclared crossings are a GATE (exit 1): spawnSync, assert on the report.
     const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
+    expect(r.status).toBe(1); // undeclared crossings are a gate — the resolved edges must FAIL it
     expect(out).toContain('src/core/engine.py'); // edges now exist (undeclared-crossings rows)
     expect(out).not.toContain('Unresolved imports that look local');
   });
@@ -295,7 +296,7 @@ describe('cells show per-file tokens', () => {
     expect(execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' })).toContain('All checks passed');
   });
 
-  it('REG: assign dedupes symlink aliases — same inode owned twice is impossible (stress finding: cxx)', () => {
+  it('assign dedupes symlink aliases — same inode owned twice is impossible', () => {
     repo = setupRepo();
     // census sees both paths (file symlink); ownership holds the real one
     mkdirSync(join(repo, 'real'), { recursive: true });
@@ -318,7 +319,7 @@ describe('cells show per-file tokens', () => {
     expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8').match(/real\/atom\.ts/g)).toHaveLength(1);
   });
 
-  it('REG: assign refuses a directory with a hint — no literal ownership entry (stress finding: zulip web/)', () => {
+  it('assign refuses a directory with a hint — no literal ownership entry', () => {
     repo = setupRepo();
     mkdirSync(join(repo, 'web'), { recursive: true });
     writeFileSync(join(repo, 'web', 'a.ts'), `export const z = 1;\n`);
@@ -332,5 +333,41 @@ describe('cells show per-file tokens', () => {
     const miss = spawnSync(`node`, [cellsBin, 'assign', 'a', 'nope.ts'], { cwd: repo, encoding: 'utf8' });
     expect(miss.status).toBe(1);
     expect(miss.stderr).toContain('no such file');
+  });
+});
+
+describe('cli dispatcher', () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('rejects a single-dash unknown flag (previously bypassed the gate with a misleading error)', () => {
+    repo = setupRepo();
+    const res = spawnSync(`node`, [cellsBin, 'list', '-x'], { cwd: repo, encoding: 'utf8' });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown flag "-x"');
+  });
+
+  it('rejects --dry-run on a command that does not declare it (the flag silently vanished instead)', () => {
+    repo = setupRepo();
+    const res = spawnSync(`node`, [cellsBin, 'crossings', '--dry-run'], { cwd: repo, encoding: 'utf8' });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown flag "--dry-run"');
+  });
+
+  it('treats everything after -- as a literal positional (end-of-flags)', () => {
+    repo = setupRepo();
+    // a file literally named like a flag — unreachable without `--`
+    const res = spawnSync(`node`, [cellsBin, 'owns', '--', 'src/a.ts'], { cwd: repo, encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('a');
+  });
+
+  it('a bare trailing `--` is an empty positional tail (accepted, harmless)', () => {
+    repo = setupRepo();
+    const res = spawnSync(`node`, [cellsBin, 'list', '--'], { cwd: repo, encoding: 'utf8' });
+    expect(res.status).toBe(0); // bare separator after all flags = empty positional tail, harmless
   });
 });

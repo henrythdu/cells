@@ -96,7 +96,7 @@ describe('planAssignment', () => {
   });
 
   it('throws on an invalid cell name (the mutation contract)', () => {
-    expect(() => planAssignment(base, 'bad/name', ['src/a.ts'], false)).toThrow();
+    expect(() => planAssignment(base, 'bad/name', ['src/a.ts'], false)).toThrow(/invalid cell name "bad\/name"/);
   });
 });
 
@@ -121,7 +121,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['src', 'src/nested', 'test']); // root.ts stays UNOWNED (no root catch-all)
   });
 
-  it('collapses Rust workspace crates to one cell each (uv wave-1 #5)', () => {
+  it('collapses Rust workspace crates to one cell each (uv)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('crates/uv/src/main.rs');
     touch('crates/uv/benches/bench.rs'); // benches fold into the crate
@@ -145,7 +145,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['crates/headroom-py', 'headroom/transforms']);
   });
 
-  it('root Cargo.toml WITH [package] is a real unit — keyed by package name (stress #17: was recognized then dropped → 126 orphans on cxx)', () => {
+  it('root Cargo.toml WITH [package] is a real unit — keyed by package name (cxx: 126 orphans)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('Cargo.toml', '[package]\nname = "ripgrep"\n\n[workspace]\n');
     touch('src/main.rs');
@@ -157,7 +157,7 @@ describe('planGroups', () => {
     expect(g.has('.')).toBe(false); // never the catch-all
   });
 
-  it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion (stress #17 cousin)', () => {
+  it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion ', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('Cargo.toml', '[package]\nname = "cxx"\n');
     touch('src/lib.rs');
@@ -168,7 +168,7 @@ describe('planGroups', () => {
     expect(g.get('cxx')).toHaveLength(3);
   });
 
-  it('root Cargo.toml with unparseable [package] name falls back to the old drop (name.workspace = true)', () => {
+  it('root Cargo.toml with unparseable [package] name falls back to the drop (name.workspace = true)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('Cargo.toml', '[package]\nname.workspace = true\n');
     touch('src/lib.rs');
@@ -210,7 +210,7 @@ describe('planGroups', () => {
     expect([...g.keys()].sort()).toEqual(['crates/uv', 'crates/uv/xtask']);
   });
 
-  it('Python __init__.py dirs are hard boundaries — nested packages stay separate (wave-2 B)', () => {
+  it('Python __init__.py dirs are hard boundaries — nested packages stay separate ', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('zerver/__init__.py');
     touch('zerver/views/__init__.py');
