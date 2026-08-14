@@ -5,6 +5,7 @@ provides = [
   "createTreeSitterImporter",
   "checkGrammars",
   "memoizeWeak",
+  "nearestCandidate",
   "TreeSitterImporterSpec",
   "ResolveCtx",
   "ModDecl",

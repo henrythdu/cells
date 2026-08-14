@@ -3,11 +3,16 @@
  * PRODUCE these edges; crossings DERIVE cell→cell pairs from them.
  */
 
-/** A raw import edge: file A imports file B via specifier `import`. */
+/** A raw import edge: file A imports file B via specifier `import`. `symbols`, when the
+ *  importer retains them, are the EXPORTED names consumed (named imports, from-import
+ *  names, use-path tail items) — the data the off-membrane check audits against the
+ *  target cell's `provides`. Absent = the importer can't see named consumption (module
+ *  dependency, namespace import, or a language importer without symbol retention). */
 export interface ImportEdge {
   fromFile: string;
   toFile: string;
   import: string;
+  symbols?: string[];
 }
 
 /** An import that looks local (relative, or matches a local package) but resolved to no owned file.

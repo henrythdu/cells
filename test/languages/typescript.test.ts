@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -52,6 +52,23 @@ async function extractAt(dir: string, importer = typescriptImporter, files?: Sou
 }
 
 describe('typescriptImporter (tree-sitter)', () => {
+
+  it('named imports carry the consumed symbols (alias stripped); namespace/default/bare add none', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-sym-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import { parse, stringify as str } from './b.js';\nimport * as ns from './b.js';\nimport def from './b.js';\nimport './b.js';\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const parse = 1;\n');
+    const files: SourceFile[] = [
+      { path: 'src/a.ts', content: readFileSync(join(dir, 'src', 'a.ts'), 'utf8') },
+      { path: 'src/b.ts', content: readFileSync(join(dir, 'src', 'b.ts'), 'utf8') },
+    ];
+    const { edges } = await typescriptImporter.extract({ codeDirs: ['src'], files, baseDir: dir });
+    // one spec './b' → one edge, the four statements' named imports merged onto it
+    const toB = edges.filter((e) => e.toFile === 'src/b.ts');
+    expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['parse', 'stringify'] }]);
+  });
+
   it('resolves `@/` aliases when the repo tsconfig is present (edge to the real file)', async () => {
     const dir = makeFixture(true);
     const { edges, unresolved } = await extractAt(dir);

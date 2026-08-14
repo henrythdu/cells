@@ -5,7 +5,7 @@
  *  cells into one verdict — the surface CI and external stress runs consume it. */
 
 import { existsSync } from 'node:fs';
-import { checkLeakage, computeMetrics } from './crossings.js';
+import { checkLeakage, checkOffMembrane, computeMetrics } from './crossings.js';
 import { recentCommitFiles } from './diff.js';
 import { checkGrammars } from './importers.js';
 import type { UnresolvedImport } from './imports.js';
@@ -137,12 +137,13 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   warnIfNoCodeFiles(config, codeFiles);
   const orphanCount = codeFiles.length - new Set(Object.values(ownership).flat()).size; // census minus owned — the partition-coverage number
 
-  const { crossings, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
+  const { crossings, edges, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
   const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
 
   const violations = validatePartition(ownership, declarations, codeFiles, existsSync);
   const grammarResults = await checkGrammars();
   const leakage = checkLeakage(crossings, declarations);
+  const offMembrane = checkOffMembrane(edges, ownership, declarations);
   const stale = leakage.filter((l) => l.kind === 'stale');
   const cycles = detectCycles(crossings);
   const dirViolations = checkDirection(crossings, declarations);
@@ -177,6 +178,12 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
     staleProvidesCount: staleProvides.length,
     staleProvidesDetails: staleProvides.map((s) => `${s.cell} provides "${s.provide}"`),
+    offMembraneCount: offMembrane.length,
+    offMembraneDetails: offMembrane.map((o) =>
+      o.emptyProvides
+        ? `${o.fromCell} → ${o.toCell}: consumes ${o.missing.join(', ')} but ${o.toCell}.provides is empty`
+        : `${o.fromCell} → ${o.toCell}: ${o.missing.length}/${o.imported.length} symbol(s) not in provides: ${o.missing.join(', ')}`,
+    ),
     cycleCount: cycles.length,
     dirViolationCount: dirViolations.length,
     maxPercent,

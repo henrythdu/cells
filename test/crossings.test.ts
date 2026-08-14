@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { checkOffMembrane } from '../src/crossings.js';
 import { type Crossing, checkLeakage, computeMetrics, deriveCrossings, diffCrossings } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
 import type { ImportEdge } from '../src/imports.js';
@@ -75,6 +76,43 @@ describe('checkLeakage', () => {
     declarations.parser.dataRequires = ['util']; // wrong key for a code dependency
     const l = checkLeakage(crossings, declarations);
     expect(l.some((x) => x.kind === 'undeclared' && x.fromCell === 'parser' && x.toCell === 'util')).toBe(true);
+  });
+});
+
+describe('checkOffMembrane — the provides contract check (warning-only)', () => {
+  const ownership = { a: ['src/a.ts'], b: ['src/b.ts'] };
+
+  it('flags named symbols consumed but not in the target provides', () => {
+    const edges: ImportEdge[] = [{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b', symbols: ['parse', 'stringify'] }];
+    const declarations = decls({ a: [], b: [] });
+    declarations.b.provides = ['parse']; // stringify missing
+    const off = checkOffMembrane(edges, ownership, declarations);
+    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', imported: ['parse', 'stringify'], missing: ['stringify'], emptyProvides: false }]);
+  });
+
+  it('an empty provides list is the membrane-incomplete form (all imports missing)', () => {
+    const edges: ImportEdge[] = [{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b', symbols: ['parse'] }];
+    const declarations = decls({ a: [], b: [] }); // b.provides = []
+    const off = checkOffMembrane(edges, ownership, declarations);
+    expect(off).toEqual([{ fromCell: 'a', toCell: 'b', imported: ['parse'], missing: ['parse'], emptyProvides: true }]);
+  });
+
+  it('all symbols in provides → clean; symbolless edges (module deps) are exempt by construction', () => {
+    const declarations = decls({ a: [], b: [] });
+    declarations.b.provides = ['parse'];
+    const clean = checkOffMembrane([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b', symbols: ['parse'] }], ownership, declarations);
+    expect(clean).toEqual([]);
+    const moduleDep = checkOffMembrane([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b' }], ownership, declarations);
+    expect(moduleDep).toEqual([]);
+  });
+
+  it('same-cell and unowned-file edges are skipped', () => {
+    const declarations = decls({ a: [], b: [] });
+    const edges: ImportEdge[] = [
+      { fromFile: 'src/a.ts', toFile: 'src/a.ts', import: './a2', symbols: ['x'] }, // same cell
+      { fromFile: 'src/orphan.ts', toFile: 'src/b.ts', import: './b', symbols: ['y'] }, // unowned from-file
+    ];
+    expect(checkOffMembrane(edges, ownership, declarations)).toEqual([]);
   });
 });
 

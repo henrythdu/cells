@@ -39,7 +39,7 @@ export const y = x + nope;
     const out = execSync(`node ${cellsBin} imports --json`, { cwd: repo, encoding: 'utf8' });
     const { edges, unresolved } = JSON.parse(out);
     // same-cell edge present (a.ts → b.ts is one cell) — the validation surface, not crossings
-    expect(edges).toContainEqual({ fromFile: 'src/b.ts', toFile: 'src/a.ts', import: './a' });
+    expect(edges).toContainEqual({ fromFile: 'src/b.ts', toFile: 'src/a.ts', import: './a', symbols: ['x'] });
     expect(unresolved).toContainEqual({ fromFile: 'src/b.ts', import: './nope' });
   });
 });

@@ -250,6 +250,8 @@ export interface HealthValues {
   staleEdges: string[];
   staleProvidesCount: number;
   staleProvidesDetails: string[];
+  offMembraneCount: number;
+  offMembraneDetails: string[];
   cycleCount: number;
   dirViolationCount: number;
   maxPercent: number;
@@ -304,6 +306,11 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
     lines.push(
       `  — imports     (${v.unresolvedCount} unresolved import(s) that look local${v.unresolvedFiles !== undefined ? ` across ${v.unresolvedFiles} file(s)` : ''} — no matching file; a broken specifier, module-root mismatch, external package sharing a local dir name, or a census skip-listed dir (build/dist/…))`,
     );
+
+  if (v.offMembraneCount > 0) {
+    lines.push(`  — membrane  (${v.offMembraneCount} cell pair(s) importing symbols the target's provides doesn't list — run \`cells crossings --verbose\` for the named symbols)`);
+    if (verbose) for (const d of v.offMembraneDetails) lines.push(`    ${d}`);
+  }
 
   // Verdict FIRST — the failing path must not bury it under info sections.
   const warnings: string[] = [];

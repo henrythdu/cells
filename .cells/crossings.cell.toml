@@ -3,6 +3,7 @@ purpose = "Derive cross-cell crossings from import edges and detect leakage vs d
 provides = [
   "deriveCrossings",
   "checkLeakage",
+  "checkOffMembrane",
   "computeMetrics",
   "Crossing",
   "CellMetrics",

@@ -5,6 +5,7 @@ provides = [
   "serializeCell",
   "editCellName",
   "editCellRequires",
+  "editCellDataRequires",
   "Cell",
   "STUB_PURPOSE",
 ]

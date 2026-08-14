@@ -9,6 +9,7 @@ provides = [
   "CellsContext",
   "readFiles",
   "listCodeFiles",
+  "skippedManifestDirs",
   "detectProject",
   "requireCells",
   "CELLS_DIR",

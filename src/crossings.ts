@@ -1,6 +1,6 @@
 import type { Cell } from './declaration.js';
 import type { ImportEdge } from './imports.js';
-import type { Ownership } from './ownership.js';
+import { type Ownership, owningCell } from './ownership.js';
 
 /** A cross-cell crossing: cell A's code imports cell B's code. */
 export interface Crossing {
@@ -16,6 +16,51 @@ export interface Crossing {
  * Drops internal imports (same cell) and edges into unowned files
  * (no target cell to attribute). Pure — the IO layer supplies the edges.
  */
+/** One cell pair's named-consumption audit result (warning-level, never gate): what
+ *  fromCell's imports consume by name from toCell, and which names toCell's membrane
+ *  doesn't offer. `emptyProvides` marks the stronger form - the pair consumes named
+ *  things but the target cell's provides list is empty (membrane incomplete). */
+export interface OffMembraneImport {
+  fromCell: string;
+  toCell: string;
+  imported: string[];
+  missing: string[];
+  emptyProvides: boolean;
+}
+
+/** The provides contract check: aggregate symbol-bearing edges per cell pair and test the
+ *  consumed names against the target cell's `provides` (the offer surface that justifies
+ *  others' requires). Only symbol-bearing edges participate: module dependencies,
+ *  namespace imports, and importers without symbol retention are exempt by construction
+ *  (their edges carry no symbols - the honest gap, listed per language in the README's
+ *  blind-spot table). Warning-only: provides lists are authored prose that converges
+ *  over time; firing the gate on day one would punish authoring them at all. Pure. */
+export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, declarations: Record<string, Cell>): OffMembraneImport[] {
+  const agg = new Map<string, { fromCell: string; toCell: string; symbols: Set<string> }>();
+  for (const e of edges) {
+    if (!e.symbols || e.symbols.length === 0) continue;
+    const fromCell = owningCell(ownership, e.fromFile);
+    const toCell = owningCell(ownership, e.toFile);
+    if (!fromCell || !toCell || fromCell === toCell) continue;
+    const key = fromCell + '->' + toCell;
+    const entry = agg.get(key) ?? { fromCell, toCell, symbols: new Set<string>() };
+    for (const s of e.symbols) entry.symbols.add(s);
+    agg.set(key, entry);
+  }
+  const out: OffMembraneImport[] = [];
+  for (const { fromCell, toCell, symbols } of agg.values()) {
+    const decl = declarations[toCell];
+    if (!decl) continue;
+    // provides entries may be authored prose ("checkGrammars() - the grammar-bundle check") -
+    // the leading identifier is the offered symbol; the prose after it is documentation.
+    const offered = new Set(decl.provides.map((p) => p.match(/^[$\w]+/)?.[0] ?? p));
+    const imported = [...symbols];
+    const missing = imported.filter((s) => !offered.has(s));
+    if (missing.length > 0) out.push({ fromCell, toCell, imported, missing, emptyProvides: decl.provides.length === 0 });
+  }
+  return out;
+}
+
 export function deriveCrossings(edges: ImportEdge[], ownership: Ownership): Crossing[] {
   // Invert ownership: file → cell.
   const fileToCell = new Map<string, string>();

@@ -6,6 +6,7 @@ provides = [
   "DEFAULT_CONFIG",
   "buildConfig",
   "CellsConfig",
+  "CHANGE_COUPLING",
 ]
 requires = []
 

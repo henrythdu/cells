@@ -496,7 +496,12 @@ export const rustImporter = createTreeSitterImporter<UseDesc[]>({
       if (abs && isExternalReexport(abs, ctx.externalReexports)) continue;
       const toFile = resolveImportPath(imp, effective, ctx.moduleToFile, ctx.crateNames, ctx.reexports);
       if (toFile && toFile !== sourcePath) {
-        edges.push({ fromFile: sourcePath, toFile, import: imp });
+        // Off-membrane symbol data: when the use path's OWN module key missed but a
+        // shorter prefix resolved (`use a::b::Item` → b.rs), the tail is the consumed
+        // item — audit it against the target cell's provides. Exact-key hits are module
+        // dependencies (no named surface consumed).
+        const symbols = abs !== null && ctx.moduleToFile.get(abs) !== toFile ? [abs.split('::').pop() ?? ''] : undefined;
+        edges.push({ fromFile: sourcePath, toFile, import: imp, ...(symbols ? { symbols } : {}) });
       } else if (!toFile && abs !== null) {
         // crate::/self::/super::/workspace-sibling path that didn't resolve to any owned file.
         // (toFile === sourcePath is a self-import — use crate::my_mod::Symbol from within

@@ -215,6 +215,8 @@ vendor/
 
 **What importers can't see (static-analysis blind spots, named per language):** Python — `importlib`, `__import__`, string-built module names; Rust — proc-macro-expanded paths; Go — `reflect`-based coupling and generator→generated relationships; Java — static imports only, nothing beyond the repo's own sources; C/C++ — `#include` only, no macro-computed paths; TypeScript — dynamic `import()` and `import x = require('y')` *are* handled, string-built specifiers (plugin loaders) are not. The derived graph is honest about what it derived: when a coupling the importer can't see matters, say so in the membrane — the authored declaration is the tool's only source of invisible-channel truth.
 
+**Named-symbol visibility** (what the membrane check can audit): TypeScript/JavaScript/TSX — named imports (`import { a, b } from '…'`, aliases stripped to the exported name); Python — `from M import a, b` names; Rust — `use`-path tail items (`use a::b::Item` → `Item`). Module-level dependencies, namespace imports, and C/C++/Go/Java edges carry no symbols — exempt by construction, listed here rather than hidden.
+
 Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the
 shared factory in `src/languages/tree-sitter.ts`; otherwise a custom `extract`) + one line in
 `DEFAULT_IMPORTERS` in `src/importers.ts`. The repo's own cells show the pattern — `cells new`
@@ -233,6 +235,7 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
 | **Size** | warning (exit 0) | a cell's payload exceeds its ceiling — `max-payload-tokens` (default 16000 — configurable via `cells config set` or `config.toml`), or the cell's own `ceiling = N` — consider dividing |
 | **Structure** | warning (exit 0) | a cycle (ADP), an edge to a higher layer (Direction), or a stable cell depending on a less-stable one (SDP) |
+| **Membrane** | warning (exit 0) | a cell imports **named symbols** the target's `provides` doesn't list (an empty `provides` on a consumed cell = membrane incomplete) — `cells crossings --verbose` names them; converge the list |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
 **Payload = tokens**, estimated at chars/3 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.

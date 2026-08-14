@@ -177,7 +177,11 @@ function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule:
     const toFile = nearestCandidate(moduleCandidates.get(cand) ?? [], sourcePath);
     if (toFile && !seen.has(toFile)) {
       seen.add(toFile);
-      edges.push({ fromFile: sourcePath, toFile, import: cand });
+      // `from M import a, b` where M itself resolved: a, b are symbols consumed from
+      // M's file — the off-membrane check audits them against M's cell's provides.
+      // (A `M.a` that resolved as its own submodule file is a module dependency — no symbols.)
+      const symbols = cand === base && desc.names.length > 0 ? desc.names : undefined;
+      edges.push({ fromFile: sourcePath, toFile, import: cand, ...(symbols ? { symbols } : {}) });
     }
   }
   // Only flag unresolved if NO candidate from this import descriptor resolved.

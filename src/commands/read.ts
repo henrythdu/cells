@@ -4,7 +4,7 @@
  *  pipeline (loadCrossings, guards, cmdImports) lives in pipeline.ts. Pure-ish: gathers
  *  I/O, delegates rendering to view. */
 
-import { type CrossingsDelta, checkLeakage, computeMetrics } from '../crossings.js';
+import { checkOffMembrane, type CrossingsDelta, checkLeakage, computeMetrics } from '../crossings.js';
 import type { Cell } from '../declaration.js';
 import { crossingsDelta, recentCommitFiles } from '../diff.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
@@ -23,7 +23,7 @@ import { type CellSmell, formatCellList, formatCellShow } from '../view.js';
  *  human notes go to stderr). */
 export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; verbose?: boolean; json?: boolean; warnings?: boolean } = {}): Promise<void> {
   const { ownership, declarations } = ctx;
-  const { crossings, unresolved } = await loadCrossings(ownership);
+  const { crossings, edges, unresolved } = await loadCrossings(ownership);
 
   if (opts.diff) {
     const delta = await crossingsDelta(crossings, ownership);
@@ -75,6 +75,15 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       for (const p of pairs) {
         console.log(`  ${p.from} → ${p.to}   (${p.files.length} edge${p.files.length === 1 ? '' : 's'})`);
         if (opts.verbose) for (const [f, t] of p.files) console.log(`      ${f} → ${t}`);
+      }
+      if (opts.verbose) {
+        const off = checkOffMembrane(edges, ownership, declarations);
+        if (off.length > 0) {
+          console.log(`\nOff-membrane imports (${off.length} pair(s) — named symbols consumed but not in the target's provides):`);
+          for (const o of off) {
+            console.log(`  ${o.fromCell} → ${o.toCell}: ${o.missing.join(', ')}${o.emptyProvides ? ' (provides is empty)' : ''}`);
+          }
+        }
       }
     }
   }
