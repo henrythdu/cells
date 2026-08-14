@@ -144,6 +144,9 @@ name = "parser"
 purpose = "Turn a .cell declaration file into a checked Cell AST."
 provides = ["parseCell", "Cell"]    # authored docs of the cell's surface (shown in show/payload; not symbol-checked)
 requires = ["token", "diagnostic"]  # neighbor CELL names
+# optional — couplings static analysis can't see (data files, runtime loading, shared
+# schema). Integrity-checked and included in payloads; never import-audited:
+data-requires = ["translations"]
 layer = 0                         # optional — 0 = core; higher = more peripheral (direction)
 ```
 
@@ -151,11 +154,19 @@ layer = 0                         # optional — 0 = core; higher = more periphe
 
 ```toml
 [parser]
-files = ["src/parser.ts"]
+files = [
+  "src/parser.ts",
+]
 
 [cli]
-files = ["src/cli.ts", "test/cli.test.ts"]
+files = [
+  "src/cli.ts",
+  "test/cli.test.ts",
+]
 ```
+
+Serialized deterministically (sorted cells, sorted files, one per line) so parallel
+branches that touch different cells merge cleanly.
 
 ### `config.toml` — settings
 
@@ -218,7 +229,7 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | rule | severity | what it catches |
 | --- | --- | --- |
 | **Leakage (undeclared)** | **gate** (exit 1) | a cell imports another it doesn't `require` — a hidden dependency |
-| **Leakage (stale)** | info (exit 0) | a cell `requires` one it never imports — maybe a data dependency or future plan (shown, doesn't fail the gate) |
+| **Leakage (stale)** | info (exit 0) | a cell `requires` one it never imports — remove it, or move it to `data-requires` if the coupling is real but invisible to static analysis (shown, doesn't fail the gate) |
 | **Integrity** | **gate** (exit 1) | a file in two cells; an owned file missing from disk; a requires or ownership key pointing at an undeclared cell |
 | **Size** | warning (exit 0) | a cell's payload exceeds its ceiling — `max-payload-tokens` (default 16000 — configurable via `cells config set` or `config.toml`), or the cell's own `ceiling = N` — consider dividing |
 | **Structure** | warning (exit 0) | a cycle (ADP), an edge to a higher layer (Direction), or a stable cell depending on a less-stable one (SDP) |

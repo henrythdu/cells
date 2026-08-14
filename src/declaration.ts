@@ -13,6 +13,7 @@ export interface Cell {
   purpose: string;
   provides: string[]; // declared surface; validated later by crossing-capture
   requires: string[]; // neighbor CELL names (not symbols)
+  dataRequires?: string[]; // neighbors coupled through channels static analysis can't see (data files, runtime-loaded modules, shared schema). Integrity-checked + payload-included; never stale-checked (no import to check against), never satisfies an undeclared crossing (a real import is code → requires).
   layer?: number; // tier rank (0 = core/foundation; higher = peripheral; an edge to a higher layer is the violation). Omit = layerless.
   ceiling?: number; // per-cell payload ceiling (tokens), overriding the global max-payload-tokens for THIS cell. Omit = global. A declared ceiling is still a budget — over it, size/health still flag (inform, never enforce).
   signatures?: string[]; // type-annotated function signatures (free-form, per-language). Included in neighbor membranes in payload — the LLM sees how to call exports without opening the neighbor's code.
@@ -30,6 +31,7 @@ export function parseCell(content: string): Cell {
     purpose: unknown;
     provides: unknown;
     requires: unknown;
+    'data-requires'?: unknown;
     layer?: unknown;
     ceiling?: unknown;
     signatures?: unknown;
@@ -57,6 +59,7 @@ export function parseCell(content: string): Cell {
     purpose: str(raw.purpose, 'purpose'),
     provides: arr(raw.provides, 'provides'),
     requires: arr(raw.requires, 'requires'),
+    dataRequires: raw['data-requires'] === undefined ? undefined : arr(raw['data-requires'], 'data-requires'),
     layer: typeof raw.layer === 'number' ? raw.layer : undefined,
     ceiling: typeof raw.ceiling === 'number' ? raw.ceiling : undefined,
     signatures: raw.signatures !== undefined ? arr(raw.signatures, 'signatures') : undefined,
@@ -73,6 +76,8 @@ export function parseCell(content: string): Cell {
  */
 export function serializeCell(cell: Cell): string {
   const lines = [`name = ${tomlString(cell.name)}`, `purpose = ${tomlString(cell.purpose)}`, `provides = ${tomlArray(cell.provides)}`, `requires = ${tomlArray(cell.requires)}`];
+  // Omitted when empty/absent — parseCell(serializeCell(c)) ≡ c round-trips the absence.
+  if (cell.dataRequires && cell.dataRequires.length > 0) lines.push(`data-requires = ${tomlArray(cell.dataRequires)}`);
   if (cell.signatures && cell.signatures.length > 0) lines.push(`signatures = ${tomlArray(cell.signatures)}`);
   if (cell.tests && cell.tests.length > 0) lines.push(`tests = ${tomlArray(cell.tests)}`);
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
@@ -100,9 +105,21 @@ export function editCellName(content: string, newName: string): string {
  * unchanged (nothing to edit); a malformed array is left for parseCell to report.
  */
 export function editCellRequires(content: string, opts: { remove?: string[]; rename?: [string, string] }): string {
-  const key = /^[ \t]*requires[ \t]*=[ \t]*\[/m.exec(content);
-  if (key === null) return content;
-  const start = key.index + key[0].length; // just past '['
+  return editKeyedArray(content, 'requires', opts);
+}
+
+/** Same surgery for `data-requires` — renames and force-removes must keep its references
+ *  consistent too (it names cells the same way requires does). */
+export function editCellDataRequires(content: string, opts: { remove?: string[]; rename?: [string, string] }): string {
+  return editKeyedArray(content, 'data-requires', opts);
+}
+
+/** Shared surgery body: rewrite the `key = [...]` array in place. The key regex anchors
+ *  at line start, so `requires` never matches a `data-requires` line (and vice versa). */
+function editKeyedArray(content: string, key: string, opts: { remove?: string[]; rename?: [string, string] }): string {
+  const m = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(content);
+  if (m === null) return content;
+  const start = m.index + m[0].length; // just past '['
   // Scan to the MATCHING ']' — strings and # comments can contain ']' / '[', so a lazy
   // regex would truncate on the first one inside a comment.
   let i = start;
@@ -134,7 +151,7 @@ export function editCellRequires(content: string, opts: { remove?: string[]; ren
   if (opts.rename) body = body.split(tomlString(opts.rename[0])).join(tomlString(opts.rename[1]));
   if (!body.includes('"')) {
     // every entry gone — collapse the husk (comments and stray commas) to an empty array
-    return content.slice(0, key.index) + 'requires = []' + content.slice(end + 1);
+    return content.slice(0, m.index) + `${key} = []` + content.slice(end + 1);
   }
   body = body.replace(/,\s*,/g, ',').replace(/(^|\n)[ \t]*,[ \t]*/g, '$1'); // no doubled or head-less commas (TOML allows a trailing one)
   return content.slice(0, start) + body + content.slice(end);

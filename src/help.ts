@@ -15,7 +15,8 @@ THE MODEL
   cell        a context-bounded unit of code: one problem, fits a context window.
               has a membrane (its contract) + owned files (its body).
   partition   every code file assigned to exactly one cell (non-overlapping).
-  membrane    a cell's declaration: name, purpose, provides, requires (+ optional layer).
+  membrane    a cell's declaration: name, purpose, provides, requires (+ optional layer,
+              data-requires for couplings static analysis can't see, ceiling, signatures, tests).
               provides = authored docs of what this cell offers (shown in show/payload to neighbors;
               describe the surface in your words — not symbol-checked). requires = cells this one
               imports (checked against crossings — undeclared leaks gate-fail). purpose = one-line intent.
@@ -80,7 +81,7 @@ GLOSSARY (structure terms, plain English)
                                      a broken packaged grammar WASM.
 
 FILES (.cells/)
-  <name>.cell.toml   declaration: name, purpose, provides[], requires[], layer?
+  <name>.cell.toml   declaration: name, purpose, provides[], requires[], data-requires[]?, layer?
   ownership.toml     the file → cell map (tracked)
   config.toml        max-payload-tokens, [layers] legend (optional; 0 = core),
                      code-dirs[], code-exts[] (per language; init auto-detects),

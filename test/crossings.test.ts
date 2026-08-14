@@ -62,6 +62,20 @@ describe('checkLeakage', () => {
     const declarations = decls({ parser: ['util'], util: [] });
     expect(checkLeakage(crossings, declarations)).toEqual([]);
   });
+
+  it('data-requires is never stale (no import to check against)', () => {
+    const declarations = decls({ parser: [], util: [] });
+    declarations.parser.dataRequires = ['util']; // coupled via data, imports nothing
+    expect(checkLeakage([], declarations)).toEqual([]);
+  });
+
+  it('data-requires does NOT satisfy an undeclared crossing (a real import is code → requires)', () => {
+    const crossings: Crossing[] = [{ fromCell: 'parser', toCell: 'util', fromFile: 'src/parser.ts', toFile: 'src/util.ts', import: './util' }];
+    const declarations = decls({ parser: [], util: [] });
+    declarations.parser.dataRequires = ['util']; // wrong key for a code dependency
+    const l = checkLeakage(crossings, declarations);
+    expect(l.some((x) => x.kind === 'undeclared' && x.fromCell === 'parser' && x.toCell === 'util')).toBe(true);
+  });
 });
 
 describe('computeMetrics', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Cell, editCellName, editCellRequires, parseCell, serializeCell } from '../src/declaration.js';
+import { type Cell, editCellDataRequires, editCellName, editCellRequires, parseCell, serializeCell } from '../src/declaration.js';
 
 describe('parseCell', () => {
   it('parses a well-formed cell declaration', () => {
@@ -123,7 +123,43 @@ describe('serializeCell', () => {
   });
 });
 
-describe('comment-preserving rewrites (editCellName / editCellRequires)', () => {
+describe('data-requires — the invisible-channel key', () => {
+  it('parses when present, is undefined when absent (round-trips the absence)', () => {
+    const withData = parseCell('name = "a"\npurpose = "p"\nprovides = []\nrequires = []\ndata-requires = ["b"]\n');
+    expect(withData.dataRequires).toEqual(['b']);
+    const without = parseCell('name = "a"\npurpose = "p"\nprovides = []\nrequires = []\n');
+    expect(without.dataRequires).toBeUndefined();
+  });
+
+  it('a non-string-array data-requires throws the typed error', () => {
+    expect(() => parseCell('name = "a"\npurpose = "p"\nprovides = []\nrequires = []\ndata-requires = 3\n')).toThrow(/'data-requires' must be a string array/);
+  });
+
+  it('serializeCell emits the key only when non-empty (absent → omitted)', () => {
+    const base = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = []\n';
+    expect(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [] })).toBe(base);
+    expect(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [], dataRequires: ['b'] })).toBe(base + 'data-requires = ["b"]\n');
+    expect(parseCell(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [], dataRequires: ['b'] })).dataRequires).toEqual(['b']);
+  });
+});
+
+describe('comment-preserving rewrites (editCellName / editCellRequires / editCellDataRequires)', () => {
+  it('editCellDataRequires renames an entry; a requires line is untouched and vice versa', () => {
+    const content = '# note\nrequires = ["old", "x"]\ndata-requires = ["old"] # trailing\n';
+    const dataEdited = editCellDataRequires(content, { rename: ['old', 'new'] });
+    expect(dataEdited).toContain('data-requires = ["new"]');
+    expect(dataEdited).toContain('requires = ["old", "x"]');
+    expect(dataEdited).toContain('# note');
+    const codeEdited = editCellRequires(content, { rename: ['old', 'new'] });
+    expect(codeEdited).toContain('requires = ["new", "x"]');
+    expect(codeEdited).toContain('data-requires = ["old"]');
+  });
+
+  it('editCellDataRequires removing every entry collapses to data-requires = []', () => {
+    const content = 'requires = ["keep"]\ndata-requires = ["a", "b"]\n';
+    expect(editCellDataRequires(content, { remove: ['a', 'b'] })).toContain('data-requires = []');
+  });
+
   const authored = ['# the parser membrane', 'name = "parser"', 'purpose = "p" # inline purpose note', 'provides = ["parseCell"]', 'requires = [', '  "toml", # shared codec', '  "ownership",', '] # trailing note', 'layer = 1'].join('\n');
 
   it('editCellName rewrites only the name value — comments and layout survive', () => {

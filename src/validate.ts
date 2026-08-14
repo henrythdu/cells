@@ -127,16 +127,23 @@ export function validatePartition(ownership: Ownership, declarations: Record<str
     }
   }
 
-  // 4. unknown-require: a cell requires a cell with no declaration.
+  // 4. unknown-require: a cell requires a cell with no declaration (both keys — a
+  //    dangling data-requires ref is the same integrity break).
   for (const [cell, decl] of Object.entries(declarations)) {
-    for (const req of decl.requires) {
-      if (!(req in declarations)) {
-        const owning = Object.entries(declarations).find(([, d]) => d.provides.includes(req));
-        const hint = owning ? ` — hint: '${req}' is a provides label of ${owning[0]}. Use '${owning[0]}' instead.` : '';
-        violations.push({
-          kind: 'unknown-require',
-          detail: `${cell} requires unknown cell '${req}'${hint}`,
-        });
+    const refs: [key: string, names: string[]][] = [
+      ['requires', decl.requires],
+      ['data-requires', decl.dataRequires ?? []],
+    ];
+    for (const [key, names] of refs) {
+      for (const req of names) {
+        if (!(req in declarations)) {
+          const owning = Object.entries(declarations).find(([, d]) => d.provides.includes(req));
+          const hint = owning ? ` — hint: '${req}' is a provides label of ${owning[0]}. Use '${owning[0]}' instead.` : '';
+          violations.push({
+            kind: 'unknown-require',
+            detail: `${cell} ${key} unknown cell '${req}'${hint}`,
+          });
+        }
       }
     }
   }

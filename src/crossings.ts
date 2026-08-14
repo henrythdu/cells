@@ -78,7 +78,7 @@ export function checkLeakage(crossings: Crossing[], declarations: Record<string,
           kind: 'stale',
           fromCell: cell,
           toCell: req,
-          detail: `${cell} requires ${req} but never imports it — remove "${req}" from ${cell}.cell.toml requires, or add an import of ${req} to a file in ${cell}`,
+          detail: `${cell} requires ${req} but never imports it — remove "${req}" from ${cell}.cell.toml requires, or, if the coupling is real but invisible to static analysis (data files, runtime loading), move it to data-requires`,
         });
       }
     }

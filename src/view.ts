@@ -141,6 +141,7 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
     for (const sig of cell.signatures) lines.push(`  • ${sig}`);
   }
   lines.push(`requires: ${cell.requires.length > 0 ? cell.requires.join(', ') : '—'}`);
+  if (cell.dataRequires && cell.dataRequires.length > 0) lines.push(`data-requires: ${cell.dataRequires.join(', ')} (declared, not import-checked)`);
   if (cell.layer !== undefined) lines.push(`layer: ${cell.layer}`);
   lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
   lines.push('');

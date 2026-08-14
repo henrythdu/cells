@@ -57,6 +57,15 @@ describe('renameCell — the seam interface', () => {
     expect(existsSync(join(repo, '.cells', 'a.cell.toml'))).toBe(true); // nothing written
   });
 
+  it('rename rewrites data-requires references in dependents too', () => {
+    setupRepo();
+    writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\ndata-requires = ["a"]\n');
+    const outcome = renameCell('a', 'c');
+    expect(outcome.requiresUpdated).toBe(1); // the data-requires ref counts as an updated declaration
+    expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).toContain('data-requires = ["c"]');
+    expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).not.toContain('data-requires = ["a"]');
+  });
+
   it('atomic order: the new declaration exists before the old one is removed', () => {
     setupRepo();
     renameCell('a', 'c');
@@ -85,6 +94,17 @@ describe('removeCell — the seam interface', () => {
     expect(outcome).toEqual({ ownedCount: 1, dependents: ['b'] });
     expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).toMatch(/requires = \[\]/);
     expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).not.toContain('[a]');
+  });
+
+  it('a data-requires dependent blocks removal without --force; --force strips it', () => {
+    setupRepo();
+    writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\ndata-requires = ["a"]\n');
+    // a must own nothing — the owns-files refusal would otherwise mask the dependents refusal
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), '[b]\nfiles = ["src/b.ts"]\n');
+    expect(() => removeCell('a', false)).toThrow(/required by b/);
+    const outcome = removeCell('a', true);
+    expect(outcome.dependents).toEqual(['b']);
+    expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).toContain('data-requires = []');
   });
 
   it('throws on invalid/missing names (trust boundary)', () => {

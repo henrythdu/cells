@@ -9,7 +9,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { basename, join } from 'node:path';
 import { validCellName } from './assign.js';
 import { checkLeakage } from './crossings.js';
-import { editCellName, editCellRequires, type Cell, serializeCell } from './declaration.js';
+import { editCellDataRequires, editCellName, editCellRequires, type Cell, serializeCell } from './declaration.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, writeOwnership } from './io.js';
 import { loadCrossings } from './pipeline.js';
 
@@ -77,11 +77,17 @@ export function renameCell(oldName: string, newName: string): { ownedCount: numb
   let requiresUpdated = 0;
   for (const [name, decl] of Object.entries(decls)) {
     if (name === oldName) continue;
-    if (decl.requires.includes(oldName)) {
-      const updated: Cell = { ...decl, requires: decl.requires.map((r) => (r === oldName ? newName : r)) };
-      editDeclFile(join(CELLS_DIR, `${name}.cell.toml`), join(CELLS_DIR, `${name}.cell.toml`), updated, (text) => editCellRequires(text, { rename: [oldName, newName] }));
-      requiresUpdated++;
-    }
+    const codeRefs = decl.requires.includes(oldName);
+    const dataRefs = decl.dataRequires?.includes(oldName) ?? false;
+    if (!codeRefs && !dataRefs) continue;
+    const updated: Cell = {
+      ...decl,
+      requires: decl.requires.map((r) => (r === oldName ? newName : r)),
+      dataRequires: decl.dataRequires?.map((r) => (r === oldName ? newName : r)),
+    };
+    // Both keys' text surgery (each is a no-op when its line is absent)
+    editDeclFile(join(CELLS_DIR, `${name}.cell.toml`), join(CELLS_DIR, `${name}.cell.toml`), updated, (text) => editCellRequires(editCellDataRequires(text, { rename: [oldName, newName] }), { rename: [oldName, newName] }));
+    requiresUpdated++;
   }
   return { ownedCount, requiresUpdated };
 }
@@ -103,13 +109,14 @@ export function removeCell(name: string, force: boolean): { ownedCount: number; 
   const ownership = loadOwnership();
   const ownedFiles = ownership[name] ?? [];
   const decls = loadDeclarations();
+  // Dependents via EITHER key — a data-requires ref dangles exactly like a requires ref.
   const dependents = Object.values(decls)
-    .filter((d) => d.name !== name && d.requires.includes(name))
+    .filter((d) => d.name !== name && (d.requires.includes(name) || (d.dataRequires?.includes(name) ?? false)))
     .map((d) => d.name);
 
   if (!force && (ownedFiles.length > 0 || dependents.length > 0)) {
     if (ownedFiles.length > 0) throw new Error(`"${name}" owns ${ownedFiles.length} file(s) — reassign them (cells assign), or use --force to orphan them (→ unowned)`);
-    throw new Error(`"${name}" is required by ${dependents.join(', ')} — update their requires, or use --force to strip the references`);
+    throw new Error(`"${name}" is required by ${dependents.join(', ')} — update their requires/data-requires, or use --force to strip the references`);
   }
 
   rmSync(declPath);
@@ -120,8 +127,8 @@ export function removeCell(name: string, force: boolean): { ownedCount: number; 
 
   for (const dep of dependents) {
     const decl = decls[dep];
-    const updated: Cell = { ...decl, requires: decl.requires.filter((r) => r !== name) };
-    editDeclFile(join(CELLS_DIR, `${dep}.cell.toml`), join(CELLS_DIR, `${dep}.cell.toml`), updated, (text) => editCellRequires(text, { remove: [name] }));
+    const updated: Cell = { ...decl, requires: decl.requires.filter((r) => r !== name), dataRequires: decl.dataRequires?.filter((r) => r !== name) };
+    editDeclFile(join(CELLS_DIR, `${dep}.cell.toml`), join(CELLS_DIR, `${dep}.cell.toml`), updated, (text) => editCellRequires(editCellDataRequires(text, { remove: [name] }), { remove: [name] }));
   }
   return { ownedCount: ownedFiles.length, dependents };
 }

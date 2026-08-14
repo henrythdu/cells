@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { Cell } from '../src/declaration.js';
-import { assemblePayload } from '../src/payload.js';
+import { assemblePayload, neighborsOf } from '../src/payload.js';
+
+describe('neighborsOf — both keys', () => {
+  it('includes data-requires partners alongside requires neighbors, deduped', () => {
+    const cell: Cell = { name: 'a', purpose: 'p', provides: [], requires: ['b', 'c'], dataRequires: ['c', 'd'] };
+    const declarations: Record<string, Cell> = {
+      a: cell,
+      b: { name: 'b', purpose: 'p', provides: [], requires: [] },
+      c: { name: 'c', purpose: 'p', provides: [], requires: [] },
+      d: { name: 'd', purpose: 'p', provides: [], requires: [] },
+    };
+    expect(neighborsOf(cell, declarations).map((n) => n.name)).toEqual(['b', 'c', 'd']);
+  });
+});
 
 describe('assemblePayload', () => {
+  it('renders the data-requires line when the key is present', () => {
+    const cell: Cell = { name: 'parser', purpose: 'p', provides: [], requires: [], dataRequires: ['translations'] };
+    const out = assemblePayload(cell, ['src/parser.ts'], { 'src/parser.ts': 'x' }, []);
+    expect(out).toContain('data-requires: [translations] (declared, not import-checked)');
+  });
+
   it('assembles declaration + owned code + neighbor membranes into one doc', () => {
     const cell: Cell = {
       name: 'parser',

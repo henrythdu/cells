@@ -13,9 +13,12 @@ export function estimateTokens(chars: number): number {
   return Math.ceil(chars / 3);
 }
 
-/** Resolve a cell's neighbor declarations (for payload assembly). */
+/** Resolve a cell's neighbor declarations (for payload assembly) — both keys: a
+ *  data-requires partner's membrane belongs in the context exactly like an import
+ *  neighbor's (context completeness; the check semantics differ, the payload need doesn't). */
 export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cell[] {
-  return cell.requires.map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
+  const names = [...cell.requires, ...(cell.dataRequires ?? [])];
+  return [...new Set(names)].map((r) => declarations[r]).filter((c): c is Cell => Boolean(c));
 }
 
 /** Assemble a cell's payload and measure it — the context-fit metric (what the model consumes).
@@ -54,6 +57,7 @@ export function assemblePayload(
   lines.push(`purpose: ${cell.purpose}`);
   lines.push(`provides: [${cell.provides.join(', ')}]`);
   lines.push(`requires: [${cell.requires.join(', ')}]`);
+  if (cell.dataRequires && cell.dataRequires.length > 0) lines.push(`data-requires: [${cell.dataRequires.join(', ')}] (declared, not import-checked)`);
   if (dependedByCount !== undefined) {
     lines.push('');
     lines.push('## Context');
@@ -95,6 +99,7 @@ export function assemblePayload(
       for (const sig of neighbor.signatures) lines.push(`  - ${sig}`);
     }
     lines.push(`requires: [${neighbor.requires.join(', ')}]`);
+    if (neighbor.dataRequires && neighbor.dataRequires.length > 0) lines.push(`data-requires: [${neighbor.dataRequires.join(', ')}] (declared, not import-checked)`);
     lines.push('');
   }
   if (dependents && dependents.length > 0) {
@@ -103,6 +108,7 @@ export function assemblePayload(
       lines.push(`### Cell: ${dep.name}`);
       lines.push(`purpose: ${dep.purpose}`);
       lines.push(`requires: [${dep.requires.join(', ')}]`); // what it expects from you (and others)
+      if (dep.dataRequires && dep.dataRequires.length > 0) lines.push(`data-requires: [${dep.dataRequires.join(', ')}] (declared, not import-checked)`);
       lines.push('');
     }
   }

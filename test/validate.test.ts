@@ -20,6 +20,14 @@ describe('validatePartition', () => {
     expect(validatePartition(ownership, declarations, codeFiles, () => true)).toEqual([]);
   });
 
+  it('flags a data-requires entry naming an unknown cell (integrity parity with requires)', () => {
+    const ownership: Ownership = { parser: ['src/parser.ts'] };
+    const declarations = decls({ parser: [] });
+    declarations.parser.dataRequires = ['ghost'];
+    const v = validatePartition(ownership, declarations, ['src/parser.ts'], () => true);
+    expect(v.some((x) => x.kind === 'unknown-require' && x.detail.includes('data-requires') && x.detail.includes('ghost'))).toBe(true);
+  });
+
   it('flags a file owned by two cells (single-valued)', () => {
     const ownership: Ownership = { parser: ['src/shared.ts'], util: ['src/shared.ts'] };
     const declarations = decls({ parser: [], util: [] });
