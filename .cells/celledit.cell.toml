@@ -1,0 +1,16 @@
+name = "celledit"
+purpose = "The cell edit seam: store-coordinated mutation of one cell — comment-preserving declaration rewrite (text surgery, serialize fallback), ownership move, requires rewrite in dependents. Refusals throw the CLI's error message; success returns outcome summaries the cmd* printing adapters in mutate render. Decl-centric trio only (rename/remove/prune-stale); assign/unassign keep their own seam in assign."
+provides = [
+  "renameCell",
+  "removeCell",
+  "findStaleRequires",
+  "applyStalePrune",
+]
+requires = [
+  "assign",
+  "crossings",
+  "declaration",
+  "io",
+  "pipeline",
+]
+layer = 6

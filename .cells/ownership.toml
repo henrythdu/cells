@@ -28,6 +28,9 @@ files = ["src/cli.ts", "test/remove.test.ts", "test/workflow.test.ts"]
 [mutate]
 files = ["src/mutate.ts", "test/mutate.test.ts"]
 
+[celledit]
+files = ["src/celledit.ts", "test/celledit.test.ts"]
+
 [io]
 files = ["src/io.ts", "test/io.test.ts"]
 

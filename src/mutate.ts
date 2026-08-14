@@ -2,16 +2,16 @@
  *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in commands/
  *  (read.ts + gate.ts); cli.ts keeps the dispatcher + main(). These commands write
  *  after reading, so they re-load the stores fresh instead of using a shared bundle. */
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cellNameOf, planApply, planAssignment, planGroups, unassignFiles, validCellName } from './assign.js';
 import { buildConfig, parseConfig } from './config.js';
-import { checkLeakage } from './crossings.js';
-import { editCellName, editCellRequires, type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
+import { applyStalePrune, findStaleRequires, removeCell, renameCell } from './celledit.js';
+import { type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
 import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
 import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, SKIP_DIRS, skippedManifestDirs, writeOwnership } from './io.js';
 import { computePayloadSize, neighborsOf } from './payload.js';
-import { loadCrossings, warnIfNoCodeFiles } from './pipeline.js';
+import { warnIfNoCodeFiles } from './pipeline.js';
 import { isUnsafePath } from './validate.js';
 
 /** `cells config` — show the effective config; `cells config set max-payload-tokens <N>`
@@ -104,76 +104,11 @@ export function cmdInit(dryRun = false): void {
  *  ownership.toml key, and every other cell's requires reference. BOTH names are a trust
  *  boundary: they become filenames under .cells/ — a `..`-laden oldName would move a file
  *  outside the store (validated before any path is constructed). */
+/** `cells rename <old> <new>` — printing adapter over the cell edit seam. Refusal
+ *  messages surface via main().catch (`cells: <message>`, exit 1) — the same stderr the
+ *  CLI tests pin. */
 export function cmdRename(oldName: string, newName: string): void {
-  if (!validCellName(oldName) || !validCellName(newName)) {
-    console.error(`cells: invalid cell name "${oldName}" → "${newName}" — use only letters, numbers, dashes, underscores.`);
-    process.exit(1);
-  }
-
-  if (!existsSync(join(CELLS_DIR, `${oldName}.cell.toml`))) {
-    console.error(`cells: no cell named "${oldName}"`);
-    process.exit(1);
-  }
-
-  if (existsSync(join(CELLS_DIR, `${newName}.cell.toml`))) {
-    console.error(`cells: "${newName}" already exists — can't overwrite`);
-    process.exit(1);
-  }
-
-  const decls = loadDeclarations();
-  const oldDecl = decls[oldName];
-  const ownership = loadOwnership();
-  // An ownership-only [newName] entry (no declaration) would be silently CLOBBERED by
-  // the move — its files vanish from the partition. Check BEFORE any write; the store is
-  // already odd (undeclared cell), so name it instead of destroying data.
-  if (ownership[newName] !== undefined && !decls[newName]) {
-    console.error(`cells: ownership.toml already has a [${newName}] entry with no cell declaration — rename would overwrite it and orphan its files. Fix .cells/ownership.toml first.`);
-    process.exit(1);
-  }
-
-  // Atomicity: write the NEW declaration BEFORE removing the old file. The old order
-  // (renameSync, then rewrite) left `new.cell.toml` declaring `name = "old"` on a write
-  // failure — loadDeclarations throws on the mismatch and every command dies until hand-fix.
-  const newPath = join(CELLS_DIR, `${newName}.cell.toml`);
-  const oldPath = join(CELLS_DIR, `${oldName}.cell.toml`);
-  if (oldDecl) {
-    // Text surgery, not parse+serialize — the author's comments survive the rename.
-    // (The parse result is only the fallback when the file can't be read as text.)
-    let content: string;
-    try {
-      content = editCellName(readFileSync(oldPath, 'utf8'), newName);
-    } catch {
-      content = serializeCell({ ...oldDecl, name: newName });
-    }
-    writeFileSync(newPath, content);
-    rmSync(oldPath);
-  } else {
-    renameSync(oldPath, newPath); // declaration-less store entry — nothing to rewrite
-  }
-
-  const ownedCount = ownership[oldName]?.length ?? 0;
-  if (ownership[oldName]) {
-    ownership[newName] = ownership[oldName];
-    delete ownership[oldName];
-    writeOwnership(ownership);
-  }
-
-  let requiresUpdated = 0;
-  for (const [name, decl] of Object.entries(decls)) {
-    if (name === oldName) continue;
-    if (decl.requires.includes(oldName)) {
-      // comment-preserving requires rewrite (parse+serialize would drop author comments)
-      const depPath = join(CELLS_DIR, `${name}.cell.toml`);
-      try {
-        writeFileSync(depPath, editCellRequires(readFileSync(depPath, 'utf8'), { rename: [oldName, newName] }));
-      } catch {
-        writeFileSync(depPath, serializeCell({ ...decl, requires: decl.requires.map((r) => (r === oldName ? newName : r)) }));
-      }
-      decl.requires = decl.requires.map((r) => (r === oldName ? newName : r));
-      requiresUpdated++;
-    }
-  }
-
+  const { ownedCount, requiresUpdated } = renameCell(oldName, newName);
   console.log(`Renamed "${oldName}" → "${newName}".`);
   if (ownedCount > 0) console.log(`  Ownership: ${ownedCount} file(s).`);
   if (requiresUpdated > 0) console.log(`  Requires: updated ${requiresUpdated} cell(s).`);
@@ -182,52 +117,11 @@ export function cmdRename(oldName: string, newName: string): void {
 /** `cells remove <cell> [--force]` — delete a cell from the store. Refuses if the cell
  *  owns files or is required by others (state must be resolved first); --force orphans
  *  the files (→ unowned) and strips requires references from other cells. */
+/** `cells remove <cell> [--force]` — printing adapter over the cell edit seam. */
 export function cmdRemove(name: string, force: boolean): void {
-  // Trust boundary: the name becomes a filename under .cells/ — a `..`-laden name would
-  // delete a file outside the store (validated before any path is constructed).
-  if (!validCellName(name)) {
-    console.error(`cells: invalid cell name "${name}" — use only letters, numbers, dashes, underscores.`);
-    process.exit(1);
-  }
-  const declPath = join(CELLS_DIR, `${name}.cell.toml`);
-  if (!existsSync(declPath)) {
-    console.error(`cells: no cell named "${name}"`);
-    process.exit(1);
-  }
-
-  const ownership = loadOwnership();
-  const ownedFiles = ownership[name] ?? [];
-  const decls = loadDeclarations();
-  const dependents = Object.values(decls)
-    .filter((d) => d.name !== name && d.requires.includes(name))
-    .map((d) => d.name);
-
-  if (!force && (ownedFiles.length > 0 || dependents.length > 0)) {
-    if (ownedFiles.length > 0) console.error(`cells: "${name}" owns ${ownedFiles.length} file(s) — reassign them (cells assign), or use --force to orphan them (→ unowned)`);
-    if (dependents.length > 0) console.error(`cells: "${name}" is required by ${dependents.join(', ')} — update their requires, or use --force to strip the references`);
-    process.exit(1);
-  }
-
-  rmSync(declPath);
-
-  if (ownedFiles.length > 0 || ownership[name] !== undefined) {
-    delete ownership[name];
-    writeOwnership(ownership);
-  }
-
-  for (const dep of dependents) {
-    const decl = decls[dep];
-    decl.requires = decl.requires.filter((r) => r !== name);
-    const depPath = join(CELLS_DIR, `${dep}.cell.toml`);
-    try {
-      writeFileSync(depPath, editCellRequires(readFileSync(depPath, 'utf8'), { remove: [name] }));
-    } catch {
-      writeFileSync(depPath, serializeCell(decl));
-    }
-  }
-
+  const { ownedCount, dependents } = removeCell(name, force);
   console.log(`Removed cell "${name}".`);
-  if (ownedFiles.length > 0) console.log(`  ${ownedFiles.length} file(s) orphaned → unowned.`);
+  if (ownedCount > 0) console.log(`  ${ownedCount} file(s) orphaned → unowned.`);
   if (dependents.length > 0) console.log(`  Stripped requires from: ${dependents.join(', ')}.`);
 }
 
@@ -418,19 +312,10 @@ export function cmdNew(args: string[]): void {
  *  Stale stays info-level in health ("maybe a data dependency or future plan") — this command is the
  *  explicit opt-in cleanup; the agent decides, the tool applies. */
 export async function cmdPruneStale(apply: boolean): Promise<void> {
-  const ownership = loadOwnership();
-  const { crossings } = await loadCrossings(ownership, false);
-  const declarations = loadDeclarations();
-  const stale = checkLeakage(crossings, declarations).filter((l) => l.kind === 'stale');
+  const { stale, byCell } = await findStaleRequires();
   if (stale.length === 0) {
     console.log('No stale requires — every declared requirement is imported.');
     return;
-  }
-  const byCell = new Map<string, string[]>();
-  for (const s of stale) {
-    const list = byCell.get(s.fromCell) ?? [];
-    list.push(s.toCell);
-    byCell.set(s.fromCell, list);
   }
   const lines = [`${stale.length} stale require(s) — declared but no import found:`];
   for (const [cell, reqs] of byCell) lines.push(`  ${cell} → ${reqs.join(', ')}`);
@@ -439,16 +324,7 @@ export async function cmdPruneStale(apply: boolean): Promise<void> {
     console.log(lines.join('\n'));
     return;
   }
-  for (const [cellName, reqs] of byCell) {
-    const decl = declarations[cellName];
-    decl.requires = decl.requires.filter((r) => !reqs.includes(r));
-    const declPath2 = join(CELLS_DIR, `${cellName}.cell.toml`);
-    try {
-      writeFileSync(declPath2, editCellRequires(readFileSync(declPath2, 'utf8'), { remove: reqs }));
-    } catch {
-      writeFileSync(declPath2, serializeCell(decl));
-    }
-  }
+  applyStalePrune(byCell);
   lines.push(`Removed from ${byCell.size} cell declaration(s). Run \`cells health\` to confirm.`);
   console.log(lines.join('\n'));
 }
