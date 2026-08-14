@@ -32,7 +32,9 @@ Cells bets the other way: **declared partitions**. The structure is *authored an
 - Every cell has a written contract — **a membrane** (`name`, `purpose`, `provides`, `requires`).
 - Every cross-cell dependency is a **declared crossing** — derived from real imports, never hand-written.
 
-Coherent membranes + complete ownership beat lossy retrieval. Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate — they author the membranes and curate the partition; the model is the primary consumer. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
+Coherent membranes + complete ownership beat lossy retrieval. Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate at the approval point: the model works the cells and proposes partition and membrane changes; a human has the final say on the partition. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
+
+The bet is mechanism-first: cells makes structure visible and checks it against real imports. Whether that visibility improves agent outcomes is, so far, one user's experience — not evidence.
 
 ---
 
@@ -200,6 +202,8 @@ vendor/
 - **Java** via `tree-sitter` (WASM; fully-qualified class imports → package-decl resolution, layout-agnostic; wildcards → one representative edge per package).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
+**What importers can't see (static-analysis blind spots, named per language):** Python — `importlib`, `__import__`, string-built module names; Rust — proc-macro-expanded paths; Go — `reflect`-based coupling and generator→generated relationships; Java — static imports only, nothing beyond the repo's own sources; C/C++ — `#include` only, no macro-computed paths; TypeScript — dynamic `import()` and `import x = require('y')` *are* handled, string-built specifiers (plugin loaders) are not. The derived graph is honest about what it derived: when a coupling the importer can't see matters, say so in the membrane — the authored declaration is the tool's only source of invisible-channel truth.
+
 Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the
 shared factory in `src/languages/tree-sitter.ts`; otherwise a custom `extract`) + one line in
 `DEFAULT_IMPORTERS` in `src/importers.ts`. The repo's own cells show the pattern — `cells new`
@@ -225,6 +229,8 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 Two bits of borrowed vocabulary, for the architecture-literate: the payload ceiling is a **cognitive-load budget** (Team Topologies splits teams by the same measure — cells budgets it per cell, for model *and* human), and the rule table above is a suite of **fitness functions** (Building Evolutionary Architectures: executable checks that keep an architecture honest as it evolves) — hard-gated where the facts are deterministic (leakage, integrity), advisory where they're statistical (size, structure, co-change).
 
 **The estimate is crude — and that's fine.** Every LLM tokenizes differently (and the same LLM at different settings); chars/3 is a rough, consistent proxy. The ceiling is **not a hard limit** — nothing breaks when a cell exceeds it. Its purpose is to make the model (or human) *conscious* of cell size before pulling a payload: the warning is "this cell is getting big — do you really want to read it whole?", not "this cell is invalid." A cell at 1.5× the ceiling is often the right call for a coherent unit; the gate doesn't care, it's your judgment that matters.
+
+The low default is also a module-size discipline, not just a context budget: a deliberate bar against 3,000-line files and ever-growing modules — small enough that any current model can hold the payload. That's why it's a single global number rather than a per-model setting: the bar is about code shape, and per-cell `ceiling = N` opts a legitimately-big cell out without raising it for everyone.
 
 ---
 

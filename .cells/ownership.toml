@@ -1,95 +1,170 @@
-[declaration]
-files = ["src/declaration.ts", "test/declaration.test.ts"]
-
-[ownership]
-files = ["src/ownership.ts", "test/ownership.test.ts"]
-
-[payload]
-files = ["src/payload.ts", "test/payload.test.ts"]
-
-[validate]
-files = ["src/validate.ts", "test/validate.test.ts"]
-
-[crossings]
-files = ["src/crossings.ts", "test/crossings.test.ts"]
-
-[view]
-files = ["src/view.ts", "test/view.test.ts"]
-
 [assign]
-files = ["src/assign.ts", "test/assign.test.ts"]
-
-[config]
-files = ["src/config.ts", "test/config.test.ts"]
-
-[cli]
-files = ["src/cli.ts", "test/remove.test.ts", "test/workflow.test.ts"]
-
-[mutate]
-files = ["src/mutate.ts", "test/mutate.test.ts"]
+files = [
+  "src/assign.ts",
+  "test/assign.test.ts",
+]
 
 [celledit]
-files = ["src/celledit.ts", "test/celledit.test.ts"]
+files = [
+  "src/celledit.ts",
+  "test/celledit.test.ts",
+]
 
-[io]
-files = ["src/io.ts", "test/io.test.ts"]
+[cli]
+files = [
+  "src/cli.ts",
+  "test/remove.test.ts",
+  "test/workflow.test.ts",
+]
 
-[structure]
-files = ["src/structure.ts", "test/structure.test.ts"]
+[commands]
+files = [
+  "src/commands/read.ts",
+  "test/commands.test.ts",
+]
 
-[ignore]
-files = ["src/ignore.ts", "test/ignore.test.ts"]
+[config]
+files = [
+  "src/config.ts",
+  "test/config.test.ts",
+]
+
+[cpp]
+files = [
+  "src/languages/cpp.ts",
+  "test/languages/cpp.test.ts",
+]
+
+[crossings]
+files = [
+  "src/crossings.ts",
+  "test/crossings.test.ts",
+]
+
+[declaration]
+files = [
+  "src/declaration.ts",
+  "test/declaration.test.ts",
+]
+
+[diff]
+files = [
+  "src/diff.ts",
+  "test/diff.test.ts",
+]
+
+[gate]
+files = [
+  "src/gate.ts",
+  "test/health.test.ts",
+]
+
+[go]
+files = [
+  "src/languages/go.ts",
+  "test/languages/go.test.ts",
+]
+
+[graph]
+files = [
+  "src/graph.ts",
+  "test/graph.test.ts",
+]
 
 [help]
-files = ["src/help.ts", "test/help.test.ts"]
+files = [
+  "src/help.ts",
+  "test/help.test.ts",
+]
+
+[ignore]
+files = [
+  "src/ignore.ts",
+  "test/ignore.test.ts",
+]
 
 [importers]
 files = [
+  "src/bridges.ts",
   "src/importers.ts",
+  "test/bridges.test.ts",
   "test/importers.test.ts",
   "test/multilang.test.ts",
-  "src/bridges.ts",
-  "test/bridges.test.ts",
 ]
 
 [imports]
-files = ["src/imports.ts"]
+files = [
+  "src/imports.ts",
+]
 
-[toml]
-files = ["test/toml.test.ts", "src/toml.ts"]
-
-[graph]
-files = ["src/graph.ts", "test/graph.test.ts"]
-
-[python]
-files = ["src/languages/python.ts", "test/languages/python.test.ts"]
-
-[rust]
-files = ["src/languages/rust.ts"]
-
-[diff]
-files = ["src/diff.ts", "test/diff.test.ts"]
-
-[commands]
-files = ["src/commands/read.ts", "test/commands.test.ts"]
-
-[tree-sitter]
-files = ["src/languages/tree-sitter.ts"]
-
-[typescript]
-files = ["src/languages/typescript.ts", "test/languages/typescript.test.ts"]
-
-[go]
-files = ["src/languages/go.ts", "test/languages/go.test.ts"]
-
-[cpp]
-files = ["src/languages/cpp.ts", "test/languages/cpp.test.ts"]
+[io]
+files = [
+  "src/io.ts",
+  "test/io.test.ts",
+]
 
 [java]
-files = ["src/languages/java.ts", "test/languages/java.test.ts"]
+files = [
+  "src/languages/java.ts",
+  "test/languages/java.test.ts",
+]
+
+[mutate]
+files = [
+  "src/mutate.ts",
+  "test/mutate.test.ts",
+]
+
+[ownership]
+files = [
+  "src/ownership.ts",
+  "test/ownership.test.ts",
+]
+
+[payload]
+files = [
+  "src/payload.ts",
+  "test/payload.test.ts",
+]
+
+[pipeline]
+files = [
+  "src/pipeline.ts",
+  "test/pipeline.test.ts",
+]
+
+[python]
+files = [
+  "src/languages/python.ts",
+  "test/languages/python.test.ts",
+]
+
+[rust]
+files = [
+  "src/languages/rust.ts",
+]
 
 [rust-tests]
-files = ["test/languages/rust.test.ts"]
+files = [
+  "test/languages/rust.test.ts",
+]
+
+[structure]
+files = [
+  "src/structure.ts",
+  "test/structure.test.ts",
+]
+
+[toml]
+files = [
+  "src/toml.ts",
+  "test/toml.test.ts",
+]
+
+[tree-sitter]
+files = [
+  "src/languages/tree-sitter.ts",
+]
 
 [ts-resolution]
 files = [
@@ -97,8 +172,20 @@ files = [
   "test/languages/ts-resolution.test.ts",
 ]
 
-[gate]
-files = ["src/gate.ts", "test/health.test.ts"]
+[typescript]
+files = [
+  "src/languages/typescript.ts",
+  "test/languages/typescript.test.ts",
+]
 
-[pipeline]
-files = ["src/pipeline.ts", "test/pipeline.test.ts"]
+[validate]
+files = [
+  "src/validate.ts",
+  "test/validate.test.ts",
+]
+
+[view]
+files = [
+  "src/view.ts",
+  "test/view.test.ts",
+]

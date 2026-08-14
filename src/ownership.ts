@@ -1,5 +1,5 @@
 import { parse as parseToml } from 'smol-toml';
-import { tomlArray, tomlString } from './toml.js';
+import { tomlString } from './toml.js';
 
 /**
  * Ownership map: cell name → owned file paths.
@@ -35,8 +35,25 @@ export function serializeOwnership(ownership: Ownership): string {
   // table and the files silently vanish from the round-trip. CLI paths validate names
   // (validCellName); this guards hand-edited stores, the documented way to write the map.
   const key = (cell: string) => (/^[A-Za-z0-9_-]+$/.test(cell) ? cell : tomlString(cell));
-  return Object.entries(ownership)
-    .map(([cell, files]) => `[${key(cell)}]\nfiles = ${tomlArray(files)}\n`)
+  // Deterministic serialization: cells sorted, files sorted, one file per line. Default
+  // .sort() = plain code-unit order — deliberately NOT localeCompare, which is
+  // host-locale-dependent and would betray the determinism this format exists for.
+  // The map is the one central write hotspot in a multi-author repo; with this format
+  // two branches touching different cells produce disjoint line ranges and git
+  // auto-merges them — the format must not amplify the hotspot into whole-file conflicts.
+  // Deterministic serialization: cells sorted, files sorted, one file per line. Default
+  // .sort() = plain code-unit order — deliberately NOT localeCompare, which is
+  // host-locale-dependent and would betray the determinism this format exists for.
+  // The map is the one central write hotspot in a multi-author repo; with this format
+  // two branches touching different cells produce disjoint line ranges and git
+  // auto-merges them — the format must not amplify the hotspot into whole-file conflicts.
+  return Object.keys(ownership)
+    .sort()
+    .map((cell) => {
+      const files = [...ownership[cell]].sort();
+      const body = files.length === 0 ? 'files = []' : `files = [\n${files.map((f) => `  ${tomlString(f)},`).join('\n')}\n]`;
+      return `[${key(cell)}]\n${body}\n`;
+    })
     .join('\n');
 }
 

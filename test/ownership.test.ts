@@ -26,6 +26,15 @@ describe('serializeOwnership', () => {
     expect(serializeOwnership({})).toBe('');
   });
 
+  it('serializes deterministically — sorted cells, sorted files, one per line (merge-friendly)', () => {
+    const out = serializeOwnership({ zebra: ['b/z2.ts', 'b/z1.ts'], alpha: ['src/a.ts'], empty: [] });
+    expect(out).toBe('[alpha]\nfiles = [\n  "src/a.ts",\n]\n\n[empty]\nfiles = []\n\n[zebra]\nfiles = [\n  "b/z1.ts",\n  "b/z2.ts",\n]\n');
+    // insertion order and file order in the input must not leak into the output
+    expect(serializeOwnership({ zebra: ['b/z2.ts', 'b/z1.ts'], alpha: ['src/a.ts'] })).toBe(
+      serializeOwnership({ alpha: ['src/a.ts'], zebra: ['b/z1.ts', 'b/z2.ts'] }),
+    );
+  });
+
   it('a non-bare cell name is quoted — the round-trip keeps the files (no nested table)', () => {
     const o: Ownership = { 'a.b': ['src/x.ts'] };
     expect(parseOwnership(serializeOwnership(o))).toEqual(o);

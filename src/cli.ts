@@ -212,6 +212,11 @@ async function main(): Promise<void> {
   await command.run(positional, dryRun, ctx);
 }
 
+// Exit convention (two deliberate patterns): report paths that wrote to stdout set
+// `process.exitCode = 1` so the stream drains before the process ends (piped output must
+// not lose its tail); stderr-only refusals with nothing on stdout may `process.exit(1)`
+// directly. Thrown errors (the seam contract: celledit/plan/assign throw refusal messages
+// verbatim) land here — printed with the `cells: ` prefix, exit 1.
 main().catch((err) => {
   console.error(`cells: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);

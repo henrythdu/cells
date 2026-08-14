@@ -6,7 +6,7 @@
  *  The decl-centric trio only: assign/unassign keep their own seam (assign.ts — they
  *  move files, not cells). */
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { validCellName } from './assign.js';
 import { checkLeakage } from './crossings.js';
 import { editCellName, editCellRequires, type Cell, serializeCell } from './declaration.js';
@@ -23,6 +23,9 @@ function editDeclFile(readPath: string, writePath: string, decl: Cell, edit: (te
   try {
     content = edit(readFileSync(readPath, 'utf8'));
   } catch {
+    // Never silent: the fallback discards whatever author comments the file carried —
+    // the tool's promise is that authored membranes survive its edits.
+    console.error(`warning: comment-preserving edit of ${basename(readPath)} failed — rewrote it from the parsed declaration (author comments, if any, are lost)`);
     content = serializeCell(decl);
   }
   writeFileSync(writePath, content);
