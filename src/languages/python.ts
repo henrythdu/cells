@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Node } from 'web-tree-sitter';
 import type { ImportEdge, UnresolvedImport } from '../imports.js';
-import { createTreeSitterImporter, nearestCandidate } from './tree-sitter.js';
+import { createTreeSitterImporter, nearestCandidate, type ResolveCtx } from './tree-sitter.js';
 
 // --- module-path derivation: file → python module path ---
 
@@ -103,17 +103,37 @@ function probeModuleRootMismatch(firstSeg: string, codeDirs: string[], files: Re
   return found;
 }
 
-function resolveImportDesc(
-  desc: ImportDesc,
-  sourcePath: string,
-  importerModule: string,
-  moduleCandidates: Map<string, string[]>,
-  localPackages: Set<string>,
-  codeDirs: string[],
-  files: ReadonlySet<string>,
-  memo: Map<string, boolean>,
-  baseDir: string,
-): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+/** Per-extract derived facts, memoized on the ResolveCtx object (resolveEdges runs once
+ *  per FILE — deriving these inline was O(files×modules)). The WeakMap key is the ctx the
+ *  factory builds once per extract, so distinct extracts (working tree vs a HEAD tree for
+ *  --diff) never share a derivation. Fields:
+ *  - localPackages: first segment of every module in the map — distinguishes
+ *    local-but-unresolved imports (warn) from external packages (silent). Derived after
+ *    phase-1 enrichment completes (a map still being enriched would under-count).
+ *  - codeDirs: repo-relative (baseDir-stripped) — the file census is always repo-relative,
+ *    even for HEAD-tree runs; the mismatch probe matches against it. */
+const factsByCtx = new WeakMap<ResolveCtx, { localPackages: Set<string>; codeDirs: string[]; baseDir: string }>();
+
+function derivedFacts(ctx: ResolveCtx): { localPackages: Set<string>; codeDirs: string[]; baseDir: string } {
+  let facts = factsByCtx.get(ctx);
+  if (facts === undefined) {
+    const localPackages = new Set<string>();
+    for (const mod of ctx.moduleCandidates.keys()) {
+      const firstSeg = mod.split('.')[0];
+      if (firstSeg) localPackages.add(firstSeg);
+    }
+    const baseDir = ctx.baseDir ?? '.';
+    const bd = ctx.baseDir;
+    const codeDirs = bd ? ctx.codeDirs.map((d) => (d.startsWith(`${bd}/`) ? d.slice(bd.length + 1) : d)) : ctx.codeDirs;
+    facts = { localPackages, codeDirs, baseDir };
+    factsByCtx.set(ctx, facts);
+  }
+  return facts;
+}
+
+function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, ctx: ResolveCtx): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+  const { moduleCandidates, files, memo } = ctx;
+  const { localPackages, codeDirs, baseDir } = derivedFacts(ctx);
   let base: string;
   if (desc.dots === 0) {
     base = desc.module; // absolute
@@ -237,23 +257,10 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
     uses: extractImports(root), // per-file: this file's import descriptors
   }),
   resolveEdges: (descs, sourcePath, importerModule, ctx) => {
-    // Local top-level packages = first segment of each module in the map — derived HERE in
-    // phase 2, when the module→file map is complete (phase-1 analyze would see a map still
-    // being enriched). Distinguishes local-but-unresolved imports (warn) from external
-    // packages (skip silently).
-    const localPackages = new Set<string>();
-    for (const mod of ctx.moduleCandidates.keys()) {
-      const firstSeg = mod.split('.')[0];
-      if (firstSeg) localPackages.add(firstSeg);
-    }
-    // baseDir-joined code dirs → repo-relative (the file census is always repo-relative,
-    // even for HEAD-tree runs; the probe matches against it).
-    const baseDir = ctx.baseDir;
-    const codeDirs = baseDir ? ctx.codeDirs.map((d) => (d.startsWith(`${baseDir}/`) ? d.slice(baseDir.length + 1) : d)) : ctx.codeDirs;
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {
-      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx.moduleCandidates, localPackages, codeDirs, ctx.files, ctx.memo, baseDir ?? '.');
+      const r = resolveImportDesc(desc, sourcePath, importerModule, ctx);
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
     }
