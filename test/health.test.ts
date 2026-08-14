@@ -43,7 +43,15 @@ describe('healthVerdict — the strict-gate rule (exit-1 set)', () => {
     expect(healthVerdict({ ...green, undeclaredCount: 1 })).toBe(false);
   });
   it('a broken grammar bundle fails the gate (named inline, still strict)', () => {
-    expect(healthVerdict({ ...green, grammarResults: [{ lang: 'python', ok: true }, { lang: 'rust', ok: false, error: 'wasm missing' }] })).toBe(false);
+    expect(
+      healthVerdict({
+        ...green,
+        grammarResults: [
+          { lang: 'python', ok: true },
+          { lang: 'rust', ok: false, error: 'wasm missing' },
+        ],
+      }),
+    ).toBe(false);
   });
   it('empty grammar results fail (never silently green)', () => {
     expect(healthVerdict({ ...green, grammarResults: [] })).toBe(false);
