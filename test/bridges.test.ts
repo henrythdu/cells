@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { applyBridges, buildBridgeMap, scanCdylibCrates } from '../src/bridges.js';
+import { applyBridges, buildBridgeMap } from '../src/bridges.js';
 
 let tmp: string | null = null;
 afterAll(() => {
@@ -20,19 +20,13 @@ function setupPyo3Fixture(): string {
   return tmp;
 }
 
-describe('scanCdylibCrates', () => {
-  it('finds the cdylib crate with lib name + entry file', () => {
-    const dir = setupPyo3Fixture();
-    const crates = scanCdylibCrates(['.'], dir);
-    expect(crates).toEqual([{ tail: '_core', entry: 'crates/headroom-py/src/lib.rs' }]);
-  });
-
+describe('buildBridgeMap', () => {
   it('ignores non-cdylib crates (no bridge — conservative)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
     tmp = dir;
     mkdirSync(join(dir, 'crates', 'plain', 'src'), { recursive: true });
     writeFileSync(join(dir, 'crates', 'plain', 'Cargo.toml'), '[package]\nname = "plain"\n\n[lib]\nname = "plain"\ncrate-type = ["lib"]\n');
-    expect(scanCdylibCrates(['.'], dir)).toEqual([]);
+    expect(buildBridgeMap(['.'], dir)).toEqual(new Map());
   });
 
   it('survives a symlink cycle instead of recursing forever (listFiles precedent)', () => {
@@ -45,7 +39,7 @@ describe('scanCdylibCrates', () => {
     } catch {
       return; // no symlink permission (some CI) — skip
     }
-    expect(scanCdylibCrates(['src'], dir)).toEqual([]);
+    expect(buildBridgeMap(['src'], dir)).toEqual(new Map());
   });
 });
 

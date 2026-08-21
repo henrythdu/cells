@@ -97,15 +97,6 @@ function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   return crates;
 }
 
-/** Scan a repo's Cargo.toml files for cdylib crates ([lib] crate-type) — the crates that
- *  produce importable extension modules. Reads `[lib] name/path`; entry defaults to
- *  src/lib.rs (Cargo's [lib] default) when no path is declared. */
-export function scanCdylibCrates(codeDirs: readonly string[], baseDir: string): CrateEntry[] {
-  const found: ManifestWalk = { cargo: [], pyproject: [] };
-  for (const dir of codeDirs) walkManifests(join(baseDir, dir), found);
-  return cratesFromCargo(found.cargo, baseDir);
-}
-
 /** The bridge map: pyproject.toml [tool.maturin] module-name ("headroom._core") explicitly
  *  names the produced module. Linked to a crate by its tail (maturin builds the crate whose
  *  lib name is the module's last segment). Declaration-only — a bare-tail convention fallback
