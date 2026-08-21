@@ -11,11 +11,6 @@ export interface Crossing {
   import: string;
 }
 
-/**
- * Map file→file import edges to cell→cell crossings.
- * Drops internal imports (same cell) and edges into unowned files
- * (no target cell to attribute). Pure — the IO layer supplies the edges.
- */
 /** One cell pair's named-consumption audit result (warning-level, never gate): what
  *  fromCell's imports consume by name from toCell, and which names toCell's membrane
  *  doesn't offer. `emptyProvides` marks the stronger form - the pair consumes named
@@ -42,7 +37,7 @@ export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, decl
     const fromCell = owningCell(ownership, e.fromFile);
     const toCell = owningCell(ownership, e.toFile);
     if (!fromCell || !toCell || fromCell === toCell) continue;
-    const key = fromCell + '->' + toCell;
+    const key = `${fromCell}->${toCell}`;
     const entry = agg.get(key) ?? { fromCell, toCell, symbols: new Set<string>() };
     for (const s of e.symbols) entry.symbols.add(s);
     agg.set(key, entry);
@@ -60,6 +55,9 @@ export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, decl
   return out;
 }
 
+/** Map file→file import edges to cell→cell crossings.
+ *  Drops internal imports (same cell) and edges into unowned files
+ *  (no target cell to attribute). Pure — the IO layer supplies the edges. */
 export function deriveCrossings(edges: ImportEdge[], ownership: Ownership): Crossing[] {
   // Invert ownership: file → cell.
   const fileToCell = new Map<string, string>();

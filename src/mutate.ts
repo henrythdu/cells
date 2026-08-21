@@ -5,8 +5,8 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cellNameOf, planApply, planAssignment, planGroups, unassignFiles, validCellName } from './assign.js';
-import { buildConfig, parseConfig } from './config.js';
 import { applyStalePrune, findStaleRequires, removeCell, renameCell } from './celledit.js';
+import { buildConfig, parseConfig } from './config.js';
 import { type Cell, STUB_PURPOSE, serializeCell } from './declaration.js';
 import { DEFAULT_IMPORTERS, importableExts } from './importers.js';
 import { CELLS_DIR, detectProject, listCodeFiles, loadConfig, loadDeclarations, loadOwnership, readFiles, requireCells, SKIP_DIRS, skippedManifestDirs, writeOwnership } from './io.js';

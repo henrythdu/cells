@@ -52,7 +52,6 @@ async function extractAt(dir: string, importer = typescriptImporter, files?: Sou
 }
 
 describe('typescriptImporter (tree-sitter)', () => {
-
   it('named imports carry the consumed symbols (alias stripped); namespace/default/bare add none', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-sym-'));
     fixtures.add(dir);

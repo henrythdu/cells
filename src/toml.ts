@@ -20,10 +20,10 @@ export function tomlString(s: string): string {
     else if (code < 0x20 || code === 0x7f) out += `\\u${code.toString(16).padStart(4, '0')}`;
     else out += ch;
   }
-  return out + '"';
+  return `${out}"`;
 }
 
 /** Format a string array as a TOML inline array. */
 export function tomlArray(arr: string[]): string {
-  return '[' + arr.map(tomlString).join(', ') + ']';
+  return `[${arr.map(tomlString).join(', ')}]`;
 }

@@ -9,7 +9,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { basename, join } from 'node:path';
 import { validCellName } from './assign.js';
 import { checkLeakage } from './crossings.js';
-import { editCellDataRequires, editCellName, editCellRequires, type Cell, serializeCell } from './declaration.js';
+import { type Cell, editCellDataRequires, editCellName, editCellRequires, serializeCell } from './declaration.js';
 import { CELLS_DIR, loadDeclarations, loadOwnership, writeOwnership } from './io.js';
 import { loadCrossings } from './pipeline.js';
 

@@ -138,7 +138,7 @@ describe('data-requires — the invisible-channel key', () => {
   it('serializeCell emits the key only when non-empty (absent → omitted)', () => {
     const base = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = []\n';
     expect(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [] })).toBe(base);
-    expect(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [], dataRequires: ['b'] })).toBe(base + 'data-requires = ["b"]\n');
+    expect(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [], dataRequires: ['b'] })).toBe(`${base}data-requires = ["b"]\n`);
     expect(parseCell(serializeCell({ name: 'a', purpose: 'p', provides: [], requires: [], dataRequires: ['b'] })).dataRequires).toEqual(['b']);
   });
 });

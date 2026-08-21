@@ -348,5 +348,5 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
     );
     for (const u of v.unresolvedDetails) lines.push(`  ${u}`);
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }

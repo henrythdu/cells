@@ -4,7 +4,7 @@
  *  pipeline (loadCrossings, guards, cmdImports) lives in pipeline.ts. Pure-ish: gathers
  *  I/O, delegates rendering to view. */
 
-import { checkOffMembrane, type CrossingsDelta, checkLeakage, computeMetrics } from '../crossings.js';
+import { type CrossingsDelta, checkLeakage, checkOffMembrane, computeMetrics } from '../crossings.js';
 import type { Cell } from '../declaration.js';
 import { crossingsDelta, recentCommitFiles } from '../diff.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
@@ -35,7 +35,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
       if (opts.json) {
         // machine consumers always get valid JSON — the delta itself, not the human table
-        process.stdout.write(JSON.stringify({ added: delta.added, removed: delta.removed, undeclared: leakage }, null, 2) + '\n');
+        process.stdout.write(`${JSON.stringify({ added: delta.added, removed: delta.removed, undeclared: leakage }, null, 2)}\n`);
       } else {
         showCrossingsDelta(delta, undeclaredKeys, declarations);
       }
@@ -60,7 +60,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
         console.log('No cross-cell imports.');
       }
     } else if (opts.json) {
-      process.stdout.write(JSON.stringify(crossings, null, 2) + '\n');
+      process.stdout.write(`${JSON.stringify(crossings, null, 2)}\n`);
     } else {
       // default: aggregate summary; --verbose: every file→file edge under its cell pair
       const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
@@ -94,7 +94,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   if (opts.json && opts.warnings) {
     // --warnings --json: the actionable tail AS data (stdout must always be valid JSON
     // under --json — the listing is skipped by design, so emit leakage + unresolved here)
-    process.stdout.write(JSON.stringify({ leakage, unresolved }, null, 2) + '\n');
+    process.stdout.write(`${JSON.stringify({ leakage, unresolved }, null, 2)}\n`);
     if (undeclared.length > 0) process.exitCode = 1; // gate parity with the text path
     return;
   }

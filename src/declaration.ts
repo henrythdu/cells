@@ -82,7 +82,7 @@ export function serializeCell(cell: Cell): string {
   if (cell.tests && cell.tests.length > 0) lines.push(`tests = ${tomlArray(cell.tests)}`);
   if (cell.layer !== undefined) lines.push(`layer = ${cell.layer}`);
   if (cell.ceiling !== undefined) lines.push(`ceiling = ${cell.ceiling}`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /**
@@ -94,7 +94,7 @@ export function serializeCell(cell: Cell): string {
 export function editCellName(content: string, newName: string): string {
   const m = /^name[ \t]*=[ \t]*(?:"[^"\n]*"|'[^'\n]*')/m.exec(content);
   if (m === null) throw new Error(`cannot rewrite name: no \`name = ...\` line found`);
-  return content.slice(0, m.index) + `name = ${tomlString(newName)}` + content.slice(m.index + m[0].length);
+  return `${content.slice(0, m.index)}name = ${tomlString(newName)}${content.slice(m.index + m[0].length)}`;
 }
 
 /**
@@ -151,7 +151,7 @@ function editKeyedArray(content: string, key: string, opts: { remove?: string[];
   if (opts.rename) body = body.split(tomlString(opts.rename[0])).join(tomlString(opts.rename[1]));
   if (!body.includes('"')) {
     // every entry gone — collapse the husk (comments and stray commas) to an empty array
-    return content.slice(0, m.index) + `${key} = []` + content.slice(end + 1);
+    return `${content.slice(0, m.index)}${key} = []${content.slice(end + 1)}`;
   }
   body = body.replace(/,\s*,/g, ',').replace(/(^|\n)[ \t]*,[ \t]*/g, '$1'); // no doubled or head-less commas (TOML allows a trailing one)
   return content.slice(0, start) + body + content.slice(end);

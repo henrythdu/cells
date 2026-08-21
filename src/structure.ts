@@ -182,7 +182,7 @@ export function formatSdpReport(violations: SdpViolation[]): string | null {
     lines.push(`  ${v.fromCell} (I=${v.fromInstability.toFixed(2)}) → ${v.toCell} (I=${v.toInstability.toFixed(2)})   depends on a less stable cell`);
   }
   if (violations.length > cap) lines.push(`  …and ${violations.length - cap} more (${violations.length} total)`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /**
@@ -210,7 +210,17 @@ export function formatLayerOverview(declarations: Record<string, Cell>, layerLab
     lines.push(`  ${layer}${lbl}: ${[...byLayer.get(layer)!].sort().join(', ')}`);
   }
   if (layerless.length > 0) lines.push(`  — (layerless): ${layerless.sort().join(', ')}`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
+}
+
+/** Format the top cycle-cut edges for a structure report. Pure. */
+function cycleCutLabel(cycle: Cycle, crossings: Crossing[], prefix: string): string {
+  const cuts = cycleCutCandidates(cycle, crossings);
+  if (cuts.length === 0) return '';
+  return `${prefix}${cuts
+    .slice(0, 3)
+    .map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`)
+    .join(', ')}`;
 }
 
 /**
@@ -231,14 +241,8 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
       const overCap = cyc.cells.length > cap;
       const cells = overCap ? cyc.cells.slice(0, cap) : cyc.cells;
       lines.push(`  ⚠ ${cells.join(' ↔ ')}${overCap ? ` ↔ … ${cyc.cells.length - cap} more cell${cyc.cells.length - cap === 1 ? '' : 's'}` : ''}`);
-      const cuts = cycleCutCandidates(cyc, crossings);
-      if (cuts.length > 0)
-        lines.push(
-          `    cheapest edges (fewest files): ${cuts
-            .slice(0, 3)
-            .map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`)
-            .join(', ')}`,
-        );
+      const cutLabel = cycleCutLabel(cyc, crossings, '    cheapest edges (fewest files): ');
+      if (cutLabel) lines.push(cutLabel);
     }
   }
 
@@ -253,7 +257,7 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     }
   }
 
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /** The triage view of the structure report: one line per cycle (size + cheapest edges),
@@ -270,14 +274,7 @@ export function formatStructureSummary(cycles: Cycle[], violations: DirectionVio
     const totalCells = cycles.reduce((n, cyc) => n + cyc.cells.length, 0);
     lines.push(`ADP: ${cycles.length} cycle(s) — ${totalCells} cells total:`);
     for (const cyc of sorted) {
-      const cuts = cycleCutCandidates(cyc, crossings);
-      const edges =
-        cuts.length > 0
-          ? ` — cheapest: ${cuts
-              .slice(0, 3)
-              .map((cu) => `${cu.fromCell}→${cu.toCell} (${cu.fileCount})`)
-              .join(', ')}`
-          : '';
+      const edges = cycleCutLabel(cyc, crossings, ' — cheapest: ');
       lines.push(`  ⚠ ${cyc.cells.length} cell${cyc.cells.length === 1 ? '' : 's'}${edges}`);
     }
   }
@@ -294,7 +291,7 @@ export function formatStructureSummary(cycles: Cycle[], violations: DirectionVio
   if (coupling && coupling.total > 0) {
     lines.push(`Change coupling: ${coupling.unexplained} unexplained pair(s), ${coupling.total} total.`);
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /** A cell-pair change-coupling finding (ADR 0002): how often two cells co-change in git
@@ -322,7 +319,7 @@ export interface CouplingResult {
 
 /** Is `file` a lockfile or generated artifact (co-changes with everything — noise)? */
 function isCouplingNoise(file: string): boolean {
-  if (CHANGE_COUPLING.lockfiles.some((l) => file === l || file.endsWith('/' + l))) return true;
+  if (CHANGE_COUPLING.lockfiles.some((l) => file === l || file.endsWith(`/${l}`))) return true;
   return CHANGE_COUPLING.generated.some((g) => file.endsWith(g));
 }
 
@@ -429,7 +426,7 @@ export function formatChangeCouplingReport(result: CouplingResult): string | nul
     lines.push(`${mark}${p.a} ↔ ${p.b}   ${why} (${p.count}/${result.window}, ${Math.round(p.jaccard * 100)}%)`);
   }
   if (result.pairs.length > cap) lines.push(`  …and ${result.pairs.length - cap} more (${result.pairs.length} total)`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /** A cell's change-impact: who transitively depends on it, by hop distance. */
@@ -491,7 +488,7 @@ export function formatImpactReport(impact: Impact): string {
     const label = d === 1 ? 'direct' : `${d} hops`;
     lines.push(`  ${label}: ${byDistance.get(d)!.sort().join(', ')}`);
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /**
@@ -526,5 +523,5 @@ export function formatLayerSuggestions(declarations: Record<string, Cell>): stri
   for (const m of mismatches) {
     lines.push(`  ${m.name}: ${m.current} → ${m.suggested}  (${m.reason})`);
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }

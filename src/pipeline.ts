@@ -71,5 +71,5 @@ export async function cmdImports(opts: { json?: boolean } = {}): Promise<void> {
     console.log(`${edges.length} import edge(s), ${unresolved.length} unresolved specifier(s)`);
     return;
   }
-  process.stdout.write(JSON.stringify({ edges, unresolved, uncoveredExts }, null, 2) + '\n');
+  process.stdout.write(`${JSON.stringify({ edges, unresolved, uncoveredExts }, null, 2)}\n`);
 }

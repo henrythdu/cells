@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkOffMembrane } from '../src/crossings.js';
-import { type Crossing, checkLeakage, computeMetrics, deriveCrossings, diffCrossings } from '../src/crossings.js';
+import { type Crossing, checkLeakage, checkOffMembrane, computeMetrics, deriveCrossings, diffCrossings } from '../src/crossings.js';
 import type { Cell } from '../src/declaration.js';
 import type { ImportEdge } from '../src/imports.js';
 import type { Ownership } from '../src/ownership.js';

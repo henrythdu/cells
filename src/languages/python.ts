@@ -12,7 +12,7 @@ import { createTreeSitterImporter, nearestCandidate, type ResolveCtx } from './t
  *  to the same key is intentional; the factory's sorted order makes the .pyx implementation win). */
 export function fileToModule(path: string, moduleRoot?: string): string {
   let p = path.replace(/\.(py|pyx|pxd)$/, '');
-  if (moduleRoot && p.startsWith(moduleRoot + '/')) p = p.slice(moduleRoot.length + 1);
+  if (moduleRoot && p.startsWith(`${moduleRoot}/`)) p = p.slice(moduleRoot.length + 1);
   const parts = p.split('/').filter(Boolean);
   if (parts[parts.length - 1] === '__init__') parts.pop();
   return parts.join('.');

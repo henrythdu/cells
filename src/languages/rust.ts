@@ -103,7 +103,7 @@ function toModule(rel: string): string {
   let p = rel.replace(/^src\//, '').replace(/\.rs$/, '');
   if (p.endsWith('/mod')) p = p.slice(0, -'/mod'.length);
   if (p === 'lib' || p === 'main') return 'crate';
-  return 'crate::' + p.split('/').join('::');
+  return `crate::${p.split('/').join('::')}`;
 }
 
 // --- AST → import paths (recursively expand `use` declarations) ---
@@ -290,7 +290,7 @@ function resolveBareFirstSegment(effective: string, imp: string, moduleToFile: M
   const effSegs = effective.split('::');
   for (let i = effSegs.length; i >= 1; i--) {
     const probe = `${effSegs.slice(0, i).join('::')}::${firstSeg}`;
-    if (moduleToFile.has(probe) || [...moduleToFile.keys()].some((k) => k.startsWith(probe + '::'))) {
+    if (moduleToFile.has(probe) || [...moduleToFile.keys()].some((k) => k.startsWith(`${probe}::`))) {
       return `${effSegs.slice(0, i).join('::')}::${imp}`;
     }
   }

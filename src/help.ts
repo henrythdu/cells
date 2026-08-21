@@ -131,8 +131,8 @@ export function renderHelp(commands: ReadonlyArray<{ usage: string; desc: string
   const block = commands
     .map((c) => {
       const usage = c.usage.replace(/^cells /, '');
-      const pad = '  ' + usage.padEnd(USAGE_COL - 2);
-      const first = pad.length > USAGE_COL ? '  ' + usage + '\n' + ' '.repeat(USAGE_COL) : pad;
+      const pad = `  ${usage.padEnd(USAGE_COL - 2)}`;
+      const first = pad.length > USAGE_COL ? `  ${usage}\n${' '.repeat(USAGE_COL)}` : pad;
       return first + wrap(c.desc, USAGE_COL);
     })
     .join('\n');
