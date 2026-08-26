@@ -14,3 +14,5 @@ coverage/
 
 # local agent config (per-machine — never commit)
 .pi/
+
+AGENTS.md
