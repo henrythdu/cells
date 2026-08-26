@@ -201,7 +201,11 @@ async function main(): Promise<void> {
   // it; the unknown-flag gate rejects it everywhere else. Flag-zone-scoped: after `--`
   // it's a literal positional (same contract as --help above).
   const dryRun = flagZone.includes('--dry-run');
-  const positional = [...flagZone.filter((a) => a !== '--dry-run'), ...rest];
+  // runArgs handed to a command's run closure: every non-`--dry-run` arg in the flag
+  // zone plus the literal positionals after `--`. Other flags (--verbose/--diff/--force/…)
+  // REMAIN in runArgs — each handler re-parses them via `a.includes('--flag')`; a truly
+  // positional array would need a second param, which the COMMANDS rows already avoid.
+  const runArgs = [...flagZone.filter((a) => a !== '--dry-run'), ...rest];
   const realArgs = [...flagZone.filter((a) => !a.startsWith('-')), ...rest].length;
   if (realArgs < command.minArgs) {
     console.error(`usage: ${command.usage}`);
@@ -213,7 +217,7 @@ async function main(): Promise<void> {
   // would go stale. For needsCells:false commands (init/plan) there is no store; ctx is
   // undefined and those closures never touch it.
   const ctx = command.needsCells ? loadContext() : undefined;
-  await command.run(positional, dryRun, ctx);
+  await command.run(runArgs, dryRun, ctx);
 }
 
 // Exit convention (two deliberate patterns): report paths that wrote to stdout set

@@ -324,7 +324,7 @@ export async function cmdPayload(ctx: CellsContext, name: string): Promise<void>
     .filter((p) => !p.explained && (p.a === name || p.b === name))
     .slice(0, 3)
     .map((p) => ({ cell: p.a === name ? p.b : p.a, count: p.count, window: coupling.window, files: p.sampleFiles }));
-  const payload = assemblePayload(cell, ownedFiles, fileContents, neighbors, dependents.length, testFiles, testContents, dependents, coupled);
+  const payload = assemblePayload({ cell, ownedFiles, fileContents, neighbors, dependedByCount: dependents.length, testFiles, testContents, dependents, coupled });
   process.stdout.write(payload);
 
   const chars = payload.length;

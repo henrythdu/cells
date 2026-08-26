@@ -27,8 +27,26 @@ export function neighborsOf(cell: Cell, declarations: Record<string, Cell>): Cel
  *  assemblePayload, so the module has no hidden IO dependency. */
 export function computePayloadSize(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>, neighbors: Cell[], testContents?: Record<string, string>): CellSize {
   const testFiles = cell.tests ?? [];
-  const chars = assemblePayload(cell, ownedFiles, fileContents, neighbors, undefined, testFiles, testContents).length;
+  const chars = assemblePayload({ cell, ownedFiles, fileContents, neighbors, testFiles, testContents }).length;
   return { files: ownedFiles.length + testFiles.length, chars, tokens: estimateTokens(chars) };
+}
+
+/** Render a cell's summary block for the neighbor / dependents sections of a payload.
+ *  Neighbors get their membrane surface (provides + signatures); dependents get only
+ *  their requires (what they expect from this cell) — the surface isn't needed to know
+ *  who depends on you. Both close with the blank line the caller appends. */
+function pushCellSummary(lines: string[], cell: Cell, opts: { provides: boolean }): void {
+  lines.push(`### Cell: ${cell.name}`);
+  lines.push(`purpose: ${cell.purpose}`);
+  if (opts.provides) {
+    lines.push(`provides: [${cell.provides.join(', ')}]`);
+    if (cell.signatures && cell.signatures.length > 0) {
+      lines.push('signatures:');
+      for (const sig of cell.signatures) lines.push(`  - ${sig}`);
+    }
+  }
+  lines.push(`requires: [${cell.requires.join(', ')}]`);
+  if (cell.dataRequires && cell.dataRequires.length > 0) lines.push(`data-requires: [${cell.dataRequires.join(', ')}] (declared, not import-checked)`);
 }
 
 /**
@@ -36,19 +54,22 @@ export function computePayloadSize(cell: Cell, ownedFiles: string[], fileContent
  * the cell's declaration + full owned source + neighbor membranes (surfaces only).
  *
  * Pure: takes resolved data (no FS access). The CLI layer reads files
- * from disk and resolves neighbors from the declarations map.
+ * from disk and resolves neighbors from the declarations map. Single options
+ * object — the two Record<string,string> and two Cell[] params were positionally
+ * swappable; named fields remove the ordering hazard.
  */
-export function assemblePayload(
-  cell: Cell,
-  ownedFiles: string[],
-  fileContents: Record<string, string>,
-  neighbors: Cell[],
-  dependedByCount?: number,
-  testFiles?: string[],
-  testContents?: Record<string, string>,
-  dependents?: Cell[],
-  coupled?: { cell: string; count: number; window: number; files?: string[] }[],
-): string {
+export function assemblePayload(options: {
+  cell: Cell;
+  ownedFiles: string[];
+  fileContents: Record<string, string>;
+  neighbors: Cell[];
+  dependedByCount?: number;
+  testFiles?: string[];
+  testContents?: Record<string, string>;
+  dependents?: Cell[];
+  coupled?: { cell: string; count: number; window: number; files?: string[] }[];
+}): string {
+  const { cell, ownedFiles, fileContents, neighbors, dependedByCount, testFiles, testContents, dependents, coupled } = options;
   const lines: string[] = [];
 
   lines.push(`# Cell: ${cell.name}`);
@@ -91,24 +112,13 @@ export function assemblePayload(
   }
   lines.push('## Neighbor contracts');
   for (const neighbor of neighbors) {
-    lines.push(`### Cell: ${neighbor.name}`);
-    lines.push(`purpose: ${neighbor.purpose}`);
-    lines.push(`provides: [${neighbor.provides.join(', ')}]`);
-    if (neighbor.signatures && neighbor.signatures.length > 0) {
-      lines.push('signatures:');
-      for (const sig of neighbor.signatures) lines.push(`  - ${sig}`);
-    }
-    lines.push(`requires: [${neighbor.requires.join(', ')}]`);
-    if (neighbor.dataRequires && neighbor.dataRequires.length > 0) lines.push(`data-requires: [${neighbor.dataRequires.join(', ')}] (declared, not import-checked)`);
+    pushCellSummary(lines, neighbor, { provides: true });
     lines.push('');
   }
   if (dependents && dependents.length > 0) {
     lines.push('## Cells that depend on you');
     for (const dep of dependents) {
-      lines.push(`### Cell: ${dep.name}`);
-      lines.push(`purpose: ${dep.purpose}`);
-      lines.push(`requires: [${dep.requires.join(', ')}]`); // what it expects from you (and others)
-      if (dep.dataRequires && dep.dataRequires.length > 0) lines.push(`data-requires: [${dep.dataRequires.join(', ')}] (declared, not import-checked)`);
+      pushCellSummary(lines, dep, { provides: false });
       lines.push('');
     }
   }

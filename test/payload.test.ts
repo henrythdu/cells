@@ -18,7 +18,7 @@ describe('neighborsOf — both keys', () => {
 describe('assemblePayload', () => {
   it('renders the data-requires line when the key is present', () => {
     const cell: Cell = { name: 'parser', purpose: 'p', provides: [], requires: [], dataRequires: ['translations'] };
-    const out = assemblePayload(cell, ['src/parser.ts'], { 'src/parser.ts': 'x' }, []);
+    const out = assemblePayload({ cell, ownedFiles: ['src/parser.ts'], fileContents: { 'src/parser.ts': 'x' }, neighbors: [] });
     expect(out).toContain('data-requires: [translations] (declared, not import-checked)');
   });
 
@@ -61,7 +61,7 @@ describe('assemblePayload', () => {
       '',
     ].join('\n');
 
-    expect(assemblePayload(cell, ownedFiles, fileContents, neighbors)).toBe(expected);
+    expect(assemblePayload({ cell, ownedFiles, fileContents, neighbors })).toBe(expected);
   });
 
   it('includes neighbor signatures in the neighbor contracts section', () => {
@@ -76,7 +76,7 @@ describe('assemblePayload', () => {
       },
     ];
 
-    const result = assemblePayload(cell, [], {}, neighbors);
+    const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors });
     expect(result).toContain('signatures:');
     expect(result).toContain('  - parseCell(raw: string): Cell');
     expect(result).toContain('  - serializeCell(cell: Cell): string');
@@ -86,17 +86,17 @@ describe('assemblePayload', () => {
     const cell: Cell = { name: 'core', purpose: 'p', provides: [], requires: [] };
 
     // with dependents
-    const result = assemblePayload(cell, [], {}, [], 3);
+    const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 3 });
     expect(result).toContain('## Context');
     expect(result).toContain('impact: 3 cell(s) directly depend on this cell');
     expect(result).toContain('`cells impact core`');
 
     // zero dependents
-    const leaf = assemblePayload(cell, [], {}, [], 0);
+    const leaf = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 0 });
     expect(leaf).toContain('impact: no cells depend on this cell (leaf)');
 
     // not provided — no context section
-    const noCtx = assemblePayload(cell, [], {}, []);
+    const noCtx = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [] });
     expect(noCtx).not.toContain('## Context');
   });
 
@@ -106,13 +106,13 @@ describe('assemblePayload', () => {
       { name: 'commands', purpose: 'handlers', provides: [], requires: ['io', 'crossings'] },
       { name: 'cli', purpose: 'dispatch', provides: [], requires: ['io', 'commands'] },
     ];
-    const result = assemblePayload(cell, [], {}, [], 2, undefined, undefined, dependents);
+    const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 2, dependents });
     expect(result).toContain('## Cells that depend on you');
     expect(result).toContain('### Cell: commands');
     expect(result).toContain('requires: [io, crossings]'); // what commands expects from io (and others)
     expect(result).toContain('### Cell: cli');
     // no dependents → no section
-    const none = assemblePayload(cell, [], {}, [], 0);
+    const none = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 0 });
     expect(none).not.toContain('## Cells that depend on you');
   });
 
@@ -121,7 +121,7 @@ describe('assemblePayload', () => {
     const testFiles = ['test/parser.test.ts'];
     const testContents = { 'test/parser.test.ts': "import { describe, it } from 'vitest';" };
 
-    const result = assemblePayload(cell, [], {}, [], undefined, testFiles, testContents);
+    const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], testFiles, testContents });
     expect(result).toContain('## Tests');
     expect(result).toContain('### test/parser.test.ts');
     expect(result).toContain("import { describe, it } from 'vitest';");
@@ -132,12 +132,18 @@ describe('change coupling hint', () => {
   const cell = { name: 'a', purpose: 'p', provides: [], requires: [], layer: 0 };
 
   it('appends the Change coupling block only when coupled partners are passed (zero tokens when clean)', () => {
-    const clean = assemblePayload(cell, [], {}, []);
+    const clean = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [] });
     expect(clean).not.toContain('Change coupling');
-    const withHint = assemblePayload(cell, [], {}, [], undefined, undefined, undefined, undefined, [
-      { cell: 'b', count: 42, window: 200, files: ['src/b.py', 'src/c.py'] },
-      { cell: 'c', count: 17, window: 200 },
-    ]);
+    const withHint = assemblePayload({
+      cell,
+      ownedFiles: [],
+      fileContents: {},
+      neighbors: [],
+      coupled: [
+        { cell: 'b', count: 42, window: 200, files: ['src/b.py', 'src/c.py'] },
+        { cell: 'c', count: 17, window: 200 },
+      ],
+    });
     expect(withHint).toContain('## Change coupling');
     expect(withHint).toContain("⚠ b co-changes with you (42/200 commits, no import edge) — pull b's payload before touching its code, its context is invisible to you; co-changing files: src/b.py, src/c.py");
     expect(withHint).toContain("⚠ c co-changes with you (17/200 commits, no import edge) — pull c's payload before touching its code, its context is invisible to you"); // no files → no suffix
