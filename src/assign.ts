@@ -10,9 +10,10 @@ import type { Ownership } from './ownership.js';
  */
 export function assignFiles(ownership: Ownership, cell: string, files: string[]): Ownership {
   const next: Ownership = {};
+  const move = new Set(files);
   for (const [c, owned] of Object.entries(ownership)) {
     // keep the target cell's existing files; strip the moved files from everyone else
-    next[c] = c === cell ? [...owned] : owned.filter((f) => !files.includes(f));
+    next[c] = c === cell ? [...owned] : owned.filter((f) => !move.has(f));
   }
   const existing = next[cell] ?? [];
   next[cell] = [...new Set([...existing, ...files])];

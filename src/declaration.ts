@@ -92,7 +92,7 @@ export function serializeCell(cell: Cell): string {
  * no-op would leave file name and declared name mismatched and brick loadDeclarations).
  */
 export function editCellName(content: string, newName: string): string {
-  const m = /^name[ \t]*=[ \t]*(?:"[^"\n]*"|'[^'\n]*')/m.exec(content);
+  const m = /^name[ \t]*=[ \t]*(?:"(?:[^"\\\n]|\\.)*"|'[^'\n]*')/m.exec(content);
   if (m === null) throw new Error(`cannot rewrite name: no \`name = ...\` line found`);
   return `${content.slice(0, m.index)}name = ${tomlString(newName)}${content.slice(m.index + m[0].length)}`;
 }
@@ -147,9 +147,11 @@ function editKeyedArray(content: string, key: string, opts: { remove?: string[];
   if (depth !== 0) return content; // unterminated array — let parseCell report it
   const end = i; // index of the matching ']'
   let body = content.slice(start, end);
-  for (const r of opts.remove ?? []) body = body.split(tomlString(r)).join('');
-  if (opts.rename) body = body.split(tomlString(opts.rename[0])).join(tomlString(opts.rename[1]));
-  if (!body.includes('"')) {
+  // Double- AND single-quoted forms: the writer emits `"`, hand edits may use `'`
+  // (literal strings carry no escapes, so both splits are exact). Rename normalizes to `"`.
+  for (const r of opts.remove ?? []) body = body.split(tomlString(r)).join('').split(`'${r}'`).join('');
+  if (opts.rename) body = body.split(tomlString(opts.rename[0])).join(tomlString(opts.rename[1])).split(`'${opts.rename[0]}'`).join(tomlString(opts.rename[1]));
+  if (!body.includes('"') && !body.includes("'")) {
     // every entry gone — collapse the husk (comments and stray commas) to an empty array
     return `${content.slice(0, m.index)}${key} = []${content.slice(end + 1)}`;
   }

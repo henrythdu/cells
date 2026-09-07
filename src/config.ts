@@ -46,9 +46,11 @@ export const CHANGE_COUPLING = {
   generated: ['.wasm', '.min.js'],
 } as const;
 
-/** Default `.cells/config.toml` written by `cells init` when no code is detected (empty repo).
- *  Filled with TS defaults + comments so every key is visible; deleting one reverts to its
- *  default (see `parseConfig`). Round-trips through `parseConfig` (verified in config.test.ts). */
+/** What `cells init` writes when no code is detected (empty repo) — init calls buildConfig
+ *  on detected values, which coincide with these TS defaults here. Kept as the round-trip
+ *  pin for the template: filled with TS defaults + comments so every key is visible;
+ *  deleting one reverts to its default (see `parseConfig`). Round-trips through
+ *  `parseConfig` (verified in config.test.ts). */
 export const DEFAULT_CONFIG = buildConfig(['.ts'], ['src', 'test']);
 
 /** Build a `.cells/config.toml` template with detected `code-exts`/`code-dirs` so a Python/Rust
@@ -60,10 +62,10 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
     '# Cells configuration. Every key is optional — delete one to use its default.',
     '# Run `cells help` for what each command does.',
     '',
-    '# Max tokens per cell payload — the context-fit ceiling. Default: 16000; a STARTING',
-    '# knob, not a target — big modules exceed it by design (size warns, never gates).',
+    '# Max tokens per cell payload — the context-fit ceiling. A STARTING',
+    `# (default: ${DEFAULT_MAX_PAYLOAD_TOKENS}) knob, not a target — big modules exceed it by design (size warns, never gates).`,
     '# Edit here to raise/lower cell sizes.',
-    'max-payload-tokens = 16000',
+    `max-payload-tokens = ${DEFAULT_MAX_PAYLOAD_TOKENS}`,
     '',
     '# Directories scanned for code (ownership census + import crossings).',
     `code-dirs = [${dirs}]`,

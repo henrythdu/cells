@@ -19,7 +19,7 @@ function containsIdentifier(content: string, token: string): boolean {
   while (i !== -1) {
     const before = i === 0 ? '' : content[i - 1];
     const after = i + token.length >= content.length ? '' : content[i + token.length];
-    if (!/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after)) return true;
+    if (!/[$A-Za-z0-9_]/.test(before) && !/[$A-Za-z0-9_]/.test(after)) return true;
     i = content.indexOf(token, i + 1);
   }
   return false;
@@ -27,14 +27,14 @@ function containsIdentifier(content: string, token: string): boolean {
 
 /** Flag provides entries whose leading token never appears in the cell's owned files.
  *  Conservative by design (a nudge, not a verdict): only entries whose leading token
- *  LOOKS like a real identifier are checked — function-call style ("collectImportEdges()")or internal-uppercase camelCase/SCREAMING ("ResolveCtx", "DEFAULT_IMPORTERS"). Pure
+ *  LOOKS like a real identifier are checked — function-call style ("collectImportEdges()") or internal-uppercase camelCase/SCREAMING ("ResolveCtx", "DEFAULT_IMPORTERS"). Pure
  *  prose entries ("the parse loop") are skipped — they can't be matched, and flagging
  *  them would be a false positive. Pure. */
 export function staleProvidesOf(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>): StaleProvide[] {
   const contents = ownedFiles.map((f) => fileContents[f] ?? '').join('\n');
   const out: StaleProvide[] = [];
   for (const provide of cell.provides) {
-    const token = provide.match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0];
+    const token = provide.match(/^[$\w]+/)?.[0];
     if (!token) continue;
     const rest = provide.slice(token.length);
     const looksLikeId = rest.startsWith('(') || /[A-Z]/.test(token.slice(1)); // fn-call style, or internal-uppercase (camelCase/Pascal/SCREAMING)

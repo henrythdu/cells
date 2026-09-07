@@ -6,7 +6,7 @@
 import type { CellsConfig } from './config.js';
 import { type Crossing, deriveCrossings } from './crossings.js';
 import type { Cell } from './declaration.js';
-import { collectImportEdges } from './importers.js';
+import { collectImportEdges, type ImporterFailure } from './importers.js';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { type Ownership, owningCell } from './ownership.js';
 
@@ -54,7 +54,7 @@ export async function loadCrossings(ownership: Ownership, warn = true): Promise<
 }
 
 /** Importer failure → blind graph → any crossing verdict is unreliable. Fail loudly (see loadCrossings). */
-function assertNoImporterFailures(failures: { importer: string; error: string }[]): void {
+function assertNoImporterFailures(failures: ImporterFailure[]): void {
   if (failures.length === 0) return;
   const detail = failures.map((f) => `importer "${f.importer}" failed: ${f.error}`).join('; ');
   throw new Error(`${detail} — crossings data incomplete (${failures.map((f) => f.importer).join(', ')} edges missing); gate verdict unreliable.`);

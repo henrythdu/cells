@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** CLI entry: dispatch commands; wire the io layer + logic cells to argv.
- *  Read/analysis handlers live in commands/ (read.ts + gate.ts); mutation command
+ *  Read/analysis handlers live in commands/read.ts (plus gate.ts at the src root); mutation command
  *  bodies live in mutate.ts. This file stays a thin dispatcher: argv → COMMANDS row →
  *  handler, plus the arg-count/--dry-run/--help gates and EPIPE handling. */
 import { readFileSync } from 'node:fs';
@@ -141,6 +141,13 @@ const COMMANDS: Record<string, Command> = {
   },
 };
 
+/** Stderr-only refusal: print + exit(1) directly (nothing on stdout — the exit-code
+ *  convention documented at the bottom). Never returns. */
+function usageError(msg: string): never {
+  console.error(msg);
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
   // `cells X | head` closes the pipe early. Ignore EPIPE (the command's natural exit code still
   // stands — no false-green from exiting 0 here); re-raise everything else (ENOSPC/EIO) so real
@@ -161,12 +168,11 @@ async function main(): Promise<void> {
 
   const command = COMMANDS[cmd];
   if (!command) {
-    console.error(
+    usageError(
       `usage: cells {help | --version | ${Object.values(COMMANDS)
         .map((c) => c.usage.replace(/^cells /, ''))
         .join(' | ')}}`,
     );
-    process.exit(1);
   }
   // `--` ends the flag zone; everything before it is flags, after it literal positionals.
   const sepIdx = args.indexOf('--');
@@ -190,9 +196,7 @@ async function main(): Promise<void> {
   const knownFlags: string[] = command.usage.match(/--[\w-]+/g) ?? [];
   const unknownFlag = flagZone.find((a) => a.startsWith('-') && a.length > 1 && !knownFlags.includes(a));
   if (unknownFlag !== undefined) {
-    console.error(`unknown flag "${unknownFlag}" for cells ${cmd}`);
-    console.error(`usage: ${command.usage}`);
-    process.exit(1);
+    usageError(`unknown flag "${unknownFlag}" for cells ${cmd}\nusage: ${command.usage}`);
   }
   if (command.needsCells) requireCells();
   // --dry-run is a pure boolean flag (never takes a value) — stripped from the arg-count
@@ -208,8 +212,7 @@ async function main(): Promise<void> {
   const runArgs = [...flagZone.filter((a) => a !== '--dry-run'), ...rest];
   const realArgs = [...flagZone.filter((a) => !a.startsWith('-')), ...rest].length;
   if (realArgs < command.minArgs) {
-    console.error(`usage: ${command.usage}`);
-    process.exit(1);
+    usageError(`usage: ${command.usage}`);
   }
   // Load the three stores once per cells-command; read commands consume the bundle via
   // their dispatch closures (ctx! — guaranteed present for needsCells:true). Mutation

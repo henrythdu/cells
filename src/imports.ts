@@ -65,6 +65,6 @@ export interface Importer {
   extensions: readonly string[];
   /** If true, the importer needs file *contents* (not just paths). */
   needsContent?: boolean;
-  /** Extract file→file edges + unresolved local imports. Pure wrt its inputs (may read the FS via a lib). */
+  /** Extract file→file edges + unresolved local imports. Deterministic given inputs + FS state (may read the FS via a lib). */
   extract(ctx: ImportContext): Promise<ImportResult>;
 }

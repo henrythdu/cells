@@ -17,7 +17,7 @@ export function tomlString(s: string): string {
     else if (ch === '\t') out += '\\t';
     else if (ch === '\r') out += '\\r';
     else if (ch === '\n') out += '\\n';
-    else if (code < 0x20 || code === 0x7f) out += `\\u${code.toString(16).padStart(4, '0')}`;
+    else if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) out += `\\u${code.toString(16).padStart(4, '0')}`;
     else out += ch;
   }
   return `${out}"`;

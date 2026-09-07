@@ -13,15 +13,28 @@ export interface CellSmell {
   unresolved: number;
 }
 
+/** Plural suffix: `file${pl(n)}`. Pure. */
+function pl(n: number): string {
+  return n === 1 ? '' : 's';
+}
+
 /** One-line health smell for a cell — rendered under its `list` row when non-empty.
  *  Size always shows (verbose = full detail); the rest only when present. Pure. */
 function formatCellSmell(s: CellSmell): string {
   const parts: string[] = [];
   parts.push(`${Math.round(s.pct * 100)}% size`);
-  if (s.staleProvides > 0) parts.push(`${s.staleProvides} stale provide${s.staleProvides === 1 ? '' : 's'}`);
-  if (s.unresolved > 0) parts.push(`${s.unresolved} unresolved import${s.unresolved === 1 ? '' : 's'}`);
+  if (s.staleProvides > 0) parts.push(`${s.staleProvides} stale provide${pl(s.staleProvides)}`);
+  if (s.unresolved > 0) parts.push(`${s.unresolved} unresolved import${pl(s.unresolved)}`);
   return parts.join(' · ');
 }
+
+/** Above this many files, `list` truncates the unowned dump (the count stays in the header). */
+const ORPHAN_LIST_CAP = 20;
+
+/** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
+ *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise
+ *  dump dozens of lines of noise. */
+const AGG_THRESHOLD = 8;
 
 /**
  * Format the partition overview: one row per cell (file count, ~tokens,
@@ -40,12 +53,12 @@ export function formatCellList(
   const stubSuffix = ' (stub)';
   // width must fit the rendered label (stub cells get a 7-char suffix), else columns misalign
   const width = Math.max(...names.map((n) => (declarations[n]?.purpose === STUB_PURPOSE ? n.length + stubSuffix.length : n.length)), 4);
-  const orphans = orphanFiles.length === 1 ? 'orphan' : 'orphans';
+  const orphans = `orphan${pl(orphanFiles.length)}`;
 
   const lines: string[] = [`${names.length} cells · ${totalFiles} files · ${orphanFiles.length} ${orphans}`];
   for (const name of names) {
     const s = sizes[name];
-    const fileStr = s ? `${s.files} file${s.files === 1 ? '' : 's'}` : '? files';
+    const fileStr = s ? `${s.files} file${pl(s.files)}` : '? files';
     const tokStr = s ? `${s.tokens} tok` : '? tok';
     const requires = declarations[name]?.requires ?? [];
     const reqStr = requires.length > 0 ? `→ ${requires.join(', ')}` : '—';
@@ -65,7 +78,7 @@ export function formatCellList(
       // An orphan with inbound imports is the file the partition actually needs — the
       // import magnet (a monorepo's vendor blob imported everywhere, otherwise invisible).
       const n = magnetCounts?.get(f) ?? 0;
-      lines.push(n > 0 ? `  ${f} — imported by ${n} file${n === 1 ? '' : 's'}` : `  ${f}`);
+      lines.push(n > 0 ? `  ${f} — imported by ${n} file${pl(n)}` : `  ${f}`);
     }
     const rest = orphanFiles.length - shown.length;
     if (rest > 0) {
@@ -86,14 +99,6 @@ export function formatCellList(
   }
   return `${lines.join('\n')}\n`;
 }
-
-/** Above this many files, `list` truncates the unowned dump (the count stays in the header). */
-const ORPHAN_LIST_CAP = 20;
-
-/** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
- *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise
- *  dump dozens of lines of noise. */
-const AGG_THRESHOLD = 8;
 
 /** Collapse crossings to a per-cell count string, most-coupled first. Pure. */
 function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
@@ -127,8 +132,25 @@ export interface CellShowContext {
   unresolved: string[];
 }
 
+/** Render one crossings direction for `show`: a per-cell aggregate past the
+ *  threshold, else per-file lines. `byFrom` picks the grouped side; `arrow`
+ *  picks the glyph. Pure. */
+function crossingLines(label: string, crossings: Crossing[], byFrom: boolean, arrow: string, verbose: boolean): string[] {
+  const lines = [`${label} (${crossings.length}):`];
+  if (crossings.length > AGG_THRESHOLD && !verbose) {
+    lines.push(`  ${arrow} ${aggregateByCell(crossings, byFrom)}`);
+    lines.push('  (--verbose for per-file detail)');
+  } else {
+    for (const c of crossings) {
+      const other = byFrom ? c.fromCell : c.toCell;
+      lines.push(`  ${arrow} ${other}   (${c.fromFile} → ${c.toFile})`);
+    }
+  }
+  return lines;
+}
+
 export function formatCellShow(ctx: CellShowContext, verbose = false): string {
-  const { cell, owned: ownedFiles, out: outCrossings, inc: inCrossings, size, metrics, dead: deadFiles, coChange, staleProvides, unresolved } = ctx;
+  const { cell, owned, out, inc, size, metrics, dead, coChange, staleProvides, unresolved } = ctx;
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -145,16 +167,16 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   if (cell.layer !== undefined) lines.push(`layer: ${cell.layer}`);
   lines.push(`deps: fan-in ${metrics.fanIn} · fan-out ${metrics.fanOut} · instability ${metrics.instability.toFixed(2)}`);
   lines.push('');
-  lines.push(`owned (${size.files} file${size.files === 1 ? '' : 's'}, ~${size.tokens} tok):`);
-  for (const f of ownedFiles) lines.push(`  ${f.file}  (~${f.tokens} tok)`);
-  if (deadFiles.length > 0) {
+  lines.push(`owned (${size.files} file${pl(size.files)}, ~${size.tokens} tok):`);
+  for (const f of owned) lines.push(`  ${f.file}  (~${f.tokens} tok)`);
+  if (dead.length > 0) {
     lines.push('');
     lines.push(`no other cell imports (static view — check for entry points before deleting):`);
-    for (const f of deadFiles) lines.push(`  ${f}`);
+    for (const f of dead) lines.push(`  ${f}`);
   }
   if (cell.tests && cell.tests.length > 0) {
     lines.push('');
-    lines.push(`tests (${cell.tests.length} file${cell.tests.length === 1 ? '' : 's'}):`);
+    lines.push(`tests (${cell.tests.length} file${pl(cell.tests.length)}):`);
     for (const f of cell.tests) lines.push(`  ${f}`);
   }
   if (unresolved.length > 0) {
@@ -165,21 +187,9 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
     for (const u of unresolved) lines.push(`  ${u}`);
   }
   lines.push('');
-  lines.push(`imports (${outCrossings.length}):`);
-  if (outCrossings.length > AGG_THRESHOLD && !verbose) {
-    lines.push(`  → ${aggregateByCell(outCrossings, false)}`);
-    lines.push('  (--verbose for per-file detail)');
-  } else {
-    for (const c of outCrossings) lines.push(`  → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
-  }
+  lines.push(...crossingLines('imports', out, false, '→', verbose));
   lines.push('');
-  lines.push(`imported by (${inCrossings.length}):`);
-  if (inCrossings.length > AGG_THRESHOLD && !verbose) {
-    lines.push(`  ← ${aggregateByCell(inCrossings, true)}`);
-    lines.push('  (--verbose for per-file detail)');
-  } else {
-    for (const c of inCrossings) lines.push(`  ← ${c.fromCell}   (${c.fromFile} → ${c.toFile})`);
-  }
+  lines.push(...crossingLines('imported by', inc, true, '←', verbose));
   if (coChange.length > 0) {
     lines.push('');
     lines.push(`change-coupled cells in git history (${coChange[0].window} analyzed commits — logical coupling imports can't see):`);
@@ -204,8 +214,7 @@ export interface PeelCandidate {
 
 export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[]; ceiling?: number }[], globalCeiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
-  const eff = (e: { ceiling?: number }): number => e.ceiling ?? globalCeiling;
-  const overCount = ranked.filter((e) => e.size.tokens > eff(e)).length;
+  const overCount = ranked.filter((e) => e.size.tokens > (e.ceiling ?? globalCeiling)).length;
   const cap = 20; // a huge repo lands 500+ of 1100 cells over ceiling — 500 bar rows drown the signal; the count + top rows carry it
   const shown = ranked.slice(0, cap);
   const width = Math.max(...shown.map((e) => e.name.length), 4);
@@ -221,7 +230,7 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
     lines.push(`  ${name.padEnd(width)}  [${bar}]  ${size.tokens} tok${own}${mark}`);
     if (over && peel && peel.length > 0) {
       const top = peel.slice(0, 2);
-      lines.push(`    peel candidates: ${top.map((p) => `${p.file} (${p.tokens} tok, ${p.fanIn} importer${p.fanIn === 1 ? '' : 's'})`).join(', ')}`);
+      lines.push(`    peel candidates: ${top.map((p) => `${p.file} (${p.tokens} tok, ${p.fanIn} importer${pl(p.fanIn)})`).join(', ')}`);
     }
   }
   if (ranked.length > cap) {
@@ -286,9 +295,7 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
   const pct = Math.round(v.maxPercent * 100);
 
   const lines: string[] = [];
-  lines.push(
-    `  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${v.orphanCount === 1 ? '' : 's'}` : ''})` : `     (${v.violationCount} violations)`}`,
-  );
+  lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${pl(v.orphanCount)}` : ''})` : `     (${v.violationCount} violations)`}`);
   lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
   if (!xOk && verbose) {
     // --verbose: name the failing edges inline — saves the `cells crossings` round-trip on the common failure.
@@ -297,9 +304,9 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
   }
   lines.push(`  ${structOk ? '✓' : '⚠'} structure ${structOk ? '   ' : '  '} (${structLabel})`);
   lines.push(`  ${sizeOk ? '✓' : '⚠'} size      ${sizeOk ? `    (max ${pct}% of ceiling)` : `    (max ${pct}% — over ceiling)`}`);
-  const grammars = v.grammarResults.filter((g) => !g.ok);
+  const failedGrammars = v.grammarResults.filter((g) => !g.ok);
   lines.push(
-    `  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - grammars.length}/${v.grammarResults.length} loaded${grammars.length > 0 ? ` — ${grammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`,
+    `  ${grammarsOk ? '✓' : '✗'} grammars  (${v.grammarResults.length - failedGrammars.length}/${v.grammarResults.length} loaded${failedGrammars.length > 0 ? ` — ${failedGrammars.map((g) => `${g.lang}: ${g.error ?? 'load failed'}`).join('; ')}` : ''})`,
   );
   if (v.uncoveredExts.length > 0) lines.push(`  — coverage    (${v.uncoveredExts.length} blind ext(s): ${v.uncoveredExts.join(', ')})`);
   if (v.unresolvedCount > 0)

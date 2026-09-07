@@ -120,6 +120,39 @@ export function loadContext(): CellsContext {
   return { declarations: loadDeclarations(), ownership: loadOwnership(), config: loadConfig() };
 }
 
+/** Shared directory-walk core: guarded readdir + realpath cycle-guard + stat per entry.
+ *  `skip` drops names before stat (SKIP_DIRS-style); `visit` handles each surviving entry —
+ *  dirs recurse via the caller, sharing `visited`, so a symlink loop back to an ancestor
+ *  stops instead of re-walking forever. Census (listFiles) and detection (scan + root)
+ *  ride this — one guard surface instead of three hand-rolled loops. */
+function walkDir(dir: string, visited: Set<string>, visit: (path: string, entry: string, isDir: boolean) => void, skip?: ReadonlySet<string>): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // missing/unreadable dir — not code; a crash would sink the census
+  }
+  let real: string;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    return;
+  }
+  if (visited.has(real)) return; // symlink cycle — stop
+  visited.add(real);
+  for (const entry of entries) {
+    if (skip?.has(entry)) continue;
+    const path = join(dir, entry);
+    let st: Stats;
+    try {
+      st = statSync(path);
+    } catch {
+      continue; // dangling symlink / vanished entry — not code
+    }
+    visit(path, entry, st.isDirectory());
+  }
+}
+
 /** Recursively list files under a directory whose extension is in `exts` (relative paths).
  *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
  *  can't grow the result, only re-walk forever. `skip` (default: the built-in SKIP_DIRS)
@@ -128,23 +161,16 @@ export function loadContext(): CellsContext {
  *  them at init; this closes the same hole for hand-edited configs). Config skip-dirs
  *  REPLACES the default set — that's the unhide path for a real internal/build package. */
 function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visited = new Set<string>()): string[] {
-  if (!existsSync(dir)) return []; // a repo may lack a configured dir yet
-  const real = realpathSync(dir);
-  if (visited.has(real)) return []; // symlink cycle — stop
-  visited.add(real);
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (skip.has(entry)) continue;
-    const path = join(dir, entry);
-    let st: Stats;
-    try {
-      st = statSync(path);
-    } catch {
-      continue; // dangling symlink / vanished entry — not code; a crash would sink the census
-    }
-    if (st.isDirectory()) out.push(...listFiles(path, exts, skip, visited));
-    else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path); // case-insensitive: some toolchains emit .TS/.Cpp — a case gap would blind-spot real code
-  }
+  walkDir(
+    dir,
+    visited,
+    (path, entry, isDir) => {
+      if (isDir) out.push(...listFiles(path, exts, skip, visited));
+      else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path); // case-insensitive: some toolchains emit .TS/.Cpp — a case gap would blind-spot real code
+    },
+    skip,
+  );
   return out;
 }
 
@@ -278,8 +304,8 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.', skip: Rea
 }
 
 /** Extensions recognised as code (for census + ownership). Cells has importers for
- *  .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.rs; others (.go/.rb/.java/...) are counted but BLIND
- *  (no crossing analysis) — surfaced by the blind-ext warning in health. */
+ *  TS/JS, Python (incl. .pyx/.pxd), Rust, Go, C/C++, Java; others (.rb/.kt/.swift/.cs/...)
+ *  are counted but BLIND (no crossing analysis) — surfaced by the blind-ext warning in health. */
 const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyx', '.pxd', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx', '.cs']);
 
 /** Detect the project's code languages + directories by scanning the repo (used by `cells init`
@@ -291,31 +317,9 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   const dirHasCode = new Set<string>();
 
   const scan = (dir: string, topDir: string, visited: Set<string>): void => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    // Symlink-cycle guard (listFiles precedent): a loop must not re-walk forever.
-    let real: string;
-    try {
-      real = realpathSync(dir);
-    } catch {
-      return;
-    }
-    if (visited.has(real)) return;
-    visited.add(real);
-    for (const entry of entries) {
-      const path = join(dir, entry);
-      let st: Stats;
-      try {
-        st = statSync(path);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        if (SKIP_DIRS.has(entry)) continue;
+    walkDir(dir, visited, (path, entry, isDir) => {
+      if (isDir) {
+        if (SKIP_DIRS.has(entry)) return;
         scan(path, topDir, visited);
       } else {
         const ext = extname(entry).toLowerCase();
@@ -324,32 +328,26 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
           dirHasCode.add(topDir);
         }
       }
-    }
+    });
   };
 
-  let rootEntries: string[];
-  try {
-    rootEntries = readdirSync(root);
-  } catch {
-    return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
-  }
   const visited = new Set<string>(); // one cycle-guard span across all top-level scans
-  for (const entry of rootEntries) {
-    if (SKIP_DIRS.has(entry)) continue;
-    const path = join(root, entry);
-    let st: Stats;
-    try {
-      st = statSync(path);
-    } catch {
-      continue;
-    }
-    if (st.isDirectory()) {
-      scan(path, entry, visited);
-    } else if (CODE_EXTS.has(extname(entry).toLowerCase())) {
-      extCounts.set(extname(entry).toLowerCase(), (extCounts.get(extname(entry).toLowerCase()) ?? 0) + 1);
-      dirHasCode.add('.');
-    }
-  }
+  walkDir(
+    root,
+    visited,
+    (path, entry, isDir) => {
+      if (isDir) {
+        scan(path, entry, visited);
+      } else {
+        const ext = extname(entry).toLowerCase();
+        if (CODE_EXTS.has(ext)) {
+          extCounts.set(ext, (extCounts.get(ext) ?? 0) + 1);
+          dirHasCode.add('.');
+        }
+      }
+    },
+    SKIP_DIRS,
+  );
 
   if (extCounts.size === 0) return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
   const codeExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
@@ -357,6 +355,5 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   // Root code files make the list collapse to ["."] — otherwise every file
   // double-counts in ownership/plan.
   if (dirHasCode.has('.')) codeDirs = ['.'];
-  if (codeDirs.length === 0) codeDirs = ['src', 'test'];
   return { codeExts, codeDirs };
 }

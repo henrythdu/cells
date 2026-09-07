@@ -5,7 +5,8 @@ import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { SKIP_DIRS } from './io.js';
 
 /**
- * Bridge crossings (ADR 0001): resolve FFI extension-module imports (pyo3/napi) to the
+ * Bridge crossings (ADR 0001): resolve FFI extension-module imports (maturin-declared
+ * pyo3 modules) to the
  * binding crate's entry source file. A pyo3 module like headroom._core is a compiled
  * artifact — no .py/.so in a source-only repo, so the python importer reports it
  * unresolved. The bridge map (declaration-derived, ownership-derived — reads the repo's
@@ -85,11 +86,11 @@ function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   for (const file of cargoFiles) {
     const toml = parseTomlFile(file);
     const lib = toml.lib as { name?: string; 'crate-type'?: string[]; path?: string } | undefined;
-    if (!lib?.['crate-type']?.includes('cdylib')) continue;
-    const name = lib?.name ?? (toml.package as { name?: string } | undefined)?.name;
+    if (!lib || !lib['crate-type']?.includes('cdylib')) continue;
+    const name = lib.name ?? (toml.package as { name?: string } | undefined)?.name;
     if (!name) continue;
     const dir = dirname(file);
-    const entry = relative(baseDir, join(dir, lib?.path ?? 'src/lib.rs'))
+    const entry = relative(baseDir, join(dir, lib.path ?? 'src/lib.rs'))
       .split(sep)
       .join('/');
     crates.push({ tail: name, entry });
@@ -109,7 +110,8 @@ function readModuleNameOverrides(pyprojectFiles: string[], crates: CrateEntry[])
     const maturin = tool?.maturin as { 'module-name'?: string } | undefined;
     const moduleName = maturin?.['module-name'];
     if (!moduleName) continue;
-    const tail = moduleName.split('.').pop() ?? '';
+    const tail = moduleName.split('.').pop();
+    if (!tail) continue;
     const crate = crates.find((c) => c.tail === tail);
     if (crate) overrides.set(moduleName, crate.entry);
   }

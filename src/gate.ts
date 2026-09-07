@@ -1,6 +1,6 @@
 /** The gate family: size, structure, impact, health. The renderers live in view /
  *  structure; these shells gather I/O and delegate. The read/query commands (crossings,
- *  list, show, graph, owns, payload) live in commands/read.ts; the shared pipeline
+ *  list, show, graph, owns, payload, surface) live in commands/read.ts; the shared pipeline
  *  (loadCrossings + guards) lives in pipeline.ts. The gate composes the four check
  *  cells into one verdict — the surface CI and external stress runs consume it. */
 

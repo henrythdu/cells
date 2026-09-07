@@ -141,10 +141,12 @@ export interface ResolveCtx {
 }
 
 /** The key separator of the module→file map: the factory joins module-path segments with it
- *  (`${importerModule}::${path.join('::')}`) and language resolvers split/join on it (go's
- *  candidateKeys, rust's look/walk probes). Java is the exception — plain FQN keys with no
- *  separator (`.` stays inside the key). Exporting it keeps the couple honest — a separator
- *  change breaks the resolvers' key construction loudly (via tests), not silently. */
+ *  (`${importerModule}::${path.join('::')}`) and language resolvers split/join on a hardcoded
+ *  `'::'` by convention (go's candidateKeys, rust's look/walk probes) — NOT this constant.
+ *  Java is the exception — plain FQN keys with no separator (`.` stays inside the key). The
+ *  coupling is conventional, not enforced: a separator change needs a coordinated edit across
+ *  the resolvers + tests. (Exporting it and migrating ~20 sites costs more than a separator
+ *  nobody will change — decided, not deferred.) */
 const MODULE_SEP = '::';
 
 /** Pick the file declaring `key` that sits in the importer's own tree — the deepest shared
@@ -250,7 +252,9 @@ export function createTreeSitterImporter<U = unknown>(spec: TreeSitterImporterSp
       // Deterministic module-key winners: two files mapping to ONE module key (python's
       // .pxd+.pyx pair) — the last-set file wins, so sorted order picks the same one every
       // run (readdir order is OS-dependent). .pxd sorts before .pyx → the implementation wins.
-      files = [...files].sort((a, b) => a.path.localeCompare(b.path));
+      // Code-unit order, deliberately NOT localeCompare (host-locale-dependent — the same
+      // determinism rule ownership.ts documents for serialization).
+      files = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
       // Namespace module keys by crate root when the run spans multiple crates — two crates
       // both mapping `crate::app` to DIFFERENT files would silently mis-resolve imports.
       const pathKey = (f: SourceFile): string => spec.fileToModule(f.path, moduleRoot, baseDir);

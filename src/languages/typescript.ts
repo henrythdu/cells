@@ -23,11 +23,6 @@ function findString(n: Node): Node | null {
   return null;
 }
 
-/** Extract every import specifier from a parsed TS/JS tree: import/export statements (incl.
- *  `export * from` and `import x = require(...)` — the source is always the statement's string
- *  child), dynamic `import('x')` (call_expression on the `import` keyword — chained forms nest
- *  the same shape), CommonJS `require('x')`, and `/// <reference path="..." />` directives.
- *  Deduped per file. */
 /** One import statement's data for the resolver: the source specifier + the EXPORTED names
  *  consumed from it (named imports/exports only - `import x from`, `* as ns`, and bare
  *  `import 'y'` consume no nameable surface, so their edges carry no symbols and the
@@ -45,6 +40,11 @@ function specName(node: Node): string {
   return node.text.replace(/^type\s+/, '').split(/\s+as\s+/)[0];
 }
 
+/** Extract every import specifier from a parsed TS/JS tree: import/export statements (incl.
+ *  `export * from` and `import x = require(...)` — the source is always the statement's string
+ *  child), dynamic `import('x')` (call_expression on the `import` keyword — chained forms nest
+ *  the same shape), CommonJS `require('x')`, and `/// <reference path="..." />` directives.
+ *  Deduped per file. */
 function collectSpecifiers(root: Node): SpecEntry[] {
   const byspec = new Map<string, string[]>();
   const add = (s: string, names: string[] = []): void => {

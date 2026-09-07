@@ -6,10 +6,6 @@ import { createTreeSitterImporter, type Reexport, type ResolveCtx } from './tree
 
 // --- module-path derivation: file → Rust module path ---
 
-/** Nearest ancestor dir holding a Cargo.toml → the crate root; null if none (scan root is
- *  not inside a crate). The walk starts at the file's dir and probes `baseDir`-relative
- *  (repo-relative paths; baseDir may point at an extracted HEAD tree for --diff).
- *  No cache — files-per-run is small and a cache would leak across baseDirs. */
 /** Directories the ROOT manifest's [[bin]] targets live in ([[bin]] path = "crates/core/main.rs"
  *  → "crates/core"). A workspace root may glue a bin at a directory WITHOUT its own Cargo.toml
  *  (ripgrep): the bin dir is the crate root for its module tree — `mod flags;` from main.rs
@@ -36,6 +32,10 @@ function binCrateDirs(baseDir: string): Set<string> | null {
   return dirs;
 }
 
+/** Nearest ancestor dir holding a Cargo.toml → the crate root; null if none (scan root is
+ *  not inside a crate). The walk starts at the file's dir and probes `baseDir`-relative
+ *  (repo-relative paths; baseDir may point at an extracted HEAD tree for --diff).
+ *  No cache — files-per-run is small and a cache would leak across baseDirs. */
 function findCrateRoot(filePath: string, baseDir: string): string | null {
   let dir = dirname(filePath);
   const bins = binCrateDirs(baseDir);

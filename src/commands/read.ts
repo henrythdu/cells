@@ -4,12 +4,12 @@
  *  pipeline (loadCrossings, guards, cmdImports) lives in pipeline.ts. Pure-ish: gathers
  *  I/O, delegates rendering to view. */
 
-import { type CrossingsDelta, checkLeakage, checkOffMembrane, computeMetrics } from '../crossings.js';
+import { type Crossing, type CrossingsDelta, checkLeakage, checkOffMembrane, computeMetrics } from '../crossings.js';
 import type { Cell } from '../declaration.js';
 import { crossingsDelta, recentCommitFiles } from '../diff.js';
 import { formatCellGraph, formatCellGraphAscii } from '../graph.js';
 import { type CellsContext, listCodeFiles, readFiles } from '../io.js';
-import { owningCell } from '../ownership.js';
+import { type Ownership, owningCell } from '../ownership.js';
 import { assemblePayload, type CellSize, computePayloadSize, estimateTokens, neighborsOf } from '../payload.js';
 import { loadCrossings, requireCell, warnIfNoCodeFiles } from '../pipeline.js';
 import { classifyChangeCoupling } from '../structure.js';
@@ -34,8 +34,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
       const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
       if (opts.json) {
-        // machine consumers always get valid JSON — the delta itself, not the human table
-        process.stdout.write(`${JSON.stringify({ added: delta.added, removed: delta.removed, undeclared: leakage }, null, 2)}\n`);
+        writeJson({ added: delta.added, removed: delta.removed, undeclared: leakage });
       } else {
         showCrossingsDelta(delta, undeclaredKeys, declarations);
       }
@@ -55,12 +54,12 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
     // "just the warnings" — on a big repo the pair list drowns the actionable tail)
     if (crossings.length === 0) {
       if (opts.json) {
-        process.stdout.write('[]\n'); // machine consumers always get valid JSON
+        writeJson([]);
       } else {
         console.log('No cross-cell imports.');
       }
     } else if (opts.json) {
-      process.stdout.write(`${JSON.stringify(crossings, null, 2)}\n`);
+      writeJson(crossings);
     } else {
       // default: aggregate summary; --verbose: every file→file edge under its cell pair
       const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
@@ -94,7 +93,7 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   if (opts.json && opts.warnings) {
     // --warnings --json: the actionable tail AS data (stdout must always be valid JSON
     // under --json — the listing is skipped by design, so emit leakage + unresolved here)
-    process.stdout.write(`${JSON.stringify({ leakage, unresolved }, null, 2)}\n`);
+    writeJson({ leakage, unresolved });
     if (undeclared.length > 0) process.exitCode = 1; // gate parity with the text path
     return;
   }
@@ -117,6 +116,12 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       );
     }
   }
+}
+
+/** Emit an object as pretty JSON on stdout. Under `--json` stdout stays machine-clean
+ *  (human notes go to stderr) — machine consumers always get valid JSON. */
+function writeJson(obj: unknown): void {
+  process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`);
 }
 
 /** Render a crossings delta: +/− edges, then a summary. */
@@ -146,6 +151,14 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   const { declarations, ownership, config } = ctx;
   const sizes: Record<string, CellSize> = {};
   const smells: Record<string, CellSmell> = {};
+  const { crossings, unresolved, edges } = await loadCrossings(ownership);
+  const unresolvedByCell = new Map<string, number>();
+  if (verbose) {
+    for (const u of unresolved) {
+      const owner = owningCell(ownership, u.fromFile);
+      if (owner) unresolvedByCell.set(owner, (unresolvedByCell.get(owner) ?? 0) + 1);
+    }
+  }
   for (const name of Object.keys(declarations)) {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
@@ -157,10 +170,9 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
       smells[name] = {
         pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens),
         staleProvides: cell.provides.length === 0 ? 0 : staleProvidesOf(cell, owned, contents).length,
-        unresolved: 0,
+        unresolved: unresolvedByCell.get(name) ?? 0,
       };
   }
-  const { crossings, unresolved, edges } = await loadCrossings(ownership);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
   const codeFiles = listCodeFiles();
@@ -172,18 +184,13 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   for (const e of edges) {
     if (!owned.has(e.toFile)) magnetCounts.set(e.toFile, (magnetCounts.get(e.toFile) ?? 0) + 1);
   }
-  if (verbose) {
-    const unresolvedByCell = new Map<string, number>();
-    for (const u of unresolved) {
-      const owner = owningCell(ownership, u.fromFile);
-      if (owner) unresolvedByCell.set(owner, (unresolvedByCell.get(owner) ?? 0) + 1);
-    }
-    for (const name of Object.keys(declarations)) {
-      const s = smells[name];
-      s.unresolved = unresolvedByCell.get(name) ?? 0;
-    }
-  }
   process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined, magnetCounts));
+}
+
+/** ADR 0002 change-coupling classification over recent git history — the shared step
+ *  behind show's co-change list and payload's coupling hint. */
+function changeCoupling(ownership: Ownership, crossings: Crossing[]) {
+  return classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
 }
 
 /** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.
@@ -209,7 +216,7 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const cellUnresolved = unresolved.filter((u) => ownedSet.has(u.fromFile)).map((u) => u.import);
   // Change coupling (ADR 0002): cell pairs that co-change with this cell in git
   // history, classified against the crossing graph (explained = has import edge).
-  const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
+  const coupling = changeCoupling(ownership, crossings);
   const coChange = coupling.pairs
     .filter((p) => p.a === name || p.b === name)
     .slice(0, 5)
@@ -306,7 +313,7 @@ export async function cmdPayload(ctx: CellsContext, name: string): Promise<void>
   const fileContents = readFiles(ownedFiles);
 
   const testFiles = cell.tests ?? [];
-  const testContents = testFiles.length > 0 ? readFiles(testFiles) : {};
+  const testContents = readFiles(testFiles);
 
   const neighbors: Cell[] = [];
   for (const n of cell.requires) {
@@ -319,7 +326,7 @@ export async function cmdPayload(ctx: CellsContext, name: string): Promise<void>
   // ADR 0002: the payload's change-coupling hint — unexplained partners only, so the
   // model knows its context is incomplete (zero tokens when the cell is clean).
   const { crossings } = await loadCrossings(ownership);
-  const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
+  const coupling = changeCoupling(ownership, crossings);
   const coupled = coupling.pairs
     .filter((p) => !p.explained && (p.a === name || p.b === name))
     .slice(0, 3)

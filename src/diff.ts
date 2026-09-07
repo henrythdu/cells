@@ -72,7 +72,7 @@ export async function crossingsDelta(working: Crossing[], ownership: Ownership):
       return diffCrossings(working, deriveCrossings(headEdges, ownership));
     });
   } catch {
-    return null; // HEAD derivation blew up (dep-cruiser panic, IO) — degrade gracefully.
+    return null; // HEAD derivation blew up (grammar load, FS races mid-derivation) — degrade gracefully.
   }
 }
 

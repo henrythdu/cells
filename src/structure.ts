@@ -107,7 +107,7 @@ export function detectCycles(crossings: Crossing[]): Cycle[] {
     .sort((x, y) => x.cells[0].localeCompare(y.cells[0]));
 }
 
-/** A direction violation — a higher-layer cell depending on a lower-layer one. */
+/** A direction violation — a lower-layer cell depending on a higher-layer one (edge points away from the core). */
 export interface DirectionViolation {
   fromCell: string;
   fromLayer: number;
@@ -120,20 +120,26 @@ export interface DirectionViolation {
  * an edge to a HIGHER layer (core→peripheral) is the violation. Skips any edge
  * with a layerless endpoint. Dedupes multiple crossings between the same pair. Pure.
  */
-export function checkDirection(crossings: Crossing[], declarations: Record<string, Cell>): DirectionViolation[] {
+/** Run fn once per ordered cell-pair in the crossings (self-edges included —
+ *  callers filter). The seen-set dedupe checkDirection/checkSDP shared. Pure. */
+function forEachCellPair(crossings: Crossing[], fn: (fromCell: string, toCell: string) => void): void {
   const seen = new Set<string>();
-  const out: DirectionViolation[] = [];
   for (const c of crossings) {
-    const fromLayer = declarations[c.fromCell]?.layer;
-    const toLayer = declarations[c.toCell]?.layer;
-    if (fromLayer === undefined || toLayer === undefined) continue;
-    if (fromLayer < toLayer) {
-      const key = `${c.fromCell}->${c.toCell}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ fromCell: c.fromCell, fromLayer, toCell: c.toCell, toLayer });
-    }
+    const key = `${c.fromCell}->${c.toCell}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fn(c.fromCell, c.toCell);
   }
+}
+
+export function checkDirection(crossings: Crossing[], declarations: Record<string, Cell>): DirectionViolation[] {
+  const out: DirectionViolation[] = [];
+  forEachCellPair(crossings, (fromCell, toCell) => {
+    const fromLayer = declarations[fromCell]?.layer;
+    const toLayer = declarations[toCell]?.layer;
+    if (fromLayer === undefined || toLayer === undefined) return;
+    if (fromLayer < toLayer) out.push({ fromCell, fromLayer, toCell, toLayer });
+  });
   return out;
 }
 
@@ -154,34 +160,41 @@ export interface SdpViolation {
  * Pure. Info-only — Cells surfaces the smell, doesn't enforce a fix.
  */
 export function checkSDP(crossings: Crossing[], metrics: Record<string, CellMetrics>): SdpViolation[] {
-  const seen = new Set<string>();
   const out: SdpViolation[] = [];
-  for (const c of crossings) {
-    const key = `${c.fromCell}->${c.toCell}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const fromI = metrics[c.fromCell]?.instability;
-    const toI = metrics[c.toCell]?.instability;
-    if (fromI === undefined || toI === undefined) continue;
+  forEachCellPair(crossings, (fromCell, toCell) => {
+    const fromI = metrics[fromCell]?.instability;
+    const toI = metrics[toCell]?.instability;
+    if (fromI === undefined || toI === undefined) return;
     if (fromI < toI) {
-      out.push({ fromCell: c.fromCell, toCell: c.toCell, fromInstability: fromI, toInstability: toI });
+      out.push({ fromCell, toCell, fromInstability: fromI, toInstability: toI });
     }
-  }
-  return out.sort((a, b) => b.toInstability - b.fromInstability - (a.toInstability - a.fromInstability) || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell));
+  });
+  return out.sort((a, b) => {
+    const gapA = a.toInstability - a.fromInstability;
+    const gapB = b.toInstability - b.fromInstability;
+    return gapB - gapA || a.fromCell.localeCompare(b.fromCell) || a.toCell.localeCompare(b.toCell);
+  });
 }
 
 /** Format SDP violations as an info-only report. Returns null when there are none. A long
- *  list (pandas: 100+ entries) dominates the structure output, so it's capped — the count
+ *  list (100+ entries in a huge repo) dominates the structure output, so it's capped — the count
  *  and the first entries carry the signal; the tail of instability numbers is noise. Pure.
  */
+/** Cap a rendered list: first `cap` items + an "…and N more (M total)" tail. Pure. */
+function capped<T>(items: T[], cap = 20): { shown: T[]; tail: string } {
+  const shown = items.slice(0, cap);
+  const tail = items.length > cap ? `  …and ${items.length - cap} more (${items.length} total)` : '';
+  return { shown, tail };
+}
+
 export function formatSdpReport(violations: SdpViolation[]): string | null {
   if (violations.length === 0) return null;
-  const cap = 20;
   const lines = ['SDP (Stable Dependencies Principle) — edges depending away from stability:'];
-  for (const v of violations.slice(0, cap)) {
+  const { shown, tail } = capped(violations);
+  for (const v of shown) {
     lines.push(`  ${v.fromCell} (I=${v.fromInstability.toFixed(2)}) → ${v.toCell} (I=${v.toInstability.toFixed(2)})   depends on a less stable cell`);
   }
-  if (violations.length > cap) lines.push(`  …and ${violations.length - cap} more (${violations.length} total)`);
+  if (tail) lines.push(tail);
   return `${lines.join('\n')}\n`;
 }
 
@@ -223,6 +236,15 @@ function cycleCutLabel(cycle: Cycle, crossings: Crossing[], prefix: string): str
     .join(', ')}`;
 }
 
+/** Shared Direction section: skipped/OK/count/detail. The full report lists each
+ *  violation; the summary counts. Pure. */
+function directionLines(violations: DirectionViolation[], layersConfigured: boolean, detailed: boolean, fmt: (n: number) => string = (n) => `${n}`): string[] {
+  if (!layersConfigured) return ['Direction: (skipped — no cells declare a layer).'];
+  if (violations.length === 0) return ['Direction: OK — no edges point to a higher layer.'];
+  if (!detailed) return [`Direction: ${violations.length} violation(s).`];
+  return [`Direction: ${violations.length} violation(s):`, ...violations.map((v) => `  ⚠ ${v.fromCell} [${fmt(v.fromLayer)}] → ${v.toCell} [${fmt(v.toLayer)}] (→ higher layer)`)];
+}
+
 /**
  * Format the structure report: ADP section + Direction section.
  * `layersConfigured` controls the Direction section's message when no layers
@@ -236,7 +258,7 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     lines.push('ADP: acyclic — no circular dependencies.');
   } else {
     lines.push(`ADP: ${cycles.length} cycle(s):`);
-    const cap = 20; // a 500-cell cycle (transformers) must not print 500 lines — the cut candidates carry the signal
+    const cap = 20; // a 500-cell cycle (a huge repo) must not print 500 lines — the cut candidates carry the signal
     for (const cyc of cycles) {
       const overCap = cyc.cells.length > cap;
       const cells = overCap ? cyc.cells.slice(0, cap) : cyc.cells;
@@ -246,16 +268,7 @@ export function formatStructureReport(cycles: Cycle[], violations: DirectionViol
     }
   }
 
-  if (!layersConfigured) {
-    lines.push('Direction: (skipped — no cells declare a layer).');
-  } else if (violations.length === 0) {
-    lines.push('Direction: OK — no edges point to a higher layer.');
-  } else {
-    lines.push(`Direction: ${violations.length} violation(s):`);
-    for (const v of violations) {
-      lines.push(`  ⚠ ${v.fromCell} [${fmt(v.fromLayer)}] → ${v.toCell} [${fmt(v.toLayer)}] (→ higher layer)`);
-    }
-  }
+  lines.push(...directionLines(violations, layersConfigured, true, fmt));
 
   return `${lines.join('\n')}\n`;
 }
@@ -279,13 +292,7 @@ export function formatStructureSummary(cycles: Cycle[], violations: DirectionVio
     }
   }
 
-  if (!layersConfigured) {
-    lines.push('Direction: (skipped — no cells declare a layer).');
-  } else if (violations.length === 0) {
-    lines.push('Direction: OK — no edges point to a higher layer.');
-  } else {
-    lines.push(`Direction: ${violations.length} violation(s).`);
-  }
+  lines.push(...directionLines(violations, layersConfigured, false));
 
   lines.push(`SDP: ${sdpCount} violation(s).`);
   if (coupling && coupling.total > 0) {
@@ -415,17 +422,17 @@ export function classifyChangeCoupling(commits: { hash: string; files: string[] 
  *  a 100-pair list is noise; the count + the worst entries carry the signal. Pure. */
 export function formatChangeCouplingReport(result: CouplingResult): string | null {
   if (result.pairs.length === 0) return null;
-  const cap = 20;
   const lines = [
     `Change-coupled cells (${result.window} analyzed commits; co-change >= ${CHANGE_COUPLING.minCoChanges} commits and >= ${Math.round(CHANGE_COUPLING.jaccard * 100)}% of shared history):`,
     `  resolutions: merge the cells, re-draw the membrane, declare the hidden channel as requires, or accept (test doubles and config legitimately couple).`,
   ];
-  for (const p of result.pairs.slice(0, cap)) {
+  const { shown, tail } = capped(result.pairs);
+  for (const p of shown) {
     const mark = p.explained ? '  ' : '  ⚠ ';
     const why = p.explained ? 'explained — has import edge' : 'unexplained — no import edge';
     lines.push(`${mark}${p.a} ↔ ${p.b}   ${why} (${p.count}/${result.window}, ${Math.round(p.jaccard * 100)}%)`);
   }
-  if (result.pairs.length > cap) lines.push(`  …and ${result.pairs.length - cap} more (${result.pairs.length} total)`);
+  if (tail) lines.push(tail);
   return `${lines.join('\n')}\n`;
 }
 
@@ -451,8 +458,9 @@ export function computeImpact(crossings: Crossing[], cell: string): Impact {
 
   const dist = new Map<string, number>([[cell, 0]]);
   const queue: string[] = [cell];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
+  let head = 0; // index pointer, not shift(): dequeue is O(1) — matters on huge graphs
+  while (head < queue.length) {
+    const cur = queue[head++]!;
     for (const dep of dependents.get(cur) ?? []) {
       if (!dist.has(dep)) {
         dist.set(dep, (dist.get(cur) ?? 0) + 1);

@@ -8,19 +8,17 @@ import type { Crossing } from './crossings.js';
 export function formatCellGraph(crossings: Crossing[], allCells: string[] = []): string {
   const edges = new Set<string>();
   const nodes = new Set(allCells);
+  const hasEdge = new Set<string>();
   for (const c of crossings) {
     edges.add(`${c.fromCell} --> ${c.toCell}`);
     nodes.add(c.fromCell);
     nodes.add(c.toCell);
+    hasEdge.add(c.fromCell);
+    hasEdge.add(c.toCell);
   }
   const lines = ['flowchart LR'];
   for (const e of [...edges].sort()) lines.push(`  ${e}`);
   // cells with no crossings still render — an empty diagram hides them (both endpoints count)
-  const hasEdge = new Set<string>();
-  for (const c of crossings) {
-    hasEdge.add(c.fromCell);
-    hasEdge.add(c.toCell);
-  }
   for (const n of [...nodes].sort()) if (!hasEdge.has(n)) lines.push(`  ${n}`);
   return `${lines.join('\n')}\n`;
 }
@@ -45,7 +43,7 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
   for (const deps of adj.values()) deps.sort();
 
   const roots = [...nodes].filter((n) => !incoming.has(n)).sort();
-  const start = roots.length > 0 ? roots : [...nodes].sort();
+  const start = roots; // empty when fully cyclic — the isolated-SCC sweep below covers that case identically
   const visited = new Set<string>();
   const onStack = new Set<string>();
   const lines: string[] = [];

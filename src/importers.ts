@@ -82,13 +82,10 @@ export async function collectImportEdges(
   const exts = Array.from(new Set(paths.map((p) => extname(p))));
   const selected = selectImporters(exts, importers);
   const uncoveredExts = uncoveredImporterExts(exts, importers);
-  let files: SourceFile[];
-  if (selected.some((i) => i.needsContent)) {
-    const contents = readFiles(paths, baseDir);
-    files = paths.map((p) => ({ path: p, content: contents[p] ?? '' }));
-  } else {
-    files = paths.map((p) => ({ path: p, content: '' }));
-  }
+  // Content on demand: without needsContent no importer reads file bodies, so skip the
+  // disk read — a contentless census avoids reading every file for nothing.
+  const contents = selected.some((i) => i.needsContent) ? readFiles(paths, baseDir) : {};
+  const files: SourceFile[] = paths.map((p) => ({ path: p, content: contents[p] ?? '' }));
   // Tree-sitter reads `files`; point both at `baseDir` so a HEAD tree can be derived
   // for `crossings --diff`. `.cells/` stays in the working repo.
   const dirs = codeDirs.map((d) => join(baseDir, d));
@@ -96,8 +93,7 @@ export async function collectImportEdges(
   const edges: ImportEdge[] = [];
   const unresolved: UnresolvedImport[] = [];
   const failures: ImporterFailure[] = [];
-  // Sequential, not Promise.all: two tree-sitter grammars loading concurrently race
-  // web-tree-sitter's shared WASM state → one importer silently returns empty.
+  // Sequential — see docblock (concurrent grammar loads race shared WASM state).
   for (const imp of selected) {
     try {
       const result = await imp.extract(ctx);
@@ -113,10 +109,8 @@ export async function collectImportEdges(
   // unresolved resolve to the binding crate's entry file — declaration-derived, so no
   // per-repo config. Empty map (no cdylib crates) = zero behavior change.
   const bridged = applyBridges(buildBridgeMap(codeDirs, baseDir), unresolved, baseDir);
-  edges.push(...bridged.edges);
-  unresolved.length = 0;
-  unresolved.push(...bridged.unresolved);
-  return { edges, uncoveredExts, unresolved, failures, ignoreBlindExts: config.ignoreBlindExts };
+  for (const e of bridged.edges) edges.push(e); // loop, not spread — same doctrine as above
+  return { edges, uncoveredExts, unresolved: bridged.unresolved, failures, ignoreBlindExts: config.ignoreBlindExts };
 }
 
 /** An importer that failed to extract — its language's edges are missing, the graph is blind for it. */

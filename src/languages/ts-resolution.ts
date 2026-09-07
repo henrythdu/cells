@@ -185,13 +185,18 @@ function firstString(obj: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** An exports-field value as a string: a plain string, or the first string of a
+ *  conditional object. Else undefined. Pure. */
+function targetString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>);
+  return undefined;
+}
+
 /** A package.json's exports/subpath target as a source file, or null. Pure. */
 function exportsTarget(exports: Record<string, unknown> | null, key: string): string | null {
   if (!exports) return null;
-  const v = exports[key];
-  if (typeof v === 'string') return v;
-  if (v && typeof v === 'object' && !Array.isArray(v)) return firstString(v as Record<string, unknown>) ?? null;
-  return null;
+  return targetString(exports[key]) ?? null;
 }
 
 /** An exports wildcard key matching the subpath (e.g. `./features/*` matches `features/x`,
@@ -203,8 +208,8 @@ function wildcardTarget(exports: Record<string, unknown> | null, rest: string): 
     if (star === -1) continue;
     const prefix = key.slice(0, star); // './features/' (keys carry the leading './')
     if (prefix.length < 2 || !rest.startsWith(prefix.slice(2))) continue;
-    const target = typeof value === 'string' ? value : value && typeof value === 'object' && !Array.isArray(value) ? firstString(value as Record<string, unknown>) : undefined;
-    if (typeof target !== 'string' || !target.includes('*')) continue;
+    const target = targetString(value);
+    if (!target || !target.includes('*')) continue;
     return target.replace('*', rest.slice(prefix.length - 2));
   }
   return null;
@@ -322,60 +327,35 @@ function workspacePackages(files: ReadonlySet<string>, baseDir: string, ctx: Res
 
 // --- disk probing (memoized per extract) ---
 
-/** The probe candidate list for a repo-relative target: extension variants (`.d.ts` before
- *  `.ts` — types-only exports resolve to declaration files), index files, `.js`→`.ts`, and
- *  `dist/` → `src/` (a package's dist entry maps to its source tree). Order = TS resolution
- *  semantics: TS extensions first, then plain JS-family variants (CJS `require('./x')` must
- *  land on x.js), directory indexes, then the NodeNext `.js`→`.ts` remap. First existing
- *  candidate wins. Pure. */
+/** Probe suffixes: plain appends first (TS extensions, then JS-family, then
+ *  directory indexes), then extension remaps (NodeNext `.js`→`.ts`, vite
+ *  `.jsx`→`.tsx`, …). Order = TS resolution semantics — first existing wins. */
+const APPEND_SUFFIXES = ['.d.ts', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js', '/index.jsx', '/index.mjs', '/index.cjs'];
+/** Bare `.mjs`/`.cjs`/`.json` probes run on the as-written base only (kept exactly:
+ *  first-wins order — do not merge into APPEND_SUFFIXES or reorder). */
+const POSIX_ONLY_SUFFIXES = ['.mjs', '.cjs', '.json'];
+const REMAP_SUFFIXES: [RegExp, string][] = [
+  [/\.js$/, '.ts'], // NodeNext: './x.js' → x.ts source
+  [/\.js$/, '.d.ts'], // …or the declaration file
+  [/\.js$/, '.tsx'], // vite-style: './x.js' → x.tsx
+  [/\.jsx$/, '.tsx'],
+  [/\.mjs$/, '.ts'],
+  [/\.mjs$/, '.mts'], // NodeNext: .mjs ↔ .mts
+  [/\.cjs$/, '.ts'],
+  [/\.cjs$/, '.cts'], // NodeNext: .cjs ↔ .cts
+];
+
+/** Expand one base path into its probe list (as-written base, then `dist/`→`src/`). */
+function expandProbes(base: string, extraPlain: string[]): string[] {
+  return [base, ...APPEND_SUFFIXES.slice(0, 5), ...extraPlain, ...APPEND_SUFFIXES.slice(5)].map((s) => `${base}${s}`).concat(REMAP_SUFFIXES.map(([re, rep]) => base.replace(re, rep)));
+}
+/** The probe candidate list for a repo-relative target: the as-written base, then the
+ *  `dist/` → `src/` base (a package's dist entry maps to its source tree). `.d.ts` before
+ *  `.ts` — types-only exports resolve to declaration files. First existing wins. Pure. */
 function candidatesFor(rel: string): string[] {
   const toPosix = rel.replace(/\\/g, '/'); // win32: join emits backslashes; string ops below need /
   const srcRel = toPosix.replace(/(^|\/)dist\//, '$1src/');
-  return [
-    toPosix,
-    `${toPosix}.d.ts`,
-    `${toPosix}.ts`,
-    `${toPosix}.tsx`,
-    `${toPosix}.js`,
-    `${toPosix}.jsx`,
-    `${toPosix}.mjs`,
-    `${toPosix}.cjs`,
-    `${toPosix}.json`,
-    `${toPosix}/index.ts`,
-    `${toPosix}/index.tsx`,
-    `${toPosix}/index.js`,
-    `${toPosix}/index.jsx`,
-    `${toPosix}/index.mjs`,
-    `${toPosix}/index.cjs`,
-    toPosix.replace(/\.js$/, '.ts'), // NodeNext: './x.js' → x.ts source
-    toPosix.replace(/\.js$/, '.d.ts'), // …or the declaration file
-    toPosix.replace(/\.js$/, '.tsx'), // vite-style: './x.js' → x.tsx
-    toPosix.replace(/\.jsx$/, '.tsx'),
-    toPosix.replace(/\.mjs$/, '.ts'),
-    toPosix.replace(/\.mjs$/, '.mts'), // NodeNext: .mjs ↔ .mts
-    toPosix.replace(/\.cjs$/, '.ts'),
-    toPosix.replace(/\.cjs$/, '.cts'), // NodeNext: .cjs ↔ .cts
-    srcRel,
-    `${srcRel}.d.ts`,
-    `${srcRel}.ts`,
-    `${srcRel}.tsx`,
-    `${srcRel}.js`,
-    `${srcRel}.jsx`,
-    `${srcRel}/index.ts`,
-    `${srcRel}/index.tsx`,
-    `${srcRel}/index.js`,
-    `${srcRel}/index.jsx`,
-    `${srcRel}/index.mjs`,
-    `${srcRel}/index.cjs`,
-    srcRel.replace(/\.js$/, '.ts'),
-    srcRel.replace(/\.js$/, '.d.ts'),
-    srcRel.replace(/\.js$/, '.tsx'),
-    srcRel.replace(/\.jsx$/, '.tsx'),
-    srcRel.replace(/\.mjs$/, '.ts'),
-    srcRel.replace(/\.mjs$/, '.mts'),
-    srcRel.replace(/\.cjs$/, '.ts'),
-    srcRel.replace(/\.cjs$/, '.cts'),
-  ];
+  return [...expandProbes(toPosix, POSIX_ONLY_SUFFIXES), ...expandProbes(srcRel, [])];
 }
 
 /** Does a repo-relative path exist as a FILE on disk? Memoized in the extract's scratch map

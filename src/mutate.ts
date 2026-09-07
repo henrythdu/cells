@@ -1,6 +1,6 @@
 /** Mutation command bodies — the state-writing half of the CLI: init, rename, remove,
- *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in commands/
- *  (read.ts + gate.ts); cli.ts keeps the dispatcher + main(). These commands write
+ *  assign, unassign, new, prune-stale, plan. Read/analysis handlers live in
+ *  commands/read.ts (plus gate.ts at the src root); cli.ts keeps the dispatcher + main(). These commands write
  *  after reading, so they re-load the stores fresh instead of using a shared bundle. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -65,9 +65,9 @@ export function cmdInit(dryRun = false): void {
   let codeExts = importableExts(detected.codeExts, DEFAULT_IMPORTERS);
   if (codeExts.length === 0 && detected.codeExts.length > 0) codeExts = [detected.codeExts[0]];
   const { codeDirs } = detected;
+  const ownPath = join(CELLS_DIR, 'ownership.toml');
+  const cfgPath = join(CELLS_DIR, 'config.toml');
   if (dryRun) {
-    const ownPath = join(CELLS_DIR, 'ownership.toml');
-    const cfgPath = join(CELLS_DIR, 'config.toml');
     const needed: string[] = [];
     if (!existsSync(ownPath)) needed.push('ownership.toml');
     if (!existsSync(cfgPath)) needed.push('config.toml');
@@ -80,8 +80,6 @@ export function cmdInit(dryRun = false): void {
     return;
   }
   mkdirSync(CELLS_DIR, { recursive: true });
-  const ownPath = join(CELLS_DIR, 'ownership.toml');
-  const cfgPath = join(CELLS_DIR, 'config.toml');
   const created: string[] = [];
   if (!existsSync(ownPath)) {
     writeOwnership({});
@@ -351,9 +349,9 @@ export function cmdPlan(apply = false, dryRun = false): void {
 
     const existing = new Set(Object.keys(loadDeclarations()));
     const proposed = new Map(keys.map((k) => [names.get(k)!, groups.get(k)!]));
-    const { stubs, ownership, skipped, adopted, kept } = planApply(loadOwnership(), proposed, existing);
+    const { stubs, ownership, skipped: skippedExisting, adopted, kept } = planApply(loadOwnership(), proposed, existing);
     const unownedAfter = codeFiles.length - adopted - kept;
-    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skipped} existing, adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
+    const outcome = `created ${stubs.length} cell declaration(s), skipped ${skippedExisting} existing, adopted ${adopted} file(s), kept ${kept} already-owned${unownedAfter > 0 ? `, ${unownedAfter} left unowned` : ''}.`;
     const summary = dryRun
       ? `Would apply: ${outcome}${skippedNote}\nDry run — nothing changed. Re-run without --dry-run to apply.`
       : `Applied plan: ${outcome}${skippedNote}\nRun \`cells health\` — crossings will be red until requires are filled.`;

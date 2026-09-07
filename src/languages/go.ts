@@ -100,6 +100,20 @@ export function modulePathsOf(moduleToFile: Map<string, string>): string[] {
   return [...set].sort((a, b) => b.length - a.length);
 }
 
+/** Per-extract memo for modulePathsOf: resolveEdges runs once per FILE with one shared
+ *  moduleToFile (factory builds it once per extract), so deriving per file is O(files×modules)
+ *  redundant — the map is frozen after phase-1 enrichment. Keyed on the map's identity (fresh
+ *  Map per extract = per-extract memo, no cross-tree leak). Python's derivedFacts precedent. */
+const modulePathsCache = new WeakMap<Map<string, string>, string[]>();
+function modulePathsCached(moduleToFile: Map<string, string>): string[] {
+  let paths = modulePathsCache.get(moduleToFile);
+  if (!paths) {
+    paths = modulePathsOf(moduleToFile);
+    modulePathsCache.set(moduleToFile, paths);
+  }
+  return paths;
+}
+
 /** Candidate package keys for an import path: the module-relative form (each known module path
  *  + `::` + dir segments — the shape of the keys under that module), then the plain `::`-joined
  *  form (GOPATH/no-module layout). Deduped. */
@@ -194,7 +208,7 @@ export const goImporter = createTreeSitterImporter<string[]>({
     uses: extractImports(root),
   }),
   resolveEdges: (imports, sourcePath, importerModule, ctx) => {
-    const modulePaths = modulePathsOf(ctx.moduleToFile); // stable across this file's imports
+    const modulePaths = modulePathsCached(ctx.moduleToFile); // per-extract memo — stable across files
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const imp of imports) {
