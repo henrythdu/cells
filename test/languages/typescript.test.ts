@@ -68,6 +68,39 @@ describe('typescriptImporter (tree-sitter)', () => {
     expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['parse', 'stringify'] }]);
   });
 
+  it('namespace attributes attach first-tail symbols; default attrs + computed + locals excluded', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-nsattr-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'a.ts'), "import * as views from './b.js';\nimport def from './b.js';\nviews.portions(x);\nviews.sub.deep;\nviews['dyn'];\ndef.helper;\nlocal.attr;\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const portions = 1;\n');
+    const files: SourceFile[] = [
+      { path: 'src/a.ts', content: readFileSync(join(dir, 'src', 'a.ts'), 'utf8') },
+      { path: 'src/b.ts', content: readFileSync(join(dir, 'src', 'b.ts'), 'utf8') },
+    ];
+    const { edges } = await typescriptImporter.extract({ codeDirs: ['src'], files, baseDir: dir });
+    const toB = edges.filter((e) => e.toFile === 'src/b.ts');
+    // portions + first-tail sub; computed, default-attr, and non-binding bases excluded
+    expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['portions', 'sub'] }]);
+  });
+
+  it('shadowed namespace alias misattributes openly (file-level bindings, stated caveat)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cells-ts-shadow-'));
+    fixtures.add(dir);
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    // the `views` param shadows the namespace import — the pilot attributes `fake` to the
+    // spec anyway (no scope tracking). Pinned as documented boundary, never a crash.
+    writeFileSync(join(dir, 'src', 'a.ts'), "import * as views from './b.js';\nfunction f(views: any) { return views.fake; }\nf(null);\n");
+    writeFileSync(join(dir, 'src', 'b.ts'), 'export const real = 1;\n');
+    const files: SourceFile[] = [
+      { path: 'src/a.ts', content: readFileSync(join(dir, 'src', 'a.ts'), 'utf8') },
+      { path: 'src/b.ts', content: readFileSync(join(dir, 'src', 'b.ts'), 'utf8') },
+    ];
+    const { edges } = await typescriptImporter.extract({ codeDirs: ['src'], files, baseDir: dir });
+    const toB = edges.filter((e) => e.toFile === 'src/b.ts');
+    expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['fake'] }]);
+  });
+
   it('resolves `@/` aliases when the repo tsconfig is present (edge to the real file)', async () => {
     const dir = makeFixture(true);
     const { edges, unresolved } = await extractAt(dir);

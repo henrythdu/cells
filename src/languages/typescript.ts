@@ -13,14 +13,19 @@ import { factsOf, resolveOne } from './ts-resolution.js';
 
 // --- AST → specifiers ---
 
-/** First string node in a statement subtree, or null. */
-function findString(n: Node): Node | null {
+/** First node of a type in a statement subtree, or null. */
+function findType(n: Node, type: string): Node | null {
   for (const c of n.namedChildren) {
-    if (c.type === 'string') return c;
-    const inner = findString(c);
+    if (c.type === type) return c;
+    const inner = findType(c, type);
     if (inner) return inner;
   }
   return null;
+}
+
+/** First string node in a statement subtree, or null. */
+function findString(n: Node): Node | null {
+  return findType(n, 'string');
 }
 
 /** One import statement's data for the resolver: the source specifier + the EXPORTED names
@@ -96,6 +101,60 @@ function collectSpecifiers(root: Node): SpecEntry[] {
   return [...byspec].map(([spec, names]) => ({ spec, names }));
 }
 
+/** Namespace aliases per file: local name → specifier (`import * as views from './views'`).
+ *  Namespace ONLY — a default import's attributes (`def.helper`) are properties of the default
+ *  export, not module-level names, so attaching them would poison the provides check with
+ *  symbols that can never legitimately appear there. CJS-interop default-as-namespace is the
+ *  documented recall cost. */
+function collectNamespaceAliases(root: Node): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const visit = (n: Node): void => {
+    if (n.type === 'import_statement') {
+      const src = findString(n);
+      const ns = findType(n, 'namespace_import');
+      const alias = ns?.namedChildren.find((c) => c.type === 'identifier');
+      if (src && src.text.length >= 2 && alias) aliases.set(alias.text, src.text.slice(1, -1));
+    }
+    for (const c of n.namedChildren) visit(c);
+  };
+  visit(root);
+  return aliases;
+}
+
+/** Attribute symbols consumed through namespace aliases: `views.portions` → `portions` on the
+ *  spec's edge. FIRST tail segment only (`views.sub.deep` → `sub` — deeper chains are internal
+ *  traversal past provides granularity). Excluded by construction: subscript/computed access,
+ *  destructured locals (scope work, out of pilot), type positions (different node families),
+ *  non-binding bases (locals/params/globals silently skipped). Shadowed locals misattribute
+ *  openly (file-level bindings, no scope tracking — stated caveat, shadow fixture pins it). */
+function collectNamespaceUses(root: Node, aliases: Map<string, string>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const visit = (n: Node): void => {
+    if (n.type === 'member_expression') {
+      // Descend the object chain: the outermost property is deep traversal, the first tail
+      // is the provides-granular name.
+      let node = n;
+      let obj = node.childForFieldName('object');
+      while (obj && obj.type === 'member_expression') {
+        node = obj;
+        obj = node.childForFieldName('object');
+      }
+      const prop = node.childForFieldName('property');
+      if (obj?.type === 'identifier' && prop?.type === 'property_identifier') {
+        const spec = aliases.get(obj.text);
+        if (spec) {
+          const names = out.get(spec) ?? [];
+          if (!names.includes(prop.text)) names.push(prop.text);
+          out.set(spec, names);
+        }
+      }
+    }
+    for (const c of n.namedChildren) visit(c);
+  };
+  visit(root);
+  return out;
+}
+
 // --- the importers ---
 
 /** Shared spec for the three TS-family importers: module key = the repo-relative path itself
@@ -106,7 +165,19 @@ function makeTsImporter(name: string, extensions: readonly string[], wasmBasenam
     extensions,
     wasmBasename,
     fileToModule: (path) => path,
-    analyze: (root) => ({ mods: [], reexports: [], uses: collectSpecifiers(root) }),
+    analyze: (root) => {
+      const specs = collectSpecifiers(root);
+      // Pilot: namespace-attribute visibility (`views.portions` alongside `from views import`).
+      // Appends + dedupes onto the binding source's edge symbols; crossings aggregation unchanged.
+      const aliases = collectNamespaceAliases(root);
+      if (aliases.size > 0) {
+        for (const [spec, names] of collectNamespaceUses(root, aliases)) {
+          const entry = specs.find((s) => s.spec === spec);
+          if (entry) entry.names.push(...names.filter((x) => !entry.names.includes(x)));
+        }
+      }
+      return { mods: [], reexports: [], uses: specs };
+    },
     resolveEdges: (specs, sourcePath, _importerModule, ctx) => {
       const facts = factsOf(ctx); // once per extract — the expensive maps build here
       const edges: ImportEdge[] = [];
