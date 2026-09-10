@@ -5,50 +5,25 @@
 
 [![npm version](https://img.shields.io/npm/v/@henrythdu/cells?style=flat-square)](https://www.npmjs.com/package/@henrythdu/cells)
 
-Code organized into **context-bounded cells** — so an LLM (or human) can work **one cell at a time** instead of drowning in the whole codebase.
-
----
-
-## The problem
-
-A real codebase is bigger than any single context — human or model. Anyone working in it has to work in *units*: grab a slice of code, make a change, move on. The question is **what slice, and who decides**.
-
-Left to drift, an agent (LLM or human) makes the same mistakes:
-
-- **It forgets the partition between sessions** — the boundaries it respected yesterday are invisible today.
-- **It duplicates a helper that already lives one cell over** — because it never saw that cell.
-- **It drops a new file in the wrong layer** — nothing tells it the codebase has layers.
-- **It erodes the structure it was asked to preserve** — change by change, the seams blur.
-
-For an LLM this is acute: the context window is bounded, the repo is not, and the model has no memory of the architecture between sessions. Mainstream agent tooling answers with *retrieval*: repo-maps, embeddings, inferred dependency graphs. The tool guesses at structure and feeds the model a snapshot. Guesses are **lossy** — and worse, they're **invisible**: the model can't tell what's real architecture and what's a guess, and the guess changes run to run.
-
-For a human the cost is slower but real: architecture that lives only in heads (or not at all), reviewed case-by-case, re-derived by every newcomer.
-
-## The bet
-
-Cells bets the other way: **declared partitions**. The structure is *authored and visible*, not guessed.
+There are many ways to keep a codebase's architecture consistent. Cells is one: the architecture is **authored and visible**, so every agent — every session, every model — shares the same declared structure instead of re-deriving its own.
 
 - Every file has a named home — **a cell**.
 - Every cell has a written contract — **a membrane** (`name`, `purpose`, `provides`, `requires`).
-- Every cross-cell dependency is a **declared crossing** — derived from real imports, never hand-written.
+- Every cross-cell dependency is a **derived crossing** — computed from real imports, never hand-written.
 
-Coherent membranes + complete ownership beat lossy retrieval. Cells is **for the model**: its job is to give an LLM a clean, bounded, self-describing unit of context to work in. Humans collaborate at the approval point: the model works the cells and proposes partition and membrane changes; a human has the final say on the partition. The model works *inside* a membrane instead of guessing at an invisible whole, so it stays **structure-aware**, not just text-aware.
-
-The bet is mechanism-first: cells makes structure visible and checks it against real imports. Whether that visibility improves agent outcomes is, so far, one user's experience — not evidence.
+The dependency checks are inspired by Clean Architecture (dependencies point toward the core; no cycles) — applied as visible warnings, not academic ceremony.
 
 ---
 
 ## Install
 
-**For users:**
-
 ```bash
 npm install -g @henrythdu/cells
 ```
 
-npm fetches the package, builds `dist/` via the `prepare` script, and links the `cells` command. Requires Node (ESM). Git and npm versions always match — every npm publish is tagged in git.
+Requires Node (ESM). Git and npm versions always match — every npm publish is tagged in git.
 
-**From source** (development):
+**From source:**
 
 ```bash
 git clone https://github.com/henrythdu/cells.git
@@ -57,7 +32,7 @@ pnpm install      # installs deps + builds dist/ via prepare
 npm link          # live symlink into dist/ for local edits
 ```
 
-Runtime dependencies (`smol-toml`, `minimatch`, `web-tree-sitter`; grammar WASMs bundled in `grammars/`) are installed automatically.
+Runtime dependencies (`smol-toml`, `minimatch`, `web-tree-sitter`; grammar WASMs bundled in `grammars/`) install automatically.
 
 ---
 
@@ -85,7 +60,7 @@ cells list                          # see the whole partition
 | **Partition** | the complete, non-overlapping assignment of every code file to exactly one cell. (A file is the atomic unit.) |
 | **Membrane** | a cell's declaration — `name`, `purpose`, `provides`, `requires`. What you read first to understand a cell. |
 | **Crossing** | a real dependency from one cell's code into another's (derived from imports). The seams between cells. |
-| **Payload** | what a model consumes to work a cell — its membrane + owned files + its neighbors' membranes. Measured in tokens. |
+| **Payload** | what a model consumes to work a cell — its membrane + owned files + its neighbors' membranes. Measured in tokens (~chars/3). |
 | **Metrics** | per-cell **fan-in** / **fan-out** (distinct cells it's depended-on-by / depends-on) and **instability** I = fan-out ÷ (fan-in + fan-out): 0 = stable, 1 = unstable. Shown in `list` and `show`; derived from crossings, free. |
 
 **Three storage truths:**
@@ -94,11 +69,14 @@ cells list                          # see the whole partition
 - **Declarations are *authored*** — `*.cell.toml`, you write the membrane.
 - **Crossings are *derived*** — computed from real imports, never hand-written.
 
-**One principle:** *visibility over enforcement.* Cells shows you the structure and its problems; it rarely blocks. (The exception is leakage — see Rules.)
+**One principle:** *visibility over enforcement.* Cells shows you the structure and its problems; it rarely blocks. (The exceptions are integrity, undeclared leakage, and broken grammars — see Rules.)
 
 ---
 
 ## Commands
+
+<details>
+<summary>Full command reference (also in <code>cells help</code>)</summary>
 
 | command | what it does |
 | --- | --- |
@@ -117,13 +95,15 @@ cells list                          # see the whole partition
 | `cells impact <name>` | blast radius: cells that transitively depend on this one (change-safety) |
 | `cells payload <name>` | print a cell's full payload (membrane + code + neighbors + the cells that depend on you) — the context to work it |
 | `cells health [--verbose] [--summary]` | **the gate** — all checks at once: integrity (duplicates, dangling refs, undeclared cells) + crossings (**undeclared** leakage gate-fails; **stale** is informational) + a broken packaged grammar WASM + structure (cycles / direction) + size. Exits 1 only on integrity + undeclared leakage + grammars (strict gate); size/structure are exit-0 warnings (⚠). `--verbose` names failing undeclared edges inline (saves the `crossings` round-trip); `--summary` collapses unresolved entries into per-file groups (the triage unit for high-unresolved repos). Output ends with a machine-parseable `health: X.Xs` timing line. |
-| `cells crossings [--diff] [--warnings]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed; `--warnings` = leakage + unresolved only (no pair listing — the actionable tail on a big repo) |
+| `cells crossings [--diff] [--verbose] [--json] [--warnings]` | derived cross-cell imports + **leakage** check; `--diff` shows crossings your uncommitted edits added/removed; `--warnings` = leakage + unresolved only (no pair listing — the actionable tail on a big repo); `--verbose` names off-membrane symbols inline; `--json` is the machine surface |
 | `cells imports [--json]` | raw file→file import graph (resolved edges + unresolved specifiers) — the machine surface for tooling |
 | `cells size` | context-fit: each cell's payload vs the ceiling (warning); over-ceiling cells list **peel candidates** — biggest files few others import. A cell can declare its own ceiling (`ceiling = N` in its `.cell.toml`) — same check, its own number |
 | `cells config [set max-payload-tokens <N>]` | read the effective config (defaults where the file omits); `set` edits the global ceiling in place — comments and other keys preserved |
-| `cells structure [--summary]` | **Clean Architecture, made visible**: layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut. `--summary` is the triage view: one line per cycle (size + cheapest edges) + counts — for high-cycle repos (kafka 19, elasticsearch 126) where the full chains dominate |
+| `cells structure [--summary]` | layer tiers + ADP (no cycles) + Direction (deps point toward core) + SDP (deps run toward stability) — the dependency rule, checked. All info/warnings; cycles suggest the cheapest edge to cut. `--summary` is the triage view: one line per cycle (size + cheapest edges) + counts |
 | `cells graph [--mermaid]` | the cell dependency graph (ASCII tree default; `--mermaid` for Mermaid source) |
 | `cells help` | this text (also `--help`, `-h`) — the tool's self-documentation; run it first in any repo |
+
+</details>
 
 ---
 
@@ -213,16 +193,16 @@ vendor/
 - **Java** via `tree-sitter` (WASM; fully-qualified class imports → package-decl resolution, layout-agnostic; wildcards → one representative edge per package).
 - Other languages need an importer — one per language, selected automatically by file extension.
 
-**What importers can't see (static-analysis blind spots, named per language):** Python — `importlib`, `__import__`, string-built module names; Rust — proc-macro-expanded paths; Go — `reflect`-based coupling and generator→generated relationships; Java — static imports only, nothing beyond the repo's own sources; C/C++ — `#include` only, no macro-computed paths; TypeScript — dynamic `import()` and `import x = require('y')` *are* handled, string-built specifiers (plugin loaders) are not. The derived graph is honest about what it derived: when a coupling the importer can't see matters, say so in the membrane — the authored declaration is the tool's only source of invisible-channel truth.
+**What importers can't see (static-analysis blind spots, named per language):** Python — `importlib`, `__import__`, string-built module names; Rust — proc-macro-expanded paths; Go — `reflect`-based coupling and generator→generated relationships; Java — static imports only, nothing beyond the repo's own sources; C/C++ — `#include` only, no macro-computed paths; TypeScript — string-built specifiers (plugin loaders) are not resolved. The derived graph is honest about what it derived: when a coupling the importer can't see matters, say so in the membrane — the authored declaration is the tool's only source of invisible-channel truth.
 
-**Named-symbol visibility** (what the membrane check can audit): TypeScript/JavaScript/TSX — named imports (`import { a, b } from '…'`, aliases stripped to the exported name); Python — `from M import a, b` names; Rust — `use`-path tail items (`use a::b::Item` → `Item`). Module-level dependencies, namespace imports, and C/C++/Go/Java edges carry no symbols — exempt by construction, listed here rather than hidden.
+**Named-symbol visibility** (what the membrane check can audit): TypeScript/JavaScript/TSX — named imports (`import { a, b } from '…'`, aliases stripped to the exported name) plus namespace-attribute uses (`import * as ns` + `ns.portion` → `portion`, first tail segment; default-import attributes excluded — sub-export granularity); Python — `from M import a, b` names; Rust — `use`-path tail items (`use a::b::Item` → `Item`). Module-level dependencies and C/C++/Go/Java edges carry no symbols — exempt by construction, listed here rather than hidden.
 
 Adding a language: write an importer spec in `src/languages/` (tree-sitter langs: a spec for the
 shared factory in `src/languages/tree-sitter.ts`; otherwise a custom `extract`) + one line in
 `DEFAULT_IMPORTERS` in `src/importers.ts`. The repo's own cells show the pattern — `cells new`
 the language cell declare-first, then `cells health` enforces the declaration.
 
-Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading. (Dogfooded on a 50-file Python repo — 56 crossings; and a 61-file Rust repo — 62 crossings, `structure` surfaced a real UI/app cycle.)
+Resolution doesn't chase the filesystem or require the repo to build/install: it derives a module→file map from ownership, so it runs on source you're just reading.
 
 ---
 
@@ -238,33 +218,14 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Membrane** | warning (exit 0) | a cell imports **named symbols** the target's `provides` doesn't list (an empty `provides` on a consumed cell = membrane incomplete) — `cells crossings --verbose` names them; converge the list |
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
-**Payload = tokens**, estimated at chars/3 (model-agnostic). It includes the cell's membrane + owned files + its neighbors' membranes.
-
-Two bits of borrowed vocabulary, for the architecture-literate: the payload ceiling is a **cognitive-load budget** (Team Topologies splits teams by the same measure — cells budgets it per cell, for model *and* human), and the rule table above is a suite of **fitness functions** (Building Evolutionary Architectures: executable checks that keep an architecture honest as it evolves) — hard-gated where the facts are deterministic (leakage, integrity), advisory where they're statistical (size, structure, co-change).
-
-**The estimate is crude — and that's fine.** Every LLM tokenizes differently (and the same LLM at different settings); chars/3 is a rough, consistent proxy. The ceiling is **not a hard limit** — nothing breaks when a cell exceeds it. Its purpose is to make the model (or human) *conscious* of cell size before pulling a payload: the warning is "this cell is getting big — do you really want to read it whole?", not "this cell is invalid." A cell at 1.5× the ceiling is often the right call for a coherent unit; the gate doesn't care, it's your judgment that matters.
-
-The low default is also a module-size discipline, not just a context budget: a deliberate bar against 3,000-line files and ever-growing modules — small enough that any current model can hold the payload. That's why it's a single global number rather than a per-model setting: the bar is about code shape, and per-cell `ceiling = N` opts a legitimately-big cell out without raising it for everyone.
+Payload tokens are estimated at chars/3 (a rough, consistent proxy across models — not exact for any of them). The ceiling is a budget, not a limit: nothing breaks when a cell exceeds it. A cell at 1.5× the ceiling is often the right call for a coherent unit; the gate doesn't care, it's your judgment that matters. The low default is also a module-size discipline — small enough that any current model can hold the payload — and per-cell `ceiling = N` opts a legitimately-big cell out without raising the bar for everyone.
 
 ---
 
-## Working with a Cells project (for agents)
+## Handing work to an agent
 
-> **Cold start? Run `cells help`.** The command list and descriptions are self-describing — it's the real front door for this tool. Point an agent at a repo and ask it to run `cells help`; that alone is enough to orient and pick up the loop below, whether the repo has a `.cells/` dir yet or not.
-
-Drop into a repo with a `.cells/` dir and follow this loop:
-
-1. **Orient** — `cells list`: see the cells, their sizes, and any unowned files.
-2. **Zoom in** — `cells show <name>`: a cell's membrane + what it depends on / what depends on it.
-3. **Retrieve** — `cells payload <name>`: the full context (membrane + code + neighbors) to work that cell.
-4. **Assess** — `cells impact <name>`: blast radius — who transitively depends on this cell? Weigh the risk *before* editing (a core cell can break many; a leaf is safe to change).
-5. **Work** — edit the cell's files. Stay within its membrane.
-6. **Place new code** — a new file needs a home. Read `list`, decide which cell (it's *your* judgment, not Cells'), then `cells assign <cell> <file>`. (Unowned files aren't violations — `list` shows them as a reminder; `.cells/ignore` hides the intentional ones.)
-7. **Check** — `cells health` (the gate — every check at once). Drill in if it fails: `cells crossings` (leakage), `cells size` (context-fit), `cells structure` (cycles / direction).
-8. **Navigate** — `cells graph` for the structure at a glance; `cells owns <file>` for a reverse lookup.
-
-**Divide when a cell grows past the ceiling:** split its files across new cells with `assign`. There's no separate "divide" command — `assign` *is* the repartition tool. **Merge is the reverse and deliberately manual too** (`assign` the files over, `remove` the empty cell) — there's no `merge` command: the two steps are the moment to reconsider, and the size warning that follows is the honest cost. If a big cell is big *on purpose* (a huge crate), declare `ceiling = N` in its `.cell.toml` instead of raising the global bar for every cell.
+Point it at a repo and tell it to run `cells help` — the tool is self-documenting, and that's the whole handoff. The loop it will follow: `list` (orient) → `show` (zoom) → `payload` (retrieve) → `impact` (assess) → edit inside the membrane → `health` (check). You review partition and membrane changes; it works the cells.
 
 ---
 
-*Cells dogfoods itself: this codebase is partitioned into 31 cells. Run `cells list` to see.*
+*Cells dogfoods itself: this codebase is partitioned into 32 cells. Run `cells list` to see.*
