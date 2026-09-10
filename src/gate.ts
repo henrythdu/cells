@@ -26,7 +26,7 @@ import {
   formatStructureReport,
   formatStructureSummary,
 } from './structure.js';
-import { type StaleProvide, staleProvidesOf, validatePartition } from './validate.js';
+import { providesDrift, type StaleProvide, validatePartition } from './validate.js';
 import { formatHealthReport, formatSizeReport, type HealthValues, type PeelCandidate } from './view.js';
 
 /** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
@@ -151,14 +151,22 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   const cellNames = Object.keys(declarations);
   let maxPercent = 0;
   const staleProvides: StaleProvide[] = [];
+  const allContents: Record<string, string> = {};
   for (const name of cellNames) {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read, shared by the size check and the provides-drift check
+    Object.assign(allContents, contents);
     const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? [])).tokens / (cell.ceiling ?? config.maxPayloadTokens);
     if (pct > maxPercent) maxPercent = pct;
-    staleProvides.push(...staleProvidesOf(cell, owned, contents));
   }
+  // Orphans aren't owned but can still suppress unread flags (string-literal readers live
+  // anywhere) — one extra read, usually near-empty.
+  const ownedSet = new Set(Object.keys(allContents));
+  Object.assign(allContents, readFiles(codeFiles.filter((f) => !ownedSet.has(f))));
+  // One name, one verdict: unread subsumes stale (the drift helper splits them).
+  const drift = providesDrift(declarations, ownership, edges, allContents);
+  staleProvides.push(...drift.stale);
 
   // The strict-gate rule lives HERE (the gate module), not in the renderer: exit 1 on
   // integrity violations, undeclared leakage, or a broken grammar bundle. Size/structure
@@ -178,6 +186,9 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
     staleEdges: stale.map((s) => `${s.fromCell} → ${s.toCell}`),
     staleProvidesCount: staleProvides.length,
     staleProvidesDetails: staleProvides.map((s) => `${s.cell} provides "${s.provide}"`),
+    unreadProvidesCount: drift.unread.length,
+    unreadProvidesDetails: drift.unread.map((u) => `${u.cell} provides "${u.provide}"`),
+    unreadProvidesEvaluated: drift.evaluated,
     offMembraneCount: offMembrane.length,
     offMembraneDetails: offMembrane.map((o) =>
       o.emptyProvides

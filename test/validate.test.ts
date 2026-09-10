@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Cell } from '../src/declaration.js';
 import type { Ownership } from '../src/ownership.js';
-import { isUnsafePath, staleProvidesOf, validatePartition } from '../src/validate.js';
+import { isUnsafePath, providesDrift, staleProvidesOf, validatePartition } from '../src/validate.js';
 
 /** Helper: build a declarations map from { name: [requires] }. */
 function decls(cells: Record<string, string[]>): Record<string, Cell> {
@@ -98,5 +98,53 @@ describe('staleProvidesOf', () => {
     const c = cell(['parseCell']);
     const contents = { 'src/cell.ts': 'export function parseCellExtra() {}' }; // parseCell inside a longer identifier
     expect(staleProvidesOf(c, ['src/cell.ts'], contents)).toEqual([{ cell: 'cell', provide: 'parseCell' }]);
+  });
+});
+
+describe('providesDrift (unread subsumes stale — one name, one verdict)', () => {
+  const cell = (name: string, provides: string[]): Cell => ({ name, purpose: '...', provides, requires: [] });
+  // None of the tokens appear in home's owned text — all four are stale candidates;
+  // readers elsewhere decide stale-vs-unread. (Definitions would suppress stale outright.)
+  const decls = { home: cell('home', ['LITERAL_BOUND', 'EDGE_READ', 'DRAWINGS_DIR', 'TOP_ONLY']), other: cell('other', []) };
+  const ownership: Ownership = { home: ['home/a.ts'], other: ['other/b.ts'] };
+  const contents = {
+    'home/a.ts': 'export const OTHER = 1;\n',
+    // TOOL_MAP-style string binding + dotted-top-only read (no import edge for either).
+    'other/b.ts': 'const TOOL_MAP = { LITERAL_BOUND: 1 }; import pkg.sub; pkg.TOP_ONLY;\n',
+  };
+  const edges = [{ fromFile: 'other/b.ts', toFile: 'home/a.ts', import: 'home/a', symbols: ['EDGE_READ'] }];
+  const staleNames = (d: { stale: { provide: string }[] }) => d.stale.map((s) => s.provide);
+  const unreadNames = (d: { unread: { provide: string }[] }) => d.unread.map((u) => u.provide);
+
+  it('keeps import-edge readers on the stale line, off the unread line', () => {
+    const d = providesDrift(decls, ownership, edges, contents);
+    expect(staleNames(d)).toContain('EDGE_READ'); // shared-but-stale: legitimate re-export shape
+    expect(unreadNames(d)).not.toContain('EDGE_READ');
+  });
+
+  it('keeps string-literal readers (TOOL_MAP binding) off the unread line', () => {
+    const d = providesDrift(decls, ownership, edges, contents);
+    expect(staleNames(d)).toContain('LITERAL_BOUND');
+    expect(unreadNames(d)).not.toContain('LITERAL_BOUND');
+  });
+
+  it('flags truly unread provides (DRAWINGS_DIR shape) as unread, not stale', () => {
+    const d = providesDrift(decls, ownership, edges, contents);
+    expect(unreadNames(d)).toContain('DRAWINGS_DIR');
+    expect(staleNames(d)).not.toContain('DRAWINGS_DIR'); // subsumed — one verdict
+  });
+
+  it('covers dotted-top-only reads via the literal scan (the feared blind spot never fires)', () => {
+    // `import pkg.sub; pkg.TOP_ONLY` is invisible as an EDGE (top-only binding, no pkg
+    // edge) — but the read is textually present, and the literal scan sees text, not
+    // edges. The D3 premise dissolves: silence here is correct, not a miss.
+    const d = providesDrift(decls, ownership, edges, contents);
+    expect(unreadNames(d)).not.toContain('TOP_ONLY');
+  });
+
+  it('never flags names used in owned files (in-cell readers suppress)', () => {
+    const d = providesDrift({ home: cell('home', ['IN_CELL']), other: decls.other }, ownership, [], { ...contents, 'home/a.ts': 'export function IN_CELL() {} IN_CELL();\n' });
+    expect(d.stale).toEqual([]);
+    expect(d.unread).toEqual([]);
   });
 });

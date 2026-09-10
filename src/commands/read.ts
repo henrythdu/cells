@@ -13,7 +13,7 @@ import { type Ownership, owningCell } from '../ownership.js';
 import { assemblePayload, type CellSize, computePayloadSize, estimateTokens, neighborsOf } from '../payload.js';
 import { loadCrossings, requireCell, warnIfNoCodeFiles } from '../pipeline.js';
 import { classifyChangeCoupling } from '../structure.js';
-import { staleProvidesOf } from '../validate.js';
+import { providesDrift } from '../validate.js';
 import { type CellSmell, formatCellList, formatCellShow } from '../view.js';
 
 /** `cells crossings [--diff] [--verbose] [--json]` — real cross-cell imports + leakage.
@@ -151,6 +151,7 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   const { declarations, ownership, config } = ctx;
   const sizes: Record<string, CellSize> = {};
   const smells: Record<string, CellSmell> = {};
+  const allContents: Record<string, string>[] = [];
   const { crossings, unresolved, edges } = await loadCrossings(ownership);
   const unresolvedByCell = new Map<string, number>();
   if (verbose) {
@@ -164,14 +165,28 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
     const owned = ownership[name] ?? [];
     const contents = readFiles(owned); // one read — reused for size, stale provides, dead files
     sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
-    // stale provides computed HERE (contents already in hand — a second pass would re-read
-    // every file); no provides = nothing to scan, skip the check entirely.
-    if (verbose)
+    if (verbose) allContents.push(contents);
+  }
+  if (verbose) {
+    // Drift needs the whole repo in hand (owned accumulated above, orphans read once) —
+    // one name, one verdict: unread subsumes stale in both the smell counts below.
+    const merged = Object.assign({}, ...allContents);
+    const ownedAll = new Set(Object.keys(merged));
+    const orphans = listCodeFiles().filter((f) => !ownedAll.has(f));
+    const drift = providesDrift(declarations, ownership, edges, { ...merged, ...readFiles(orphans) });
+    const staleByCell = new Map<string, number>();
+    const unreadByCell = new Map<string, number>();
+    for (const s of drift.stale) staleByCell.set(s.cell, (staleByCell.get(s.cell) ?? 0) + 1);
+    for (const u of drift.unread) unreadByCell.set(u.cell, (unreadByCell.get(u.cell) ?? 0) + 1);
+    for (const name of Object.keys(declarations)) {
+      const cell = declarations[name];
       smells[name] = {
         pct: sizes[name].tokens / (cell.ceiling ?? config.maxPayloadTokens),
-        staleProvides: cell.provides.length === 0 ? 0 : staleProvidesOf(cell, owned, contents).length,
+        staleProvides: staleByCell.get(name) ?? 0,
+        unreadProvides: unreadByCell.get(name) ?? 0,
         unresolved: unresolvedByCell.get(name) ?? 0,
       };
+    }
   }
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const owned = new Set(Object.values(ownership).flat());
@@ -227,8 +242,14 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
       jaccard: p.jaccard,
       explained: p.explained,
     }));
-  // Membrane drift: provides entries no owned file references (rides the contents read above).
-  const staleProvides = staleProvidesOf(cell, ownedFiles, contents);
+  // Membrane drift for this cell: whole-repo contents in hand (owned of every cell +
+  // orphans) so the unread refinement scans the same population as health — one name,
+  // one verdict on both surfaces.
+  const repoContents: Record<string, string> = { ...contents };
+  for (const files of Object.values(ownership)) Object.assign(repoContents, readFiles(files.filter((f) => !(f in repoContents))));
+  const drift = providesDrift(declarations, ownership, edges, repoContents);
+  const staleProvides = drift.stale.filter((s) => s.cell === name);
+  const unreadProvides = drift.unread.filter((u) => u.cell === name);
   process.stdout.write(
     formatCellShow(
       {
@@ -241,6 +262,7 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
         dead: deadFiles,
         coChange,
         staleProvides,
+        unreadProvides,
         unresolved: cellUnresolved,
       },
       verbose,

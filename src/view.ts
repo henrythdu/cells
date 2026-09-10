@@ -10,6 +10,7 @@ import type { CellSize } from './payload.js';
 export interface CellSmell {
   pct: number; // payload tokens / ceiling (0-1)
   staleProvides: number;
+  unreadProvides: number;
   unresolved: number;
 }
 
@@ -24,6 +25,7 @@ function formatCellSmell(s: CellSmell): string {
   const parts: string[] = [];
   parts.push(`${Math.round(s.pct * 100)}% size`);
   if (s.staleProvides > 0) parts.push(`${s.staleProvides} stale provide${pl(s.staleProvides)}`);
+  if (s.unreadProvides > 0) parts.push(`${s.unreadProvides} unread provide${pl(s.unreadProvides)}`);
   if (s.unresolved > 0) parts.push(`${s.unresolved} unresolved import${pl(s.unresolved)}`);
   return parts.join(' · ');
 }
@@ -128,6 +130,7 @@ export interface CellShowContext {
   /** Change partners above threshold, classified against crossings (ADR 0002). */
   coChange: { cell: string; count: number; window: number; jaccard: number; explained: boolean }[];
   staleProvides: { cell: string; provide: string }[];
+  unreadProvides: { cell: string; provide: string }[];
   /** Import specifiers from this cell's files that resolved to no owned file. */
   unresolved: string[];
 }
@@ -150,7 +153,7 @@ function crossingLines(label: string, crossings: Crossing[], byFrom: boolean, ar
 }
 
 export function formatCellShow(ctx: CellShowContext, verbose = false): string {
-  const { cell, owned, out, inc, size, metrics, dead, coChange, staleProvides, unresolved } = ctx;
+  const { cell, owned, out, inc, size, metrics, dead, coChange, staleProvides, unreadProvides, unresolved } = ctx;
   const lines: string[] = [`cell: ${cell.name}`];
   lines.push(`purpose: ${cell.purpose}`);
   if (cell.purpose === STUB_PURPOSE) lines.push(`⚠ stub — edit .cells/${cell.name}.cell.toml to fill in purpose, provides, requires`);
@@ -158,6 +161,10 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
   if (staleProvides.length > 0) {
     lines.push('⚠ provides not found in owned code (membrane drift — export removed or entry stale):');
     for (const s of staleProvides) lines.push(`  ${s.provide}`);
+  }
+  if (unreadProvides.length > 0) {
+    lines.push('⚠ provides with no found reader in owned files or other cells (absence of a found reader is not proof of death):');
+    for (const s of unreadProvides) lines.push(`  ${s.provide}`);
   }
   if (cell.signatures && cell.signatures.length > 0) {
     for (const sig of cell.signatures) lines.push(`  • ${sig}`);
@@ -259,6 +266,10 @@ export interface HealthValues {
   staleEdges: string[];
   staleProvidesCount: number;
   staleProvidesDetails: string[];
+  unreadProvidesCount: number;
+  unreadProvidesDetails: string[];
+  /** Identifier-shaped provides evaluated — the denominator the unread zero stands on. */
+  unreadProvidesEvaluated: number;
   offMembraneCount: number;
   offMembraneDetails: string[];
   cycleCount: number;
@@ -348,6 +359,12 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
   if (v.staleProvidesCount > 0) {
     lines.push(`(info) ${v.staleProvidesCount} stale provide(s) — declared but no owned file references them (membrane drift — fix the code or the entry):`);
     for (const s of v.staleProvidesDetails) lines.push(`  ${s}`);
+  }
+  if (v.unreadProvidesCount > 0) {
+    lines.push(
+      `(info) ${v.unreadProvidesCount} unread provide(s) of ${v.unreadProvidesEvaluated} evaluated — no reader found in owned files or other cells (absence of a found reader is not proof of death — e.g. \`import pkg.sub; pkg.attr\` reads are invisible to the census):`,
+    );
+    for (const s of v.unreadProvidesDetails) lines.push(`  ${s}`);
   }
   if (v.unresolvedCount > 0) {
     lines.push(

@@ -73,11 +73,11 @@ describe('formatCellList', () => {
 
   it('renders a per-cell health smell line under the row (list --verbose)', () => {
     const smells = {
-      cli: { pct: 1.1, staleProvides: 2, unresolved: 3 },
-      declaration: { pct: 0.2, staleProvides: 0, unresolved: 0 },
+      cli: { pct: 1.1, staleProvides: 2, unreadProvides: 1, unresolved: 3 },
+      declaration: { pct: 0.2, staleProvides: 0, unreadProvides: 0, unresolved: 0 },
     };
     const out = formatCellList(decls, sizes, listMetrics, [], smells);
-    expect(out).toContain('⚠ 110% size · 2 stale provides · 3 unresolved imports');
+    expect(out).toContain('⚠ 110% size · 2 stale provides · 1 unread provide · 3 unresolved imports');
     // the smell line sits directly under its cell's row
     const lines = out.split('\n');
     const cliIdx = lines.findIndex((l) => l.startsWith('  cli '));
@@ -132,7 +132,7 @@ describe('formatCellShow', () => {
   const size: CellSize = { files: 2, chars: 640, tokens: 160 };
   // out: validate → {ownership, declaration} (fanOut 2); in: cli → validate (fanIn 1) → I = 2/3 ≈ 0.67
   const metrics: CellMetrics = { fanIn: 1, fanOut: 2, instability: 2 / 3 };
-  const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [], staleProvides: [], unresolved: [] };
+  const ctx: CellShowContext = { cell, owned: ownedWithTokens, out, inc, size, metrics, dead: [], coChange: [], staleProvides: [], unreadProvides: [], unresolved: [] };
   const out2 = formatCellShow(ctx);
 
   it('lists dead-at-boundary files and change-coupled partners when present', () => {
@@ -337,6 +337,9 @@ describe('formatHealthReport', () => {
     staleEdges: [],
     staleProvidesCount: 0,
     staleProvidesDetails: [],
+    unreadProvidesCount: 0,
+    unreadProvidesDetails: [],
+    unreadProvidesEvaluated: 0,
     offMembraneCount: 0,
     offMembraneDetails: [],
     cycleCount: 0,
