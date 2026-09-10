@@ -52,6 +52,12 @@ cells list                          # see the whole partition
 
 ---
 
+## Handing work to an agent
+
+Point it at a repo and tell it to run `cells help` — the tool is self-documenting, and that's the whole handoff. The loop it will follow: `list` (orient) → `show` (zoom) → `payload` (retrieve) → `impact` (assess) → edit inside the membrane → `health` (check). You review partition and membrane changes; it works the cells.
+
+---
+
 ## The mental model
 
 | term | meaning |
@@ -219,12 +225,6 @@ Resolution doesn't chase the filesystem or require the repo to build/install: it
 | **Orphans** | visibility (not a violation) | unowned files — shown by `list`; `.cells/ignore` declares the intentional ones |
 
 Payload tokens are estimated at chars/3 (a rough, consistent proxy across models — not exact for any of them). The ceiling is a budget, not a limit: nothing breaks when a cell exceeds it. A cell at 1.5× the ceiling is often the right call for a coherent unit; the gate doesn't care, it's your judgment that matters. The low default is also a module-size discipline — small enough that any current model can hold the payload — and per-cell `ceiling = N` opts a legitimately-big cell out without raising the bar for everyone.
-
----
-
-## Handing work to an agent
-
-Point it at a repo and tell it to run `cells help` — the tool is self-documenting, and that's the whole handoff. The loop it will follow: `list` (orient) → `show` (zoom) → `payload` (retrieve) → `impact` (assess) → edit inside the membrane → `health` (check). You review partition and membrane changes; it works the cells.
 
 ---
 
