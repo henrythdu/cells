@@ -15,6 +15,68 @@ const files: SourceFile[] = [
 ];
 
 describe('python importer', () => {
+  it('namespace attributes attach first-tail symbols; dotted-plain + from-symbol + computed excluded', async () => {
+    const { edges } = await pythonImporter.extract({
+      codeDirs: ['src'],
+      files: [
+        { path: 'src/views.py', content: 'PORTIONS = 1\n_private = 2\n' },
+        { path: 'src/pkg/__init__.py', content: '\n' },
+        { path: 'src/pkg/mod.py', content: 'ITEM = 1\n' },
+        {
+          path: 'src/app.py',
+          content: [
+            'import src.views',
+            'import src.views as v',
+            'import src.pkg',
+            'from src.pkg import mod',
+            'from src.views import PORTIONS',
+            'src.views.PORTIONS',
+            'v._private',
+            'src.pkg.sub.deep',
+            'src.attr', // plain-dotted top: no src edge → silence (os.path rule)
+            'mod.ITEM', // from-submodule: edge src.pkg.mod exists → attach
+            'PORTIONS.foo', // from-symbol: no src.views.PORTIONS edge → drop
+            "src.views['dyn']", // computed → excluded
+            '',
+          ].join('\n'),
+        },
+        {
+          path: 'src/pkg/user.py',
+          content: 'from . import mod\nmod.ITEM\n', // relative-from submodule → attach
+        },
+      ],
+    });
+    const sym = new Map(edges.filter((e) => e.symbols?.length).map((e) => [`${e.fromFile} | ${e.import}`, e.symbols]));
+    expect(sym.get('src/app.py | src.views')).toEqual(['PORTIONS', '_private']);
+    expect(sym.get('src/app.py | src.pkg.mod')).toEqual(['ITEM']);
+    expect(sym.get('src/app.py | src.pkg')).toEqual(['sub']); // chain traverses a real edge — the attempt is honest visibility
+    expect(sym.get('src/pkg/user.py | src.pkg.mod')).toEqual(['ITEM']);
+    // from-symbol edge carries its names by pre-existing mechanism (not the pilot)
+    expect(sym.get('src/pkg/user.py | src.pkg')).toEqual(['mod']);
+    // dotted-plain top, from-symbol tails, and computed access attach nothing anywhere
+    for (const [k, v] of sym) {
+      expect(v).not.toContain('attr');
+      expect(v).not.toContain('foo');
+      expect(v).not.toContain('dyn');
+      if (k !== 'src/app.py | src.views' && k !== 'src/app.py | src.pkg' && k !== 'src/app.py | src.pkg.mod' && k !== 'src/pkg/user.py | src.pkg.mod' && k !== 'src/pkg/user.py | src.pkg') {
+        throw new Error(`unexpected symbol edge ${k} -> ${JSON.stringify(v)}`);
+      }
+    }
+  });
+
+  it('shadowed import binding misattributes openly (file-level bindings, stated caveat)', async () => {
+    const { edges } = await pythonImporter.extract({
+      codeDirs: ['src'],
+      files: [
+        { path: 'src/views.py', content: 'REAL = 1\n' },
+        { path: 'src/app.py', content: 'import src.views\ndef f(src):\n    return src.views.FAKE\n' },
+      ],
+    });
+    // the `src` param shadows the module — the pilot attributes FAKE anyway (no scope
+    // tracking). Pinned as documented boundary, never a crash, never a false edge.
+    const sym = edges.filter((e) => e.symbols?.length);
+    expect(sym).toEqual([{ fromFile: 'src/app.py', toFile: 'src/views.py', import: 'src.views', symbols: ['FAKE'] }]);
+  });
   it('extracts absolute + relative edges, drops external', async () => {
     const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files });
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile} | ${e.import}`));

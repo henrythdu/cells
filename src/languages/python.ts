@@ -26,6 +26,23 @@ interface ImportDesc {
   names: string[]; // imported names (for `from M import a, b` — tried as submodules M.a, M.b)
 }
 
+/** A namespace-ish binding: local name → the gate module whose edge carries its attribute
+ *  tails (`import views as v` → v is views; `from m import a` → a is m.a). Attachment requires
+ *  an edge with import == path (the module-vs-symbol discriminator) — no edge, silence. */
+interface NsAlias {
+  name: string;
+  path: string;
+}
+
+/** One attribute use: the full dotted chain (`v.sub.deep` → [v, sub, deep]). Resolution
+ *  replaces the root with its gate module and attaches the segment after the LONGEST prefix
+ *  with an edge — the edge's module is literally part of the access path, so wrong-module
+ *  attribution is impossible by construction (`os.getcwd` with only an os.path edge: no
+ *  prefix matches, silence). */
+interface AttrUse {
+  segs: string[];
+}
+
 /** Text of a `dotted_name` (or the inner one inside `dotted_as_name` for `import a as b`). */
 function dottedText(node: Node): string | null {
   if (node.type === 'dotted_name') return node.text;
@@ -68,6 +85,70 @@ function collectImports(node: Node, out: ImportDesc[]): void {
     return; // named children are module name + imported names — no deeper imports
   }
   for (const child of node.namedChildren) collectImports(child, out);
+}
+
+/** Import-statement bindings: as-form binds the FULL path (`import X.Y as W` → W is X.Y —
+ *  exact); plain form binds the TOP segment only (`import X.Y` binds X, gated on an X edge
+ *  that rarely exists — attaching X-tails to the X.Y edge would be wrong-module, so the
+ *  gate silences them; the recall cost is stated, silence-safe). */
+function collectImportAliases(root: Node): NsAlias[] {
+  const out: NsAlias[] = [];
+  const visit = (n: Node): void => {
+    if (n.type === 'import_statement') {
+      for (const child of n.namedChildren) {
+        if (child.type === 'aliased_import') {
+          const path = child.namedChildren.find((c) => c.type === 'dotted_name');
+          const alias = child.namedChildren.find((c) => c.type === 'identifier');
+          if (path && alias) out.push({ name: alias.text, path: path.text });
+        } else if (child.type === 'dotted_name') {
+          const top = child.text.split('.')[0];
+          out.push({ name: top, path: top });
+        }
+      }
+    }
+    for (const c of n.namedChildren) visit(c);
+  };
+  visit(root);
+  return out;
+}
+
+/** Attribute uses through bindings: full dotted chains (`views.portions` → [views, portions]).
+ *  Excluded by construction: subscript/computed (`views['y']`), assigned-away aliases
+ *  (`v = views` — scope work, out), call-result bases (`get_views().x` — non-binding),
+ *  unresolvable roots (params/locals/globals silently skipped; `self.x` falls out free).
+ *  No name-shape filtering — privates consumed cross-cell (`_drawn_portions`) are couplings too. */
+function collectAttrUses(root: Node): AttrUse[] {
+  const out: AttrUse[] = [];
+  // Full chain root-first, or null when the shape isn't a plain identifier chain.
+  const chain = (n: Node): string[] | null => {
+    const obj = n.childForFieldName('object');
+    const prop = n.childForFieldName('attribute');
+    if (!obj || !prop || prop.type !== 'identifier') return null;
+    if (obj.type === 'identifier') return [obj.text, prop.text];
+    if (obj.type === 'attribute') {
+      const inner = chain(obj);
+      return inner ? [...inner, prop.text] : null;
+    }
+    return null;
+  };
+  const visit = (n: Node): void => {
+    if (n.type === 'attribute') {
+      const segs = chain(n);
+      // Nested attributes visit twice (outer + inner sub-chain); the sub-chain's prefixes
+      // are a subset of the outer's, so longest-prefix + dedupe subsume it harmlessly.
+      if (segs) out.push({ segs });
+    }
+    for (const c of n.namedChildren) visit(c);
+  };
+  visit(root);
+  return out;
+}
+
+/** The analysis payload: import descriptors + namespace bindings + attribute uses. */
+interface Uses {
+  descs: ImportDesc[];
+  aliases: NsAlias[];
+  attrs: AttrUse[];
 }
 
 // --- resolution: descriptor + source file → candidate module paths → files ---
@@ -130,23 +211,26 @@ function derivedFacts(ctx: ResolveCtx): { localPackages: Set<string>; codeDirs: 
   return facts;
 }
 
+/** The absolute module a descriptor addresses, before candidate expansion (null when a
+ *  relative import escapes the root — invalid; skip to avoid false edges). Pure. */
+function descBase(desc: ImportDesc, sourcePath: string, importerModule: string): string | null {
+  if (desc.dots === 0) return desc.module; // absolute
+  // The package containing this file. For __init__.py/.pyx/.pxd, the module IS the package;
+  // for a regular file, the package is module minus the last segment.
+  const isInit = /\/__init__\.(py|pyx|pxd)$/.test(sourcePath);
+  const pkg = (isInit ? importerModule : importerModule.split('.').slice(0, -1).join('.')).split('.').filter(Boolean);
+  // `.` = current package; each extra dot goes up one level.
+  const keep = pkg.length - (desc.dots - 1);
+  if (keep < 0) return null; // relative import goes above the root — invalid; skip.
+  const targetPkg = pkg.slice(0, keep);
+  return desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
+}
+
 function resolveImportDesc(desc: ImportDesc, sourcePath: string, importerModule: string, ctx: ResolveCtx): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   const { moduleCandidates, files, memo } = ctx;
   const { localPackages, codeDirs, baseDir } = derivedFacts(ctx);
-  let base: string;
-  if (desc.dots === 0) {
-    base = desc.module; // absolute
-  } else {
-    // The package containing this file. For __init__.py/.pyx/.pxd, the module IS the package;
-    // for a regular file, the package is module minus the last segment.
-    const isInit = /\/__init__\.(py|pyx|pxd)$/.test(sourcePath);
-    const pkg = (isInit ? importerModule : importerModule.split('.').slice(0, -1).join('.')).split('.').filter(Boolean);
-    // `.` = current package; each extra dot goes up one level.
-    const keep = pkg.length - (desc.dots - 1);
-    if (keep < 0) return { edges: [], unresolved: [] }; // relative import goes above the root — invalid; skip (avoid false edges).
-    const targetPkg = pkg.slice(0, keep);
-    base = desc.module ? [...targetPkg, ...desc.module.split('.')].join('.') : targetPkg.join('.');
-  }
+  let base = descBase(desc, sourcePath, importerModule);
+  if (base === null) return { edges: [], unresolved: [] };
   // Self-package absolute import (`python -m uv` style): base is a
   // package dir under a code-dir, but map keys are code-dir-prefixed (python.uv), so the
   // bare name misses the map. The probe proved the physical target exists; if exactly one
@@ -240,7 +324,7 @@ function isCompiledModule(module: string, moduleCandidates: Map<string, string[]
  *  Also handles Cython .pyx/.pxd: their regular Python imports produce edges; `cimport` is
  *  compiled-time and deliberately blind (blanked in preprocess — which ALSO prevents
  *  tree-sitter-python's error recovery from swallowing real imports next to cimport lines). */
-export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
+export const pythonImporter = createTreeSitterImporter<Uses>({
   name: 'python',
   extensions: ['.py', '.pyx', '.pxd'],
   wasmBasename: 'tree-sitter-python.wasm',
@@ -254,18 +338,51 @@ export const pythonImporter = createTreeSitterImporter<ImportDesc[]>({
       .replace(/^\s*cimport\s*\([\s\S]*?\)\s*$/gm, '')
       .replace(/^\s*from\s+\S+\s+cimport\b.*$/gm, '')
       .replace(/^\s*cimport\b.*$/gm, ''),
-  analyze: (root, _sourcePath, _importerModule, _ctx) => ({
+  analyze: (root) => ({
     mods: [],
     reexports: [],
-    uses: extractImports(root), // per-file: this file's import descriptors
+    // per-file: this file's import descriptors + namespace bindings + attribute uses
+    uses: { descs: extractImports(root), aliases: collectImportAliases(root), attrs: collectAttrUses(root) },
   }),
-  resolveEdges: (descs, sourcePath, importerModule, ctx) => {
+  resolveEdges: ({ descs, aliases, attrs }, sourcePath, importerModule, ctx) => {
     const edges: ImportEdge[] = [];
     const unresolved: UnresolvedImport[] = [];
     for (const desc of descs) {
       const r = resolveImportDesc(desc, sourcePath, importerModule, ctx);
       edges.push(...r.edges);
       unresolved.push(...r.unresolved);
+    }
+    // Attribute gate: local name → absolute module. Import-statement bindings first,
+    // from-bound names fill gaps (a from-name maps to base.name — the submodule candidate
+    // the resolver itself tries). Contested roots keep the import-statement binding;
+    // attachment still gates on a real edge, so the worst case is silence, never a false edge.
+    const gate = new Map<string, string>();
+    for (const a of aliases) if (!gate.has(a.name)) gate.set(a.name, a.path);
+    for (const desc of descs) {
+      const base = descBase(desc, sourcePath, importerModule);
+      if (base === null) continue;
+      for (const n of desc.names) {
+        if (!gate.has(n)) gate.set(n, base ? `${base}.${n}` : n);
+      }
+    }
+    // Attach: the segment after the LONGEST chain prefix with an edge. The root resolves
+    // through the gate (v → src.views), then prefixes extend down the chain — the first
+    // (longest) hit wins. A from-name that resolved as a symbol has no such edge and drops
+    // (the module-vs-symbol discriminator). Symbols-only: edges never move here.
+    for (const { segs } of attrs) {
+      const g = gate.get(segs[0]);
+      if (!g) continue;
+      const gsegs = g.split('.');
+      const full = [...gsegs, ...segs.slice(1)];
+      for (let k = full.length - 2; k >= gsegs.length - 1; k--) {
+        const edge = edges.find((e) => e.import === full.slice(0, k + 1).join('.'));
+        if (edge) {
+          if (!edge.symbols) edge.symbols = [];
+          const tail = full[k + 1];
+          if (!edge.symbols.includes(tail)) edge.symbols.push(tail);
+          break;
+        }
+      }
     }
     return { edges, unresolved };
   },
