@@ -99,6 +99,60 @@ describe('staleProvidesOf', () => {
     const contents = { 'src/cell.ts': 'export function parseCellExtra() {}' }; // parseCell inside a longer identifier
     expect(staleProvidesOf(c, ['src/cell.ts'], contents)).toEqual([{ cell: 'cell', provide: 'parseCell' }]);
   });
+
+  it('flags deleted snake_case with no mention anywhere (clean deletion — the widening case)', () => {
+    const c = cell(['cap_output_width']);
+    expect(staleProvidesOf(c, ['views.py'], { 'views.py': 'def begin_answer(): pass\n' })).toEqual([{ cell: 'cell', provide: 'cap_output_width' }]);
+  });
+
+  it('flags deleted private snake_case (leading underscore — the _drawn_portions shape)', () => {
+    const c = cell(['_private_name']);
+    expect(staleProvidesOf(c, ['views.py'], { 'views.py': 'x = 1\n' })).toEqual([{ cell: 'cell', provide: '_private_name' }]);
+  });
+
+  it('stays silent when the token survives only in a sibling docstring (characterization — presence of a mention is not proof of life, but it suppresses)', () => {
+    // PID_Demo's house style cites removed code as history; the reference check is
+    // textual, so a docstring mention suppresses. Intended silence — the definition-shaped
+    // form belongs in consumer suites, not an advisory line.
+    const c = cell(['fn_name()']);
+    const contents = { 'a.py': 'def other(): pass\n', 'b.py': '"""the cap had a second home at fn_name"""\n' };
+    expect(staleProvidesOf(c, ['a.py', 'b.py'], contents)).toEqual([]);
+  });
+
+  it('still fires for fn-call snake_case with no mention (regression pin on shared providesToken)', () => {
+    const c = cell(['cap_output_width()']);
+    expect(staleProvidesOf(c, ['views.py'], { 'views.py': 'pass\n' })).toEqual([{ cell: 'cell', provide: 'cap_output_width()' }]);
+  });
+
+  it('suppresses when the snake_case token lives in a sibling owned file (render_component shape)', () => {
+    const c = cell(['render_component']);
+    const contents = { 'views.py': 'pass\n', 'renderer.py': 'def render_component(c): ...\n' };
+    expect(staleProvidesOf(c, ['views.py', 'renderer.py'], contents)).toEqual([]);
+  });
+
+  it('fires on underscored prose as a documented edge (near-zero prose-FP class, not empty)', () => {
+    // "ad_hoc" is identifier-shaped by the rule; an underscored-prose entry that fires is
+    // signal-adjacent. Pinned as documented behavior — the class is near-empty, not empty.
+    const c = cell(['ad_hoc']);
+    expect(staleProvidesOf(c, ['doc.py'], { 'doc.py': 'pass\n' })).toEqual([{ cell: 'cell', provide: 'ad_hoc' }]);
+  });
+
+  it('counts dot-preceded (attribute-tail) references — a name only ever used as pkg.attr must not fire', () => {
+    // PID_Demo evidence: `on_chat_start` survives in app.py only as `cl.on_chat_start` (the
+    // decorator). Attribute tails ARE reference sources (the pilots attach them as edge
+    // symbols; textually the boundary rule admits a `.` before the token) — so this stays
+    // silent. A mirror check that excluded dot-preceded matches fired here; pinned so our
+    // boundary never "fixes" itself into that hole. (cl.on_chat_start is the reference; the
+    // decorated function is `start` — reference and definition diverge, reference is right.)
+    const c = cell(['on_chat_start']);
+    const contents = { 'app.py': 'import chainlit as cl\n@cl.on_chat_start\nasync def start(): pass\n' };
+    expect(staleProvidesOf(c, ['app.py'], contents)).toEqual([]);
+  });
+
+  it('skips single-word lowercase and dunders (ambiguous with prose)', () => {
+    const c = cell(['port', 'stash', '__all__']);
+    expect(staleProvidesOf(c, ['views.py'], { 'views.py': 'pass\n' })).toEqual([]);
+  });
 });
 
 describe('providesDrift (unread subsumes stale — one name, one verdict)', () => {
@@ -146,5 +200,12 @@ describe('providesDrift (unread subsumes stale — one name, one verdict)', () =
     const d = providesDrift({ home: cell('home', ['IN_CELL']), other: decls.other }, ownership, [], { ...contents, 'home/a.ts': 'export function IN_CELL() {} IN_CELL();\n' });
     expect(d.stale).toEqual([]);
     expect(d.unread).toEqual([]);
+  });
+
+  it('extends the suppression chain to snake_case: cross-cell string-literal reader keeps it stale, not unread', () => {
+    // The widening's token class flows through unread's evidence sources unchanged.
+    const d = providesDrift({ home: cell('home', ['tool_registry']), other: cell('other', []) }, ownership, [], { 'home/a.ts': 'pass\n', 'other/b.ts': 'const TOOL_MAP = { tool_registry: 1 };\n' });
+    expect(staleNames(d)).toContain('tool_registry');
+    expect(unreadNames(d)).not.toContain('tool_registry');
   });
 });

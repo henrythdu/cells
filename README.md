@@ -128,7 +128,7 @@ Point it at a repo and tell it to run `cells help` — the tool is self-document
 ```toml
 name = "parser"
 purpose = "Turn a .cell declaration file into a checked Cell AST."
-provides = ["parseCell", "Cell"]    # authored docs of the cell's surface (shown in show/payload; not symbol-checked)
+provides = ["parseCell", "Cell"]    # authored docs of the cell's surface (shown in show/payload; reference-checked when symbol-shaped — stale/unread info; prose tolerated)
 requires = ["token", "diagnostic"]  # neighbor CELL names
 # optional — couplings static analysis can't see (data files, runtime loading, shared
 # schema). Integrity-checked and included in payloads; never import-audited:

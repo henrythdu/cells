@@ -18,7 +18,7 @@ THE MODEL
   membrane    a cell's declaration: name, purpose, provides, requires (+ optional layer,
               data-requires for couplings static analysis can't see, ceiling, signatures, tests).
               provides = authored docs of what this cell offers (shown in show/payload to neighbors;
-              describe the surface in your words — not symbol-checked). requires = cells this one
+              reference-checked when symbol-shaped — stale/unread info lines; prose tolerated). requires = cells this one
               imports (checked against crossings — undeclared leaks gate-fail). purpose = one-line intent.
   crossing    a real dependency from one cell into another (derived from imports).
   payload     what you consume to work a cell: its membrane + owned files + its

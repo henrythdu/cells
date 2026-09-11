@@ -37,20 +37,28 @@ export interface UnreadProvide {
 }
 
 /** The matchable leading token of a provides entry, or null when the entry isn't
- *  identifier-shaped (prose — skipped, never flagged). Shared by stale + unread. Pure. */
+ *  identifier-shaped (prose — skipped, never flagged). Identifier-shaped = fn-call style
+ *  ("collectImportEdges()"), internal-uppercase camelCase/Pascal/SCREAMING, or multi-segment
+ *  snake_case incl. a private underscore ("cap_output_width", "_drawn_portions" — prose
+ *  never joins words with underscores; near-zero prose-FP in practice, and an underscored
+ *  prose entry that fires is signal-adjacent). Single-word lowercase ("port", "stash") and
+ *  dunders ("__all__") stay skipped: ambiguous with prose. Shared by stale + unread. Pure. */
 function providesToken(provide: string): string | null {
   const token = provide.match(/^[$\w]+/)?.[0];
   if (!token) return null;
   const rest = provide.slice(token.length);
-  const looksLikeId = rest.startsWith('(') || /[A-Z]/.test(token.slice(1)); // fn-call style, or internal-uppercase (camelCase/Pascal/SCREAMING)
+  // fn-call style, internal-uppercase, or multi-segment snake_case (optional private underscore)
+  const looksLikeId = rest.startsWith('(') || /[A-Z]/.test(token.slice(1)) || /^_?[a-z][a-z0-9]*(_[a-z0-9]+)+$/.test(token);
   return looksLikeId ? token : null;
 }
 
 /** Flag provides entries whose leading token never appears in the cell's owned files.
  *  Conservative by design (a nudge, not a verdict): only entries whose leading token
- *  LOOKS like a real identifier are checked — function-call style ("collectImportEdges()") or internal-uppercase camelCase/SCREAMING ("ResolveCtx", "DEFAULT_IMPORTERS"). Pure
+ *  LOOKS like a real identifier are checked — function-call style ("collectImportEdges()"), internal-uppercase camelCase/SCREAMING ("ResolveCtx", "DEFAULT_IMPORTERS"), or multi-segment snake_case ("cap_output_width"). Pure
  *  prose entries ("the parse loop") are skipped — they can't be matched, and flagging
- *  them would be a false positive. Pure. */
+ *  them would be a false positive. Textual presence suppresses — the mirror of the unread
+ *  caveat: absence of a found reader is not proof of death; presence of a mention is not
+ *  proof of life (a docstring citing deleted code suppresses — intended, silence-biased). Pure. */
 export function staleProvidesOf(cell: Cell, ownedFiles: string[], fileContents: Record<string, string>): StaleProvide[] {
   const contents = ownedFiles.map((f) => fileContents[f] ?? '').join('\n');
   const out: StaleProvide[] = [];
