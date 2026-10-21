@@ -335,7 +335,7 @@ describe('unresolved local imports', () => {
     });
 
     it('keeps cimport blind AND does not swallow neighboring real imports', async () => {
-    // A regression test for the swallow by error recovery: tree-sitter-python merges `from X cimport Y` into one erroring import_from_statement, and that statement EATS the next real from-import.
+      // A regression test for the swallow by error recovery: tree-sitter-python merges `from X cimport Y` into one erroring import_from_statement, and that statement EATS the next real from-import.
       const cy: SourceFile[] = [
         { path: 'impl.pyx', content: 'from libc.stdlib cimport malloc\ncimport numpy as cnp\nfrom mypkg.utils import helper\nimport sibling\n' },
         { path: 'sibling.pyx', content: 'x = 1\n' },
