@@ -2,59 +2,73 @@ import { parse as parseToml } from 'smol-toml';
 
 export interface CellsConfig {
   maxPayloadTokens: number;
-  layers: Record<number, string>; // optional legend: tier rank → label (output readability). Empty = show raw numbers.
-  codeDirs: string[]; // directories scanned for code (default: src, test)
-  codeExts: string[]; // extensions counted as code (default: .ts) — set per language
-  moduleRoot?: string; // path prefix stripped from module names (e.g. "src" for Python src-layout: src/utils/schema.py → utils.schema)
-  ignoreBlindExts: string[]; // extensions to silence the "no importer — crossings BLIND" warning for (e.g. a lone .c vendored file)
-  skipDirs?: string[]; // dir names the census never walks (default: the built-in SKIP_DIRS). SET = full replacement — a real internal/build package needs skip-dirs = [] to become adoptable.
+  layers: Record<number, string>; // An optional legend: tier rank to label, for readable output. Empty shows the raw numbers.
+  codeDirs: string[]; // The directories that the system scans for code. Default: src, test.
+  codeExts: string[]; // The extensions that the system counts as code. Default: .ts. Set them for your language.
+  moduleRoot?: string; // The path prefix that the system removes from module names. Example: "src" for the Python src layout, so src/utils/schema.py becomes utils.schema.
+  ignoreBlindExts: string[]; // The extensions for which the system does not write the "no importer, crossings BLIND" warning. Example: a single vendored .c file in a Rust repository.
+  skipDirs?: string[]; // The directory names that the census never walks. The default is the built-in SKIP_DIRS list. A value REPLACES that list: to make a real internal or build package adoptable, set skip-dirs = [].
 }
 
 /**
- * Default payload ceiling (tokens). Grounded in effective-context research:
- * model quality degrades at an ABSOLUTE ~32k+ tokens (not proportional to the
- * nominal window). A cell's payload is one part of the model's working context
- * (task + reasoning + output take the rest), so 16k keeps total under the onset.
+ * The default payload ceiling in tokens.
+ *
+ * The value comes from effective-context research. Model quality degrades at an absolute
+ * limit of about 32000 tokens, and the limit is not proportional to the nominal window. A
+ * cell payload is one part of the working context of a model: the task, the reasoning, and
+ * the output take the rest. Therefore 16000 keeps the total below the onset.
  */
 export const DEFAULT_MAX_PAYLOAD_TOKENS = 16000;
 
-/** Change-coupling analysis knobs (ADR 0002 — change-coupled cells). Fixed constants,
- *  dogfooded on real repos before they'd ever move to config.toml. One tunable spot. */
+/**
+ * The settings for the change-coupling analysis (ADR 0002: change-coupled cells). These
+ * values are fixed constants. The project tested them on real repositories before they
+ * could move to config.toml. This is the one place to tune them.
+ */
 export const CHANGE_COUPLING = {
-  /** Recent-commit window: last N commits touching any owned file. The current
-   *  development focus, not ancient history — the axis of change is where change
-   *  happens now. Shallow clones see min(N, depth). */
+  /**
+   * The number of recent commits that touch an owned file. The analysis looks at the
+   * current development focus and not at old history, because the axis of change is where
+   * changes happen now. A shallow clone sees min(N, depth) commits.
+   */
   window: 200,
-  /** Jaccard |A∩B| / |A∪B| floor — of every ~3 commits touching either cell, >=1
-   *  touches both. */
+  /** The floor for the Jaccard value: A intersect B, divided by A union B. Of every 3 commits that touch either cell, at least 1 touches both cells. */
   jaccard: 0.3,
-  /** Absolute co-change commit floor — kills small-sample noise on quiet repos. */
+  /** The absolute floor for the number of co-change commits. This value removes small-sample noise in a quiet repository. */
   minCoChanges: 5,
-  /** A commit touching >30% of owned files is a mass refactor/format pass — it would
-   *  dominate every pair's union and union Jaccard is meaningless; excluded. Exactly
-   *  30% is NOT wide (matches the `> ratio` comparison). Absolute floor too: on a
-   *  small repo (4 files) a 2-file commit is 50% but is NOT a reformat pass — the
-   *  ratio only bites once the commit is ALSO larger than wideCommitMin files. */
+  /**
+   * A commit that touches more than 30% of the owned files is a mass refactor or a format
+   * pass. Such a commit would dominate the union of every pair, and the union Jaccard value
+   * would be meaningless. Therefore the analysis excludes it.
+   *
+   * Exactly 30% is not wide, which matches the `> ratio` comparison. The absolute floor also
+   * applies. In a small repository with 4 files, a commit of 2 files is 50% but is not a
+   * reformat pass. The ratio applies only when the commit is also larger than
+   * `wideCommitMin` files.
+   */
   wideCommitRatio: 0.3,
-  /** See wideCommitRatio — a commit smaller than this many owned files is never wide. */
+  /** See `wideCommitRatio`. A commit with fewer than this number of owned files is never wide. */
   wideCommitMin: 10,
-  /** Commits whose only owned files are these are dependency-bump noise — a lockfile
-   *  co-changes with every unrelated change. Root-level + nested. */
+  /** A commit whose only owned files are these files is a dependency bump. A lockfile co-changes with every unrelated change. The list covers root-level and nested files. */
   lockfiles: ['package-lock.json', 'pnpm-lock.yaml', 'Cargo.lock', 'yarn.lock', 'go.sum'],
-  /** Generated artifacts co-change with everything. Minimal list; .map deliberately
-   *  skipped (source maps sit beside real sources in commits). */
+  /** Generated artifacts co-change with everything. The list is minimal. `.map` is deliberately absent, because a source map sits beside the real source in a commit. */
   generated: ['.wasm', '.min.js'],
 } as const;
 
-/** What `cells init` writes when no code is detected (empty repo) — init calls buildConfig
- *  on detected values, which coincide with these TS defaults here. Kept as the round-trip
- *  pin for the template: filled with TS defaults + comments so every key is visible;
- *  deleting one reverts to its default (see `parseConfig`). Round-trips through
- *  `parseConfig` (verified in config.test.ts). */
+/**
+ * The content that `cells init` writes when it detects no code (an empty repository). Init
+ * calls `buildConfig` with the detected values, which equal these TypeScript defaults. This
+ * constant is the round-trip pin for the template: it contains the TypeScript defaults and
+ * the comments, so every key is visible. When a key is deleted, its default applies (see
+ * `parseConfig`). `config.test.ts` verifies the round-trip through `parseConfig`.
+ */
 export const DEFAULT_CONFIG = buildConfig(['.ts'], ['src', 'test']);
 
-/** Build a `.cells/config.toml` template with detected `code-exts`/`code-dirs` so a Python/Rust
- *  repo doesn't ship TypeScript-only defaults. Every key is still optional. Pure. */
+/**
+ * Build the text of a `.cells/config.toml` template with the detected `code-exts` and
+ * `code-dirs`. A Python or a Rust repository thus does not get TypeScript-only defaults.
+ * Every key is still optional. Pure.
+ */
 export function buildConfig(codeExts: string[], codeDirs: string[]): string {
   const exts = codeExts.map((e) => `"${e}"`).join(', ');
   const dirs = codeDirs.map((d) => `"${d}"`).join(', ');
@@ -98,11 +112,13 @@ export function buildConfig(codeExts: string[], codeDirs: string[]): string {
 }
 
 /**
- * Parse `.cells/config.toml`. Missing/empty → defaults. Pure.
- * TOML keys are kebab-case where multi-word.
+ * Parse `.cells/config.toml`. A missing value or an empty file gives the defaults. Pure. A
+ * multi-word key uses kebab-case.
  */
 export function parseConfig(content: string): CellsConfig {
-  const raw = parseToml(content) as {
+  // A UTF-8 byte-order mark is invisible, and smol-toml reads it as part of the first key.
+  // Strip it here, so every reader accepts a file that an editor stamped with one.
+  const raw = parseToml(content.replace(/^\uFEFF/, '')) as {
     'max-payload-tokens'?: unknown;
     layers?: unknown;
     'code-dirs'?: unknown;
@@ -112,8 +128,9 @@ export function parseConfig(content: string): CellsConfig {
     'skip-dirs'?: unknown;
   };
   const maxPayloadTokens = raw['max-payload-tokens'];
-  // Wrong TYPE must throw, not silently default — `= "8000"` (a quoted typo) would otherwise
-  // run at 16000 while the user debugs a ceiling that "doesn't work". Absent → default.
+  // A value of the wrong type must throw and must not become the default silently. For
+  // example, the quoted typo `= "8000"` would run at 16000, and the user would debug a
+  // ceiling that "does not work". An absent value uses the default.
   if (maxPayloadTokens !== undefined && typeof maxPayloadTokens !== 'number') {
     throw new Error(`invalid config.toml: 'max-payload-tokens' must be a positive number (got ${typeof maxPayloadTokens})`);
   }
@@ -124,11 +141,11 @@ export function parseConfig(content: string): CellsConfig {
   const layers: Record<number, string> = {};
   if (layersRaw && typeof layersRaw === 'object' && !Array.isArray(layersRaw)) {
     for (const [k, v] of Object.entries(layersRaw as Record<string, unknown>)) {
-      // TOML trap: a bare key written AFTER the `[layers]` header (e.g. `module-root = "src"`
-      // appended at the file end) lands INSIDE the layers table, and smol-toml parses it as
-      // a layer entry. Layer keys are always integers, so any other key is a misconfig —
-      // name it instead of silently ignoring it (the value would otherwise vanish, and the
-      // user would debug a config key that "doesn't work").
+      // TOML trap: a bare key after the `[layers]` header (for example, `module-root =
+      // "src"` appended at the end of the file) belongs to the layers table, and smol-toml
+      // parses it as a layer entry. A layer key is always an integer, so any other key is a
+      // configuration error. Name the key here and do not ignore it silently, because the
+      // value would otherwise disappear and the user would debug a key that "does not work".
       if (!/^\d+$/.test(k)) {
         console.warn(`cells: config.toml [layers] has a non-numeric key "${k}" — a bare key after the [layers] header belongs to the layers table. Move it ABOVE the header (or fix the typo).`);
         continue;
@@ -147,21 +164,31 @@ export function parseConfig(content: string): CellsConfig {
   }
   const ignoreBlindExts = raw['ignore-blind-exts'];
   const skipDirs = raw['skip-dirs'];
-  // Array keys are passed to path.join / extension matching — a non-string element (e.g.
-  // `code-dirs = [123]`) would crash later with a bare path TypeError; reject at the parse
-  // boundary with the field named. (Defaults apply when the key is absent.)
+  // Array keys go to `path.join` and to extension matching. A non-string element (for
+  // example, `code-dirs = [123]`) would fail later with a bare path TypeError. Reject it at
+  // the parse boundary and name the field. An absent key uses the default.
   const strArray = (v: unknown, field: string, dflt: string[]): string[] => {
     if (v === undefined) return dflt;
     if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(`invalid config.toml: '${field}' must be a string array`);
     return v as string[];
   };
+  // An extension matches by suffix, so a value without the dot (`"ts"`) also matches a file
+  // that merely ends in those letters, and an empty value matches every file. Both change the
+  // census without a warning. Require the dot form here, which is also the form that
+  // `extname()` returns and that the importers declare.
+  const extArray = (v: unknown, field: string, dflt: string[]): string[] =>
+    strArray(v, field, dflt).map((raw) => {
+      const ext = raw.trim();
+      if (ext === '' || ext === '.') throw new Error(`invalid config.toml: '${field}' has an empty extension — write it as ".ts"`);
+      return ext.startsWith('.') ? ext : `.${ext}`;
+    });
   return {
     maxPayloadTokens: maxPayloadTokens ?? DEFAULT_MAX_PAYLOAD_TOKENS,
     layers,
     codeDirs: strArray(codeDirs, 'code-dirs', ['src', 'test']),
-    codeExts: strArray(codeExts, 'code-exts', ['.ts']),
+    codeExts: extArray(codeExts, 'code-exts', ['.ts']),
     moduleRoot,
-    ignoreBlindExts: strArray(ignoreBlindExts, 'ignore-blind-exts', []),
+    ignoreBlindExts: extArray(ignoreBlindExts, 'ignore-blind-exts', []),
     skipDirs: skipDirs === undefined ? undefined : strArray(skipDirs, 'skip-dirs', []),
   };
 }

@@ -37,8 +37,8 @@ describe('importer selection', () => {
 
   it('python importer is registered with the .py extension', async () => {
     expect(pythonImporter.extensions).toContain('.py');
-    // the registry, not just the object: python must ride in DEFAULT_IMPORTERS (what the
-    // pipeline actually dispatches — an unregistered importer would silently skip .py files)
+    // The registry and not only the object: python must ride in `DEFAULT_IMPORTERS`, which is
+    // what the pipeline dispatches. An unregistered importer would silently skip `.py` files.
     expect(DEFAULT_IMPORTERS).toContain(pythonImporter);
     const { edges } = await pythonImporter.extract({ codeDirs: ['src'], files: [] });
     expect(edges).toEqual([]);

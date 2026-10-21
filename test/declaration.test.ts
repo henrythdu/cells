@@ -3,10 +3,10 @@ import { type Cell, editCellDataRequires, editCellName, editCellRequires, parseC
 
 describe('parseCell', () => {
   it('parses a well-formed cell declaration', () => {
-    // Fixture — independent source of truth (hand-written, not derived).
+    // The fixture is hand-written and not derived, so it is an independent source of truth.
     const toml = ['name = "parser"', 'purpose = "Turn a .cell declaration file into a checked Cell AST."', 'provides = ["parseCell", "validateOwnership"]', 'requires = ["ownership"]', ''].join('\n');
 
-    // Expected values are hand-written literals, not recomputed by the parser.
+    // The expected values are literals written by hand and not computed by the parser.
     expect(parseCell(toml)).toEqual({
       name: 'parser',
       purpose: 'Turn a .cell declaration file into a checked Cell AST.',
@@ -185,6 +185,38 @@ describe('comment-preserving rewrites (editCellName / editCellRequires / editCel
     const out = editCellRequires(authored, { remove: ['toml'] });
     expect(parseCell(out).requires).toEqual(['ownership']);
     expect(out).toContain('# shared codec');
+  });
+
+  it('removes and renames single-quoted entries (TOML literal strings)', () => {
+    const content = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = [\'b\', \'c\']\n';
+    expect(parseCell(editCellRequires(content, { remove: ['b'] })).requires).toEqual(['c']);
+    expect(parseCell(editCellRequires(content, { rename: ['b', 'z'] })).requires).toEqual(['z', 'c']);
+  });
+
+  it('matches an escaped spelling of a name, and refuses a multi-line string', () => {
+    // `"\u0062"` is the cell `b`. Matching raw text would miss it silently.
+    const escaped = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = ["\\u0062", "c"]\n';
+    expect(parseCell(editCellRequires(escaped, { remove: ['b'] })).requires).toEqual(['c']);
+    expect(parseCell(editCellRequires(escaped, { rename: ['b', 'z'] })).requires).toEqual(['z', 'c']);
+    // A multi-line string cannot be rewritten by a single-line scan, so the command refuses.
+    const multiline = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = ["""b""", "c"]\n';
+    expect(() => editCellRequires(multiline, { remove: ['b'] })).toThrow(/multi-line string/);
+  });
+
+  it('keeps the indent of the surviving entries after several removals', () => {
+    const content = 'name = "a"\npurpose = "p"\nprovides = []\nrequires = [\n  "a",\n  "b",\n  "c",\n]\n';
+    const afterA = editCellRequires(content, { remove: ['a'] });
+    const afterB = editCellRequires(afterA, { remove: ['b'] });
+    expect(afterB).toContain('\n  "c",\n');
+    expect(afterB).not.toContain('    "c"');
+  });
+
+  it('keeps a comment that quotes the removed name verbatim', () => {
+    const content = ['name = "a"', 'purpose = "p"', 'provides = []', 'requires = [', '  "toml", # keep "toml" for the codec plan', '  "ownership",', ']'].join('\n');
+    const out = editCellRequires(content, { remove: ['toml'] });
+    expect(parseCell(out).requires).toEqual(['ownership']);
+    expect(out).toContain('# keep "toml" for the codec plan');
+    expect(out).toContain('  "ownership",');
   });
 
   it('editCellRequires removing every entry collapses to requires = [] (valid TOML)', () => {

@@ -2,25 +2,33 @@ import type { CellMetrics, Crossing } from './crossings.js';
 import { type Cell, STUB_PURPOSE } from './declaration.js';
 import type { CellSize } from './payload.js';
 
-/** Per-cell health signals for `list --verbose` — every field already computed elsewhere;
- *  this bundles them into the one-line orientation scan (all data, no new analysis).
- *  No dead-file count: test files are dead at the boundary by definition (nothing outside
- *  the cell imports them), so the count would read ~1 for every cell — noise. `show` lists
- *  dead FILES with names, where the LLM can tell a test from a leaf. */
+/**
+ * The per-cell health signals for `list --verbose`. Every field is already computed
+ * elsewhere. This structure puts the fields together for the one-line orientation scan. It
+ * adds no new analysis.
+ *
+ * There is no dead-file count. A test file is dead at the boundary by definition, because
+ * nothing outside the cell imports it. The count would read about 1 for every cell, which
+ * is noise. `show` lists dead FILES with their names, and there a model can tell a test
+ * file from a leaf file.
+ */
 export interface CellSmell {
-  pct: number; // payload tokens / ceiling (0-1)
+  pct: number; // The payload tokens divided by the ceiling (0 to 1).
   staleProvides: number;
   unreadProvides: number;
   unresolved: number;
 }
 
-/** Plural suffix: `file${pl(n)}`. Pure. */
+/** The plural suffix for `file${pl(n)}`. Pure. */
 function pl(n: number): string {
   return n === 1 ? '' : 's';
 }
 
-/** One-line health smell for a cell — rendered under its `list` row when non-empty.
- *  Size always shows (verbose = full detail); the rest only when present. Pure. */
+/**
+ * A one-line health summary for a cell. The function renders it below the `list` row of the
+ * cell when the summary is not empty. The size always shows, and the other values show only
+ * when they are present. Pure.
+ */
 function formatCellSmell(s: CellSmell): string {
   const parts: string[] = [];
   parts.push(`${Math.round(s.pct * 100)}% size`);
@@ -30,17 +38,19 @@ function formatCellSmell(s: CellSmell): string {
   return parts.join(' · ');
 }
 
-/** Above this many files, `list` truncates the unowned dump (the count stays in the header). */
+/** Above this number of files, `list` truncates the list of unowned files. The header still shows the count. */
 const ORPHAN_LIST_CAP = 20;
 
-/** Above this many edges, `show` collapses per-file lines into a per-cell aggregate
- *  (e.g. `placement×18, infra×8`) — raw detail via `--verbose`. High-fan-in cells otherwise
- *  dump dozens of lines of noise. */
+/**
+ * Above this number of edges, `show` collapses the per-file lines into one count for each
+ * cell, for example `placement×18, infra×8`. `--verbose` gives the raw detail. Without this
+ * limit, a cell with a high fan-in prints many lines of noise.
+ */
 const AGG_THRESHOLD = 8;
 
 /**
- * Format the partition overview: one row per cell (file count, ~tokens,
- * requires) + a header with totals and orphan count. Pure.
+ * Format the partition overview: one row for each cell (file count, estimated tokens, and
+ * `requires`), plus a header with the totals and the orphan count. Pure.
  */
 export function formatCellList(
   declarations: Record<string, Cell>,
@@ -53,7 +63,7 @@ export function formatCellList(
   const names = Object.keys(declarations).sort();
   const totalFiles = names.reduce((n, name) => n + (sizes[name]?.files ?? 0), 0);
   const stubSuffix = ' (stub)';
-  // width must fit the rendered label (stub cells get a 7-char suffix), else columns misalign
+  // The width must fit the rendered label, because a stub cell adds a 7-character suffix. Otherwise the columns do not align.
   const width = Math.max(...names.map((n) => (declarations[n]?.purpose === STUB_PURPOSE ? n.length + stubSuffix.length : n.length)), 4);
   const orphans = `orphan${pl(orphanFiles.length)}`;
 
@@ -74,18 +84,20 @@ export function formatCellList(
   if (orphanFiles.length > 0) {
     lines.push('');
     lines.push('unowned (assign or add to .cells/ignore):');
-    const sorted = [...orphanFiles].sort(); // copy — the caller's array stays untouched
+    const sorted = [...orphanFiles].sort(); // Copy the list. The array of the caller stays unchanged.
     const shown = sorted.slice(0, ORPHAN_LIST_CAP);
     for (const f of shown) {
-      // An orphan with inbound imports is the file the partition actually needs — the
-      // import magnet (a monorepo's vendor blob imported everywhere, otherwise invisible).
+      // An orphan with an inbound import is the file that the partition needs. It is the
+      // import magnet: a vendor file in a monorepo that every file imports, and that is
+      // otherwise invisible.
       const n = magnetCounts?.get(f) ?? 0;
       lines.push(n > 0 ? `  ${f} — imported by ${n} file${pl(n)}` : `  ${f}`);
     }
     const rest = orphanFiles.length - shown.length;
     if (rest > 0) {
-      // The truncated tail is the adoption queue — shape it by top dirs so "… and 658 more"
-      // says WHERE they are (a 672-file frontend dir drowned here before the grouping).
+      // The hidden part of the list is the adoption queue. Group it by top directory, so
+      // that "… and 658 more" says WHERE the files are. Before this grouping, a frontend
+      // directory with 672 files hid the signal.
       const byDir = new Map<string, number>();
       for (const f of sorted.slice(shown.length)) {
         const d = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '(root)';
@@ -102,7 +114,7 @@ export function formatCellList(
   return `${lines.join('\n')}\n`;
 }
 
-/** Collapse crossings to a per-cell count string, most-coupled first. Pure. */
+/** Collapse the crossings to a count string for each cell, with the most coupled cell first. Pure. */
 function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
   const counts = new Map<string, number>();
   for (const c of crossings) {
@@ -115,10 +127,13 @@ function aggregateByCell(crossings: Crossing[], byFrom: boolean): string {
     .join(', ');
 }
 
-/** Pre-computed facts `cells show` renders — the cell, its owned files with sizes, crossings
- *  in/out, payload size, metrics, and the practice signals (dead-at-boundary, co-change
- *  coupling). Built by cmdShow; formatCellShow renders it. Bundle keeps the view's interface
- *  one argument regardless of how many signals the report grows. */
+/**
+ * The pre-computed facts that `cells show` renders: the cell, its owned files with their
+ * sizes, the crossings in and out, the payload size, the metrics, and the practice signals
+ * (dead at the boundary, co-change coupling). `cmdShow` builds the object, and
+ * `formatCellShow` renders it. This bundle keeps the interface of the view at one argument,
+ * however many signals the report gains.
+ */
 export interface CellShowContext {
   cell: Cell;
   owned: { file: string; tokens: number }[];
@@ -127,17 +142,19 @@ export interface CellShowContext {
   size: CellSize;
   metrics: CellMetrics;
   dead: string[];
-  /** Change partners above threshold, classified against crossings (ADR 0002). */
+  /** The change partners above the threshold, classified against the crossings (ADR 0002). */
   coChange: { cell: string; count: number; window: number; jaccard: number; explained: boolean }[];
   staleProvides: { cell: string; provide: string }[];
   unreadProvides: { cell: string; provide: string }[];
-  /** Import specifiers from this cell's files that resolved to no owned file. */
+  /** The import specifiers from the files of this cell that resolved to no owned file. */
   unresolved: string[];
 }
 
-/** Render one crossings direction for `show`: a per-cell aggregate past the
- *  threshold, else per-file lines. `byFrom` picks the grouped side; `arrow`
- *  picks the glyph. Pure. */
+/**
+ * Render one crossings direction for `show`. Above the threshold the function shows a count
+ * for each cell, and below it the function shows one line for each file. `byFrom` selects
+ * the grouped side, and `arrow` selects the glyph. Pure.
+ */
 function crossingLines(label: string, crossings: Crossing[], byFrom: boolean, arrow: string, verbose: boolean): string[] {
   const lines = [`${label} (${crossings.length}):`];
   if (crossings.length > AGG_THRESHOLD && !verbose) {
@@ -210,8 +227,9 @@ export function formatCellShow(ctx: CellShowContext, verbose = false): string {
 }
 
 /**
- * Context-fit report: cells ranked by payload (biggest first), each with a
- * budget bar vs the ceiling; ⚠ on over-ceiling. Pure. (Exit 0 — it's a warning.)
+ * The context-fit report. The function ranks the cells by payload, the biggest first, and
+ * shows a budget bar against the ceiling for each cell. An over-ceiling cell gets a ⚠ mark.
+ * Pure. The exit code is 0, because this is a warning.
  */
 export interface PeelCandidate {
   file: string;
@@ -222,7 +240,7 @@ export interface PeelCandidate {
 export function formatSizeReport(entries: { name: string; size: CellSize; peel?: PeelCandidate[]; ceiling?: number }[], globalCeiling: number): string {
   const ranked = [...entries].sort((a, b) => b.size.tokens - a.size.tokens);
   const overCount = ranked.filter((e) => e.size.tokens > (e.ceiling ?? globalCeiling)).length;
-  const cap = 20; // a huge repo lands 500+ of 1100 cells over ceiling — 500 bar rows drown the signal; the count + top rows carry it
+  const cap = 20; // A large repository has 500 or more of 1100 cells over the ceiling. Then 500 bar rows hide the signal. The count and the top rows carry it.
   const shown = ranked.slice(0, cap);
   const width = Math.max(...shown.map((e) => e.name.length), 4);
   const perCell = ranked.some((e) => e.ceiling !== undefined);
@@ -249,13 +267,15 @@ export function formatSizeReport(entries: { name: string; size: CellSize; peel?:
   return `${lines.join('\n')}\n`;
 }
 
-/** Pre-computed values for the health report — `cmdHealth` gathers these (with I/O),
- *  `formatHealthReport` renders them (pure). Kept free of domain types so view stays
- *  decoupled from validate/crossings/structure. */
+/**
+ * The pre-computed values for the health report. `cmdHealth` gathers them with file input,
+ * and `formatHealthReport` renders them (pure). The type has no domain types, so the view
+ * stays decoupled from validate, crossings, and structure.
+ */
 export interface HealthValues {
   cellCount: number;
   fileCount: number;
-  /** Census files with no owning cell — the partition-coverage signal (informs, never gates). */
+  /** The census files that no cell owns. This is the partition coverage signal: it informs and never gates. */
   orphanCount: number;
   crossingCount: number;
   violationCount: number;
@@ -268,7 +288,7 @@ export interface HealthValues {
   staleProvidesDetails: string[];
   unreadProvidesCount: number;
   unreadProvidesDetails: string[];
-  /** Identifier-shaped provides evaluated — the denominator the unread zero stands on. */
+  /** The number of identifier-shaped `provides` entries that the check evaluated. This is the denominator that the unread count uses. */
   unreadProvidesEvaluated: number;
   offMembraneCount: number;
   offMembraneDetails: string[];
@@ -278,19 +298,21 @@ export interface HealthValues {
   uncoveredExts: string[];
   unresolvedCount: number;
   unresolvedDetails: string[];
-  /** Present when `health --summary` grouped the details by file — the header shows "across M files". */
+  /** Present when `health --summary` grouped the details by file. The header then shows "across M files". */
   unresolvedFiles?: number;
   grammarResults: { lang: string; ok: boolean; error?: string }[];
-  /** Wall-clock of the health run in seconds — rendered on the gate line. */
+  /** The wall-clock time of the health run in seconds. The gate line renders it. */
   elapsedSec?: number;
 }
 
 /**
- * Render the health report (validate / crossings / structure / size / grammars)
- * for an already-decided verdict. Pure: takes the pre-computed values + the gate
- * verdict (computed by gate.healthVerdict — the strict-gate rule lives with the gate,
- * the renderer renders it), returns the formatted report. Joins the format* pattern
- * (formatCellList / formatSizeReport / …) and is unit-testable.
+ * Render the health report (validate, crossings, structure, size, and grammars) for a
+ * verdict that is already decided.
+ *
+ * Pure. The function takes the pre-computed values and the gate verdict, which
+ * `gate.healthVerdict` computes: the strict-gate rule lives with the gate, and the renderer
+ * renders it. The function follows the `format*` pattern (`formatCellList`,
+ * `formatSizeReport`, and others) and is unit-testable.
  */
 export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boolean): string {
   const valOk = v.violationCount === 0;
@@ -309,7 +331,8 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
   lines.push(`  ${valOk ? '✓' : '✗'} validate  ${valOk ? `     (${v.cellCount} cells, ${v.fileCount} files${v.orphanCount > 0 ? `, ${v.orphanCount} orphan${pl(v.orphanCount)}` : ''})` : `     (${v.violationCount} violations)`}`);
   lines.push(`  ${xOk ? '✓' : '✗'} crossings ${xOk ? `    (${v.crossingCount} edges${v.staleCount > 0 ? `, ${v.staleCount} stale` : ''})` : `    (${v.crossingCount} edges, ${v.undeclaredCount} undeclared)`}`);
   if (!xOk && verbose) {
-    // --verbose: name the failing edges inline — saves the `cells crossings` round-trip on the common failure.
+    // --verbose: name the failing edges here. This avoids a second run of `cells crossings`
+    // on the usual failure.
     for (const d of v.undeclaredEdges) lines.push(`    ${d}`);
     lines.push('');
   }
@@ -330,7 +353,7 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
     if (verbose) for (const d of v.offMembraneDetails) lines.push(`    ${d}`);
   }
 
-  // Verdict FIRST — the failing path must not bury it under info sections.
+  // The verdict comes FIRST. On the failing path, the information sections must not bury it.
   const warnings: string[] = [];
   if (!structOk) warnings.push('structure');
   if (!sizeOk) warnings.push('size');
@@ -346,11 +369,12 @@ export function formatHealthReport(v: HealthValues, verbose = false, gateOk: boo
     const aside = warnings.length > 0 ? ` (${warnings.length} warning(s) aside)` : '';
     lines.push(`→ Gate failed.${aside}${drillHint}${timing}`);
   }
-  // Machine-parseable timing line: stable `health: X.Xs` tail for grep/sed
-  // consumers — the prose `(X.Xs)` above is human-facing; this is the automation contract.
+  // A machine-parseable timing line with a stable `health: X.Xs` tail for grep and sed
+  // consumers. The prose `(X.Xs)` above is for a human, and this line is the automation
+  // contract.
   if (v.elapsedSec !== undefined) lines.push(`health: ${v.elapsedSec.toFixed(1)}s`);
 
-  // Detail/info sections BELOW the verdict — optional reading on the failing path.
+  // The detail and information sections come BELOW the verdict. They are optional reading on the failing path.
   for (const d of v.violationDetails) lines.push(`  validate: ${d}`);
   if (v.staleCount > 0) {
     lines.push(`(info) ${v.staleCount} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
 import { cppImporter, includeCandidates, includeRoots } from '../../src/languages/cpp.js';
 
-/** In-memory fixture — the cpp importer resolves against the census (ctx.files), no FS. */
+/** An in-memory fixture. The cpp importer resolves against the census (`ctx.files`), with no file system. */
 function files(entries: Record<string, string>): SourceFile[] {
   return Object.entries(entries).map(([path, content]) => ({ path, content }));
 }
@@ -24,11 +24,11 @@ describe('includeRoots (census-derived -I roots)', () => {
 describe('includeCandidates (probe order)', () => {
   it('quoted: importer-dir first, then repo-relative across every root', () => {
     expect(includeCandidates({ path: 'util.h', quoted: true }, 'src/a.cpp', ['.', 'include', 'src'])).toEqual([
-      'src/util.h', // importer-dir probe; the src-root probe is the same string → deduped
+      'src/util.h', // The importer-directory probe. The probe of the `src` root gives the same string, so the result is deduplicated.
       'util.h',
       'include/util.h',
     ]);
-    expect(includeCandidates({ path: '../inc/x.h', quoted: true }, 'src/a.cpp', ['.', 'inc'])).toEqual(['inc/x.h']); // ../ folds into the dir join; the bare form escapes → dropped
+    expect(includeCandidates({ path: '../inc/x.h', quoted: true }, 'src/a.cpp', ['.', 'inc'])).toEqual(['inc/x.h']); // The `../` prefix folds into the directory join. The bare form escapes, so it drops.
     expect(includeCandidates({ path: './util.h', quoted: true }, 'src/a.cpp', ['.'])).toEqual(['src/util.h', 'util.h']);
   });
 
@@ -42,8 +42,9 @@ describe('includeCandidates (probe order)', () => {
   });
 
   it('resolves `..`-relative includes against a root that cancels them (llama: -I src + ../src/x.h)', () => {
-    // from tools/fit-params/fit-params.cpp, `../src/llama-ext.h` — the importer-dir probe gives
-    // tools/src/llama-ext.h (miss); the `src` root probe normalizes to src/llama-ext.h (hit).
+    // From `tools/fit-params/fit-params.cpp`, the include `../src/llama-ext.h` gives
+    // `tools/src/llama-ext.h` in the importer-directory probe, which misses. The probe of the
+    // `src` root normalizes the path to `src/llama-ext.h`, which hits.
     const cands = includeCandidates({ path: '../src/llama-ext.h', quoted: true }, 'tools/fit-params/fit-params.cpp', ['.', 'common', 'src', 'tools']);
     expect(cands).toContain('src/llama-ext.h');
     expect(cands).not.toContain('../../out.h');
@@ -83,7 +84,7 @@ describe('suffix-match fallback (deep -I roots)', () => {
       'aa/deep/config.h': '#pragma once\n',
       'bb/cc/config.h': '#pragma once\n',
     });
-    // two census files end with /config.h — indistinguishable without -I reads; no guessed edge
+    // Two census files end with `/config.h`, which is indistinguishable without a read of `-I`. The code draws no guessed edge.
     expect(edges).toEqual([]);
     expect(unresolved).toEqual([{ fromFile: 'src/a.cpp', import: 'config.h' }]);
   });
@@ -141,7 +142,7 @@ describe('cppImporter (include resolution)', () => {
     const { edges, unresolved } = await extract({
       'src/a.cpp': '#include "util.h"\n#include "json.hpp"\n',
       'src/util.h': '#pragma once\n',
-      'json.hpp': '#pragma once\n', // vendor at repo root — flattened -I hit
+      'json.hpp': '#pragma once\n', // A vendor directory at the repository root gives a flattened `-I` hit.
     });
     expect(edges.find((e) => e.fromFile === 'src/a.cpp' && e.import === 'util.h')?.toFile).toBe('src/util.h');
     expect(edges.find((e) => e.fromFile === 'src/a.cpp' && e.import === 'json.hpp')?.toFile).toBe('json.hpp');
@@ -162,7 +163,7 @@ describe('cppImporter (include resolution)', () => {
       'project/foo.hpp': '#pragma once\n',
     });
     expect(edges.find((e) => e.import === 'project/foo.hpp')?.toFile).toBe('project/foo.hpp');
-    expect(unresolved).toEqual([]); // <vector> and <boost/missing.hpp> both external → silent
+    expect(unresolved).toEqual([]); // Both `<vector>` and `<boost/missing.hpp>` are external, so the result is silence.
   });
 
   it('flags quoted misses as unresolved (broken local include)', async () => {
@@ -198,7 +199,7 @@ describe('cppImporter (include resolution)', () => {
       'src/local.h': '#define X 1\n',
     });
     expect(edges.find((e) => e.import === 'local.h')?.toFile).toBe('src/local.h');
-    expect(edges.find((e) => e.import === 'stdio.h')).toBeUndefined(); // stdlib external
+    expect(edges.find((e) => e.import === 'stdio.h')).toBeUndefined(); // A standard library header is external.
     expect(unresolved).toEqual([]);
   });
 
@@ -207,7 +208,7 @@ describe('cppImporter (include resolution)', () => {
       'src/a.cpp': '#ifdef FOO\n#include "x.h"\n#endif\n#include "x.h"\n',
       'src/x.h': '#pragma once\n',
     });
-    expect(edges.filter((e) => e.import === 'x.h')).toHaveLength(1); // factory dedupes dup targets
+    expect(edges.filter((e) => e.import === 'x.h')).toHaveLength(1); // The factory deduplicates a duplicate target.
   });
 
   it('macro includes and #include_next are skipped (no literal child)', async () => {
@@ -215,6 +216,17 @@ describe('cppImporter (include resolution)', () => {
       'src/a.cpp': '#include TARGET\n#include_next <stdio.h>\n',
     });
     expect(edges).toEqual([]);
+    expect(unresolved).toEqual([]);
+  });
+
+  it('resolves an include written with Windows separators', async () => {
+    // MSVC accepts `lib\x.h`. The census uses `/`, so an untranslated literal can never match
+    // and the include reads as broken.
+    const { edges, unresolved } = await extract({
+      'src/a.cpp': '#include "lib\\x.h"\n',
+      'src/lib/x.h': '#pragma once\n',
+    });
+    expect(edges.find((e) => e.fromFile === 'src/a.cpp')?.toFile).toBe('src/lib/x.h');
     expect(unresolved).toEqual([]);
   });
 });

@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { collectImportEdges, DEFAULT_IMPORTERS } from '../src/importers.js';
 import type { Importer } from '../src/imports.js';
 
-// Regression guard: two tree-sitter grammars loaded concurrently (Promise.all
-// dispatch) raced web-tree-sitter's shared WASM state — one importer silently returned empty
-// and `cells crossings` printed "No cross-cell imports" while `health` stayed green. The
-// dispatch is now sequential + failure-surfacing; this asserts both languages actually
-// produce edges and that a throwing importer is reported, never swallowed.
+// A regression guard. Two tree-sitter grammars loaded at the same time, with a `Promise.all`
+// dispatch, raced the shared WASM state of web-tree-sitter. One importer silently returned
+// empty results, and `cells crossings` printed "No cross-cell imports" while `health` stayed
+// green. The dispatch is now sequential and surfaces a failure. This test asserts that both
+// languages produce edges, and that a throwing importer is reported and never swallowed.
 const startCwd = process.cwd();
 let repo: string;
 
@@ -33,8 +33,8 @@ describe('collectImportEdges (multi-language)', () => {
 
     const { edges, failures } = await collectImportEdges();
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
-    expect(set).toContain('a.py -> b.py'); // python importer live
-    expect(set).toContain('c.rs -> d.rs'); // rust importer live
+    expect(set).toContain('a.py -> b.py'); // The python importer is live.
+    expect(set).toContain('c.rs -> d.rs'); // The rust importer is live.
     expect(failures).toEqual([]);
   });
 });
@@ -50,8 +50,8 @@ describe('collectImportEdges (failure surfacing)', () => {
         throw new Error('boom');
       },
     };
-    // .zzz isn't in the census, so selectImporters would skip it — force selection by
-    // making it the only importer and a matching file.
+    // The extension `.zzz` is not in the census, so `selectImporters` would skip it. The test
+    // forces the selection by making this importer the only one, with a matching file.
     writeFileSync(join(repo, 'x.zzz'), 'whatever');
     const { edges, failures } = await collectImportEdges('.', [broken]);
     expect(edges).toEqual([]);
@@ -69,10 +69,10 @@ describe('collectImportEdges (failure surfacing)', () => {
         throw new Error('boom');
       },
     };
-    // broken rides ALONGSIDE the defaults — the healthy importers must still produce their
-    // edges while the failure is reported, never swallowed
+    // The broken importer rides ALONGSIDE the defaults: the healthy importers must still
+    // produce their edges while the failure is reported, and never swallowed.
     const { edges, failures } = await collectImportEdges('.', [...DEFAULT_IMPORTERS, broken]);
     expect(failures).toEqual([{ importer: 'broken', error: 'boom' }]);
-    expect(edges.some((e) => e.fromFile === 'a.py' && e.toFile === 'b.py')).toBe(true); // python's edge survived
+    expect(edges.some((e) => e.fromFile === 'a.py' && e.toFile === 'b.py')).toBe(true); // The edge of python survived.
   });
 });

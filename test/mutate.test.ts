@@ -10,7 +10,7 @@ function cells(args: string[], cwd: string): string {
   return execFileSync('node', [cellsBin, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
 }
 
-/** The write side must preserve author comments and never half-rename. */
+/** The write path must keep the comments of the author and must never do a partial rename. */
 describe('cells rename / remove --force / prune-stale (comment preservation)', () => {
   let repo: string;
 
@@ -38,13 +38,13 @@ describe('cells rename / remove --force / prune-stale (comment preservation)', (
     expect(out).toContain('Renamed "parser" → "parser2"');
 
     const renamed = readFileSync(join(repo, '.cells', 'parser2.cell.toml'), 'utf8');
-    expect(renamed).toContain('# authored membrane'); // comments survive the rename
+    expect(renamed).toContain('# authored membrane');
     expect(renamed).toContain('# inline note');
     expect(renamed).toContain('name = "parser2"');
-    expect(existsSync(join(repo, '.cells', 'parser.cell.toml'))).toBe(false); // old file gone
+    expect(existsSync(join(repo, '.cells', 'parser.cell.toml'))).toBe(false);
 
     const dep = readFileSync(join(repo, '.cells', 'cli.cell.toml'), 'utf8');
-    expect(dep).toContain('requires = ["parser2"] # depends on parsing'); // ref renamed, comment kept
+    expect(dep).toContain('requires = ["parser2"] # depends on parsing');
 
     const ownership = readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8');
     expect(ownership).toContain('[parser2]');
@@ -73,7 +73,6 @@ describe('cells rename / remove --force / prune-stale (comment preservation)', (
     } catch (err: any) {
       expect(err.status).toBe(1);
       expect(err.stderr).toContain('[new]');
-      // store untouched — no half-rename
       expect(existsSync(join(repo, '.cells', 'old.cell.toml'))).toBe(true);
       expect(existsSync(join(repo, '.cells', 'new.cell.toml'))).toBe(false);
     }

@@ -54,16 +54,16 @@ describe('fileToModule', () => {
     const startCwd = process.cwd();
     try {
       mkdirSync(join(repo, 'core', 'flags'), { recursive: true });
-      // workspace root: [package] + [[bin]] gluing a bin at core/main.rs — core/ has NO manifest
+      // The workspace root: a `[package]` section and a `[[bin]]` target for `core/main.rs`. The directory `core/` has no manifest.
       writeFileSync(join(repo, 'Cargo.toml'), '[package]\nname = "rg"\n\n[[bin]]\nname = "rg"\npath = "core/main.rs"\n');
       writeFileSync(join(repo, 'core', 'main.rs'), 'mod flags;\n');
       writeFileSync(join(repo, 'core', 'flags', 'mod.rs'), 'pub mod defs;\n');
       writeFileSync(join(repo, 'core', 'flags', 'defs.rs'), 'pub struct Flags;\n');
       process.chdir(repo);
-      // the bin dir is the crate root: modules derive from core/, not core flags of the repo
+      // The bin directory is the crate root, so the modules derive from `core/` and not from the flags of the repository root.
       expect(fileToModule('core/main.rs')).toBe('crate');
       expect(fileToModule('core/flags/defs.rs')).toBe('crate::flags::defs');
-      // files at the root still belong to the root package
+      // A file at the root still belongs to the root package.
       expect(fileToModule('build.rs')).toBe('crate::build');
     } finally {
       process.chdir(startCwd);
@@ -82,11 +82,11 @@ describe('resolveImportPath', () => {
   ]);
 
   it('resolves crate:: to the longest matching module (item or module itself)', () => {
-    // item in a submodule → the submodule file
+    // An item in a submodule maps to the file of the submodule.
     expect(resolveImportPath('crate::reading::tokenization::Token', 'crate::app', m2f)).toBe('src/reading/tokenization.rs');
-    // item in a module → the module file
+    // An item in a module maps to the file of the module.
     expect(resolveImportPath('crate::app::App', 'crate::cli', m2f)).toBe('src/app/mod.rs');
-    // the root itself
+    // The root itself.
     expect(resolveImportPath('crate', 'crate::cli', m2f)).toBe('src/lib.rs');
   });
 
@@ -97,14 +97,14 @@ describe('resolveImportPath', () => {
   });
 
   it('resolves super:: landing exactly on the namespaced crate root (multi-crate workspace)', () => {
-    // crates/a/src/lib.rs + mod helper; helper.rs `use super::Thing;` — super = the crate root
+    // The files `crates/a/src/lib.rs` and `mod helper`. In `helper.rs`, `use super::Thing;` takes `super` to the crate root.
     const ws = new Map<string, string>([
       ['crates/a', 'crates/a/src/lib.rs'],
       ['crates/a::helper', 'crates/a/src/helper.rs'],
     ]);
     expect(resolveImportPath('super::Thing', 'crates/a::helper', ws)).toBe('crates/a/src/lib.rs');
     expect(resolveImportPath('super::super::Thing', 'crates/a::b::c', ws)).toBe('crates/a/src/lib.rs');
-    // popping the root itself still escapes
+    // A pop of the root itself still escapes.
     expect(resolveImportPath('super::Thing', 'crates/a', ws)).toBe(null);
     expect(resolveImportPath('super::super::super::Thing', 'crates/a::b::c', ws)).toBe(null);
   });
@@ -119,8 +119,7 @@ describe('resolveImportPath', () => {
   });
 
   it('anchors crate:: to the TEST crate root for integration-test files (uv-client)', async () => {
-    // tests/it/ssl_certs.rs does `use crate::http_util::SelfSigned` — http_util is a module of
-    // the TEST crate (tests/it.rs), not the lib. crate:: must anchor to the test root.
+    // `tests/it/ssl_certs.rs` uses `crate::http_util::SelfSigned`. The module `http_util` belongs to the TEST crate (`tests/it.rs`), not to the library, so `crate::` must anchor to the test root.
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod app;\n' },
       { path: 'src/app.rs', content: 'pub struct LibOnly;\n' },
@@ -132,18 +131,16 @@ describe('resolveImportPath', () => {
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['.'], files });
     const viaTestRoot = edges.find((e) => e.import === 'crate::http_util::SelfSigned');
     expect(viaTestRoot).toBeDefined();
-    expect(viaTestRoot!.toFile).toBe('tests/it/http_util.rs'); // the TEST crate's module, not the lib's
+    expect(viaTestRoot!.toFile).toBe('tests/it/http_util.rs'); // It is a module of the TEST crate, and not of the library.
     expect(unresolved).toHaveLength(0);
   });
 
   it('resolves enum-variant / deep item chains to the deepest real module', () => {
-    // crate::token::TokenKind::Wildcard — TokenKind is an enum in module crate::token;
-    // the variant lives in the module's file. Two drops, not one.
+    // A use path names a variant of an enum in the module `crate::token`. The variant lives in the file of that module, so the resolver drops two segments and not one.
     expect(resolveImportPath('crate::reading::tokenization::Token::Kind', 'crate::app', m2f)).toBe('src/reading/tokenization.rs');
-    // a missing mid-chain module under a real module resolves to the deepest real module
-    // (same shape as an enum-variant path — indistinguishable without type info)
+    // A missing module in the middle of the chain under a real module resolves to the deepest real module. The shape is the same as a variant path, and the code cannot tell the two apart without type information.
     expect(resolveImportPath('crate::reading::missing::Thing', 'crate::app', m2f)).toBe('src/reading/mod.rs');
-    // never falls back to the crate root: no intermediate module at all → stays null
+    // The path never falls back to the crate root, because there is no intermediate module at all, so the result stays null.
     expect(resolveImportPath('crate::nope::Thing', 'crate::app', m2f)).toBe(null);
   });
 });
@@ -164,14 +161,14 @@ describe('rust importer', () => {
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile}`));
     expect(set).toEqual(
       new Set([
-        'src/lib.rs -> src/app/mod.rs', // crate::app::App
-        'src/app/mod.rs -> src/reading/tokenization.rs', // group {tokenize_text, ReadingState} → submodule (deduped)
-        'src/app/mod.rs -> src/config/mod.rs', // crate::config::Config
-        'src/reading/mod.rs -> src/reading/tokenization.rs', // pub use re-export
-        'src/config/file.rs -> src/config/mod.rs', // super::Config
+        'src/lib.rs -> src/app/mod.rs', // The path `crate::app::App`.
+        'src/app/mod.rs -> src/reading/tokenization.rs', // The group `{tokenize_text, ReadingState}` gives the submodule, deduplicated.
+        'src/app/mod.rs -> src/config/mod.rs', // The path `crate::config::Config`.
+        'src/reading/mod.rs -> src/reading/tokenization.rs', // A pub use re-export.
+        'src/config/file.rs -> src/config/mod.rs', // The path `super::Config`.
       ]),
     );
-    // cli.rs has only external + an unresolved crate:: path → no edges
+    // The file `cli.rs` has only an external import and an unresolved `crate::` path, so it has no edges.
     expect(edges.some((e) => e.fromFile === 'src/cli.rs')).toBe(false);
   });
 
@@ -181,6 +178,49 @@ describe('rust importer', () => {
       files: [{ path: 'src/cli.rs', content: 'use crate::missing::Thing;\n' }],
     });
     expect(unresolved.map((u) => u.import)).toContain('crate::missing::Thing');
+  });
+
+  it('reports a `mod` whose file is missing, and does not point at the declaring file', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'mod missing;\n' },
+      { path: 'src/app.rs', content: 'use crate::missing::Thing;\npub fn go() {}\n' },
+    ];
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
+    expect(edges).toEqual([]);
+    expect(unresolved.map((u) => u.import)).toEqual(['crate::missing::Thing']);
+  });
+
+  it('still maps an inline `mod` block to its own file', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: 'pub mod inline { pub struct Thing; }\n' },
+      { path: 'src/app.rs', content: 'use crate::inline::Thing;\n' },
+    ];
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
+    expect(edges.map((e) => `${e.fromFile} -> ${e.toFile}`)).toEqual(['src/app.rs -> src/lib.rs']);
+    expect(unresolved).toEqual([]);
+  });
+
+  it('resolves a `mod` whose file is named by `#[path]`', async () => {
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: '#[path = "custom/x.rs"]\nmod x;\n' },
+      { path: 'src/custom/x.rs', content: 'pub struct Y;\n' },
+      { path: 'src/app.rs', content: 'use crate::x::Y;\n' },
+    ];
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
+    expect(edges.find((e) => e.fromFile === 'src/app.rs')?.toFile).toBe('src/custom/x.rs');
+    expect(unresolved).toEqual([]);
+  });
+
+  it('keeps `#[path]` when another attribute follows it', async () => {
+    // `#[cfg(...)]` commonly sits beside `#[path]` on a platform module, in either order.
+    const files: SourceFile[] = [
+      { path: 'src/lib.rs', content: '#[path = "custom/x.rs"]\n#[cfg(unix)]\nmod x;\n' },
+      { path: 'src/custom/x.rs', content: 'pub struct Y;\n' },
+      { path: 'src/app.rs', content: 'use crate::x::Y;\n' },
+    ];
+    const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
+    expect(edges.find((e) => e.fromFile === 'src/app.rs')?.toFile).toBe('src/custom/x.rs');
+    expect(unresolved).toEqual([]);
   });
 
   it('external crates (std, serde) do not appear in unresolved', async () => {
@@ -201,14 +241,12 @@ describe('rust importer', () => {
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     const superSuper = edges.find((e) => e.import === 'super::super::ir::OpaqueKind');
     expect(superSuper).toBeDefined();
-    expect(superSuper!.toFile).toBe('src/compaction/ir.rs'); // mod-tests depth counts — NOT src/ir.rs
+    expect(superSuper!.toFile).toBe('src/compaction/ir.rs'); // The depth of the mod tests counts, so the target is NOT `src/ir.rs`.
     expect(unresolved).toHaveLength(0);
   });
 
   it('silences re-exports of EXTERNAL crates — no false unresolved (uv owo_colors)', async () => {
-    // uv-warnings does `pub use owo_colors;` — the re-export leaves the partition; imports
-    // routing through it (uv_warnings::owo_colors::OwoColorize) are real code but no owned
-    // file exists to draw an edge to — they must NOT flag as broken local.
+    // uv-warnings has `pub use owo_colors;`, so the re-export leaves the partition. An import that routes through it (`uv_warnings::owo_colors::OwoColorize`) is real code, but no owned file exists to draw an edge to. Such an import must NOT flag as broken local.
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'pub mod warnings;\npub mod ui;\n' },
       { path: 'src/warnings.rs', content: 'pub use owo_colors;\n' },
@@ -216,9 +254,9 @@ describe('rust importer', () => {
     ];
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
-    // the external re-export routes through nothing owned — no edge, no unresolved
+    // The external re-export routes through nothing owned, so there is no edge and no unresolved import.
     expect(edges.find((e) => e.import === 'crate::warnings::owo_colors::OwoColorize')).toBeUndefined();
-    // a genuinely broken local import (no intermediate module at all) in the same file still flags
+    // A genuinely broken local import (no intermediate module at all) in the same file still flags.
     expect(unresolved.map((u) => u.import)).toContain('crate::nope::Thing');
     expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toHaveLength(0);
   });
@@ -248,13 +286,13 @@ describe('rust importer', () => {
     ];
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
-    // use crate::oz::Filter resolves through the ALIASED re-export (explicit `as oz` beats last-segment 'osv')
+    // `use crate::oz::Filter` resolves through the re-export with the alias, because the explicit `as oz` wins over the last segment `osv`.
     const viaAlias = edges.find((e) => e.import === 'crate::oz::Filter');
     expect(viaAlias).toBeDefined();
     expect(viaAlias!.toFile).toBe('src/svc/osv.rs');
-    // no false edge under the ORIGINAL name: crate::osv was renamed to oz
+    // There is no false edge under the ORIGINAL name, because `crate::osv` was renamed to `oz`.
     expect(edges.some((e) => e.import === 'crate::osv::Filter')).toBe(false);
-    // pub(crate) counts as public for crate-internal resolution
+    // `pub(crate)` counts as public for the resolution inside the crate.
     expect(unresolved).toHaveLength(0);
   });
 
@@ -268,7 +306,7 @@ describe('rust importer', () => {
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     const direct = edges.find((e) => e.import === 'crate::metadata::ValidationError');
     expect(direct).toBeDefined();
-    expect(direct!.toFile).toBe('src/metadata.rs'); // NOT hijacked to wheel.rs by the item alias
+    expect(direct!.toFile).toBe('src/metadata.rs'); // The item alias does NOT hijack the path to `wheel.rs`.
     expect(unresolved).toHaveLength(0);
   });
 
@@ -281,13 +319,13 @@ describe('rust importer', () => {
       codeDirs: ['src'],
       files,
     });
-    // the deep path resolves to the file containing the deepest module
+    // The deep path resolves to the file that contains the deepest module.
     expect(edges).toContainEqual({ fromFile: 'src/lib.rs', toFile: 'src/observability.rs', import: 'crate::observability::metric_names::response_status::COMPLETED', symbols: ['COMPLETED'] });
     expect(unresolved).toEqual([]);
   });
 
   it('inline mods inside a file-module resolve through the standard `name/` dir', async () => {
-    // rust semantics: `mod engine;` in src/observability.rs lives at src/observability/engine.rs
+    // This is the Rust rule: `mod engine;` in `src/observability.rs` lives at `src/observability/engine.rs`.
     const files: SourceFile[] = [
       { path: 'src/lib.rs', content: 'mod observability;\n' },
       { path: 'src/observability.rs', content: 'mod engine;\n' },
@@ -298,7 +336,7 @@ describe('rust importer', () => {
       codeDirs: ['src'],
       files,
     });
-    // deep chain: observability (file) → engine (name/ dir) → inner (inline) — resolves to engine.rs
+    // The deep chain is `observability` (a file), then `engine` (a `name/` directory), then `inner` (inline), and it resolves to `engine.rs`.
     expect(edges).toContainEqual({ fromFile: 'src/cli.rs', toFile: 'src/observability/engine.rs', import: 'crate::observability::engine::inner::run', symbols: ['run'] });
     expect(unresolved).toEqual([]);
   });
@@ -307,7 +345,7 @@ describe('rust importer', () => {
     const root = mkdtempSync(join(tmpdir(), 'cells-ws-ns-'));
     const startCwd = process.cwd();
     try {
-      // real Cargo.toml files on disk — fileToModule probes the FS for crate roots
+      // Real `Cargo.toml` files on disk, because `fileToModule` probes the file system for crate roots.
       mkdirSync(join(root, 'crates', 'a', 'src'), { recursive: true });
       mkdirSync(join(root, 'crates', 'b', 'src'), { recursive: true });
       writeFileSync(join(root, 'Cargo.toml'), '[workspace]\n');
@@ -324,7 +362,7 @@ describe('rust importer', () => {
         codeDirs: ['crates'],
         files,
       });
-      // each crate's `crate::helper` resolves to ITS OWN helper.rs (namespaced keys)
+      // The `crate::helper` path of each crate resolves to ITS OWN `helper.rs`, because the keys are namespaced.
       expect(edges).toContainEqual({ fromFile: 'crates/a/src/lib.rs', toFile: 'crates/a/src/helper.rs', import: 'crate::helper::f', symbols: ['f'] });
       expect(edges).toContainEqual({ fromFile: 'crates/b/src/lib.rs', toFile: 'crates/b/src/helper.rs', import: 'crate::helper::g', symbols: ['g'] });
       expect(unresolved).toEqual([]);
@@ -335,7 +373,7 @@ describe('rust importer', () => {
   });
 
   it('single crate at the scan root keeps plain `crate::…` keys (off-by-one regression)', () => {
-    // cwd matters: findCrateRoot('src/lib.rs') → '.', must NOT slice the path (was 'c/lib.rs')
+    // The working directory matters: `findCrateRoot('src/lib.rs')` gives '.', and the code must NOT slice the path. The old code produced 'c/lib.rs'.
     const root = mkdtempSync(join(tmpdir(), 'cells-crate-root-'));
     const startCwd = process.cwd();
     try {
@@ -351,8 +389,7 @@ describe('rust importer', () => {
   });
 
   it('cross-crate workspace imports resolve to the sibling crate', async () => {
-    // `use headroom_core::…` from headroom-cli: the crate NAME (not the dir path) must
-    // resolve to the sibling's file — previously silently dropped as "external".
+    // In `headroom-cli`, `use headroom_core::...` must resolve to the file of the sibling crate by its NAME and not by its directory path. The old code silently dropped the import as external.
     const root = mkdtempSync(join(tmpdir(), 'cells-ws-x-'));
     const startCwd = process.cwd();
     try {
@@ -372,20 +409,15 @@ describe('rust importer', () => {
         codeDirs: ['crates'],
         files,
       });
-      // cross-crate import resolves to the sibling's file
+      // The cross-crate import resolves to the file of the sibling crate.
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/plan.rs', import: 'headroom_core::signals::plan::Plan', symbols: ['Plan'] });
-      // a broken mid-chain path resolves to the
-      // deepest real module — `signals` exists, `missing` doesn't (same shape as an enum
-      // variant path; no source-based way to tell a missing module from an item without type
-      // info). The edge lands on the nearest real module so the agent can inspect, and the
-      // bare-root false edge is impossible (min 2 segments).
+      // A broken path in the middle of the chain resolves to the deepest real module, because `signals` exists and `missing` does not. The shape is the same as a variant path, and the source alone cannot separate a missing module from an item without type information. The edge lands on the nearest real module, so the agent can inspect it, and a false edge to the bare root is impossible (the path keeps at least 2 segments).
       expect(edges).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', toFile: 'crates/headroom-core/src/signals/mod.rs', import: 'headroom_core::signals::missing::Nope', symbols: ['Nope'] });
-      // a broken OWN-crate 2-segment import (no intermediate module at all) stays unresolved —
-      // honest (never falls back to the importer's own crate root)
+      // A broken import of 2 segments in the OWN crate (no intermediate module at all) stays unresolved, which is honest. The path never falls back to the crate root of the importer.
       expect(unresolved).toContainEqual({ fromFile: 'crates/headroom-cli/src/main.rs', import: 'crate::missing::Thing' });
-      // serde stays silently-external (never unresolved)
+      // serde stays silently external and is never unresolved.
       expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'serde_json::Value' }));
-      // …and the broken mid-chain import is NOT in the unresolved list anymore
+      // The broken import in the middle of the chain is no longer in the unresolved list.
       expect(unresolved).not.toContainEqual(expect.objectContaining({ import: 'headroom_core::signals::missing::Nope' }));
     } finally {
       process.chdir(startCwd);
@@ -404,8 +436,7 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
-    // the brace form must resolve like the dotted form: super = crate::foo → foo/mod.rs,
-    // NOT fall through to the crate root (lib.rs)
+    // The brace form must resolve in the same way as the dotted form: `super` is `crate::foo`, which gives `foo/mod.rs`. It must NOT fall through to the crate root (`lib.rs`).
     expect(edges).toContainEqual({ fromFile: 'src/foo/a.rs', toFile: 'src/foo/mod.rs', import: 'super::LoadError', symbols: ['LoadError'] });
     expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/foo/a.rs')).toBe(false);
   });
@@ -419,8 +450,7 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
-    // glob re-export of the enclosing module is a SELF-import — no edge at all (and never a
-    // false crate-root edge to lib.rs)
+    // A glob re-export of the enclosing module is a SELF-import, so there is no edge at all, and there is never a false edge to the crate root `lib.rs`.
     expect(edges.filter((e) => e.fromFile === 'src/reading/ovp.rs')).toEqual([]);
     expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
   });
@@ -435,7 +465,7 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
       writeFileSync(join(root, 'src', 'main.rs'), 'mod app;\nuse crate::app::App;\nfn main() {}\n');
       writeFileSync(join(root, 'src', 'app', 'mod.rs'), 'pub struct App;\nuse crate::RootItem;\n');
       process.chdir(root);
-      // main.rs next to a lib.rs is NOT the canonical crate root
+      // `main.rs` next to a `lib.rs` is NOT the canonical crate root.
       expect(fileToModule('src/main.rs')).toBe('crate::main');
       expect(fileToModule('src/lib.rs')).toBe('crate');
       const files: SourceFile[] = [
@@ -446,9 +476,9 @@ describe('rust keyword-module imports (super/self/crate as node types)', () => {
 
       const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
       expect(unresolved).toEqual([]);
-      // root-item import (use crate::RootItem) edges to lib.rs, NOT main.rs
+      // An import of a root item (`use crate::RootItem`) edges to `lib.rs`, and NOT to `main.rs`.
       expect(edges).toContainEqual({ fromFile: 'src/app/mod.rs', toFile: 'src/lib.rs', import: 'crate::RootItem', symbols: ['RootItem'] });
-      // main.rs's own crate:: imports still resolve through the shared module files
+      // The `crate::` imports of `main.rs` still resolve through the shared module files.
       expect(edges).toContainEqual({ fromFile: 'src/main.rs', toFile: 'src/app/mod.rs', import: 'crate::app::App', symbols: ['App'] });
       expect(edges.some((e) => e.toFile === 'src/main.rs' && e.fromFile !== 'src/main.rs')).toBe(false);
     } finally {
@@ -470,11 +500,10 @@ describe('rust bare-first-segment resolution (module-relative walk-up)', () => {
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
     expect(unresolved).toEqual([]);
-    // the re-export is LOCAL (crate::reading::tokenization), so the import is not dropped
-    // as external — it resolves through the re-exporting module (the direct hit wins)
+    // The re-export is LOCAL (`crate::reading::tokenization`), so the code does not drop the import as external. The import resolves through the re-exporting module, because the direct hit wins.
     expect(edges).toContainEqual({ fromFile: 'src/app/app_impl.rs', toFile: 'src/reading/mod.rs', import: 'crate::reading::tokenize_text', symbols: ['tokenize_text'] });
-    // the re-export itself resolves module-relative to its defining file
-    expect(edges).toContainEqual({ fromFile: 'src/reading/mod.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' }); // no symbols: the bare-first-segment path computes no abs — the honest gap
+    // The re-export itself resolves relative to the module of its defining file.
+    expect(edges).toContainEqual({ fromFile: 'src/reading/mod.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' }); // There are no symbols, because the bare-first-segment path computes no absolute path. This is the honest gap.
   });
 
   it('a bare use tokenization::foo in a nested file resolves module-relative (not null, not the crate root)', async () => {
@@ -486,9 +515,9 @@ describe('rust bare-first-segment resolution (module-relative walk-up)', () => {
     ];
 
     const { edges } = await rustImporter.extract({ codeDirs: ['src'], files });
-    // Rust 2018: bare first segment walks up from crate::reading → crate::reading::tokenization
+    // The Rust 2018 rule: a bare first segment walks up from `crate::reading` to `crate::reading::tokenization`.
     expect(edges).toContainEqual({ fromFile: 'src/reading/ovp.rs', toFile: 'src/reading/tokenization.rs', import: 'tokenization::tokenize_text' });
-    // never a false crate-root edge
+    // There is never a false edge to the crate root.
     expect(edges.some((e) => e.toFile === 'src/lib.rs' && e.fromFile === 'src/reading/ovp.rs')).toBe(false);
   });
 
@@ -500,7 +529,7 @@ describe('rust bare-first-segment resolution (module-relative walk-up)', () => {
     ];
 
     const { edges, unresolved } = await rustImporter.extract({ codeDirs: ['src'], files });
-    // external re-export routed import: no edge, and NOT flagged as broken local
+    // An import that routes through an external re-export gives no edge, and it is NOT flagged as broken local.
     expect(edges.filter((e) => e.import.includes('owo_colors'))).toEqual([]);
     expect(unresolved.filter((u) => u.import.includes('owo_colors'))).toEqual([]);
   });

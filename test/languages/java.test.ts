@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SourceFile } from '../../src/imports.js';
 import { javaImporter } from '../../src/languages/java.js';
 
-/** In-memory fixture — the java importer resolves against the census (ctx.files), no FS. */
+/** An in-memory fixture. The java importer resolves against the census (`ctx.files`), with no file system. */
 function files(entries: Record<string, string>): SourceFile[] {
   return Object.entries(entries).map(([path, content]) => ({ path, content }));
 }
@@ -46,7 +46,7 @@ describe('java: module identity (package decl + basename)', () => {
       'com/acme/core/Service.java': 'package com.acme.core;\nimport Util;\npublic class Service {}\n',
     });
     expect(edges).toEqual([]);
-    expect(unresolved).toEqual([]); // single-segment import — no package, nothing owns it → external
+    expect(unresolved).toEqual([]); // A single-segment import has no package and nothing owns it, so it is external.
   });
 });
 
@@ -95,7 +95,7 @@ describe('java: wildcard imports (package-level → one representative edge)', (
       'com/acme/util/Zebra.java': 'package com.acme.util;\npublic class Zebra {}\n',
       'com/acme/app/Main.java': 'package com.acme.app;\nimport com.acme.util.*;\npublic class Main {}\n',
     });
-    expect(edges).toEqual([{ fromFile: 'com/acme/app/Main.java', toFile: 'com/acme/util/Util.java', import: 'com.acme.util.*' }]); // Util (4) < Helper (6); Aardvark/Zebra tie → alpha
+    expect(edges).toEqual([{ fromFile: 'com/acme/app/Main.java', toFile: 'com/acme/util/Util.java', import: 'com.acme.util.*' }]); // `Util` (4 characters) comes before `Helper` (6). `Aardvark` and `Zebra` tie, so alphabetical order decides.
     expect(unresolved).toEqual([]);
   });
 
@@ -186,20 +186,27 @@ describe('java: unresolved classification (importer-package rule)', () => {
 
   it('duplicate-FQN mirror trees resolve same-tree (guava android/guava mirrors)', async () => {
     const { edges, unresolved } = await extract({
-      // Two trees declare the SAME FQN; the census sorts android/ before guava/ (a
-      // last-write-wins map resolves everything to guava/ — every android import points
-      // at the desktop twin). nearestCandidate must pick
-      // the importer's own tree.
+      // Two trees declare the SAME FQN, and the census sorts `android/` before `guava/`. A last-write-wins map resolves everything to `guava/`, so every android import points at the desktop twin. `nearestCandidate` must pick the tree of the importer.
       'android/guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',
       'guava/src/com/google/common/collect/Maps.java': 'package com.google.common.collect;\npublic class Maps {}\n',
       'android/guava/src/com/google/common/collect/AbstractBiMap.java': 'package com.google.common.collect;\nimport com.google.common.collect.Maps;\npublic class AbstractBiMap {}\n',
       'guava/src/com/google/common/collect/Iterables.java': 'package com.google.common.collect;\nimport com.google.common.collect.Maps;\npublic class Iterables {}\n',
-      // wildcard parity: the package representative must ALSO resolve same-tree
+      // Wildcard parity: the package representative must ALSO resolve in the same tree.
       'android/guava/src/com/google/common/collect/Forwarding.java': 'package com.google.common.collect;\nimport com.google.common.collect.*;\npublic class Forwarding {}\n',
     });
     expect(edges.find((e) => e.fromFile === 'android/guava/src/com/google/common/collect/AbstractBiMap.java')?.toFile).toBe('android/guava/src/com/google/common/collect/Maps.java');
     expect(edges.find((e) => e.fromFile === 'guava/src/com/google/common/collect/Iterables.java')?.toFile).toBe('guava/src/com/google/common/collect/Maps.java');
     expect(edges.find((e) => e.fromFile === 'android/guava/src/com/google/common/collect/Forwarding.java')?.toFile).toBe('android/guava/src/com/google/common/collect/Maps.java');
     expect(unresolved).toEqual([]);
+  });
+
+  it('flags a broken same-package import in a nested-class file', async () => {
+    // The package comes from the declaration, so `Outer.Inner.java` is `com.acme`, like
+    // `Plain.java`. A basename-derived package read `com.acme.Outer` and stayed silent.
+    const { unresolved } = await extract({
+      'src/com/acme/Outer.Inner.java': 'package com.acme;\nimport com.acme.Missing;\npublic class Outer { public static class Inner {} }\n',
+      'src/com/acme/Plain.java': 'package com.acme;\nimport com.acme.Missing;\npublic class Plain {}\n',
+    });
+    expect(unresolved.map((u) => `${u.fromFile}:${u.import}`).sort()).toEqual(['src/com/acme/Outer.Inner.java:com.acme.Missing', 'src/com/acme/Plain.java:com.acme.Missing']);
   });
 });

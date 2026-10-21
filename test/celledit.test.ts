@@ -4,13 +4,19 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { findStaleRequires, removeCell, renameCell } from '../src/celledit.js';
 
-/** The cell edit seam, tested at its interface: throws the CLI refusal messages
- *  (main().catch prints them with the `cells: ` prefix — the spawned-CLI tests in
- *  mutate/remove/workflow pin that end-to-end) and returns outcome summaries. */
+/**
+ * The cell edit seam, tested at its interface. A refusal throws the CLI refusal message, and
+ * `main().catch` prints it with the `cells: ` prefix. The spawned-CLI tests in mutate,
+ * remove, and workflow pin that behavior from end to end. A success returns an outcome
+ * summary.
+ */
 let repo: string;
 
-/** Two cells — a (owns src/a.ts) required by b (owns src/b.ts, requires a) — plus
- *  an author comment in a's declaration to prove text surgery over parse+serialize. */
+/**
+ * Set up two cells. Cell a owns src/a.ts, and cell b owns src/b.ts and requires a. The
+ * declaration of a contains a comment from an author, which proves that the edit uses text
+ * surgery and not parse and serialise.
+ */
 function setupRepo(): void {
   mkdirSync(join(repo, 'src'), { recursive: true });
   mkdirSync(join(repo, '.cells'), { recursive: true });
@@ -38,7 +44,7 @@ describe('renameCell — the seam interface', () => {
     setupRepo();
     const outcome = renameCell('a', 'c');
     expect(outcome).toEqual({ ownedCount: 1, requiresUpdated: 1 });
-    expect(readFileSync(join(repo, '.cells', 'c.cell.toml'), 'utf8')).toContain('# authored membrane'); // text surgery, not parse+serialize
+    expect(readFileSync(join(repo, '.cells', 'c.cell.toml'), 'utf8')).toContain('# authored membrane'); // The edit uses text surgery and not parse and serialise.
     expect(readFileSync(join(repo, '.cells', 'c.cell.toml'), 'utf8')).toContain('name = "c"');
     expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).toContain('requires = ["c"]');
     expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).toContain('[c]');
@@ -56,14 +62,14 @@ describe('renameCell — the seam interface', () => {
     setupRepo();
     writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n[c]\nfiles = ["src/orphan.ts"]\n');
     expect(() => renameCell('a', 'c')).toThrow(/ownership.toml already has a \[c\] entry with no cell declaration/);
-    expect(existsSync(join(repo, '.cells', 'a.cell.toml'))).toBe(true); // nothing written
+    expect(existsSync(join(repo, '.cells', 'a.cell.toml'))).toBe(true);
   });
 
   it('rename rewrites data-requires references in dependents too', () => {
     setupRepo();
     writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\ndata-requires = ["a"]\n');
     const outcome = renameCell('a', 'c');
-    expect(outcome.requiresUpdated).toBe(1); // the data-requires ref counts as an updated declaration
+    expect(outcome.requiresUpdated).toBe(1);
     expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).toContain('data-requires = ["c"]');
     expect(readFileSync(join(repo, '.cells', 'b.cell.toml'), 'utf8')).not.toContain('data-requires = ["a"]');
   });
@@ -71,8 +77,8 @@ describe('renameCell — the seam interface', () => {
   it('atomic order: the new declaration exists before the old one is removed', () => {
     setupRepo();
     renameCell('a', 'c');
-    // post-state proof of ordering (the crash window itself is untestable at this seam):
-    // exactly one declaration for the cell exists and it declares the NEW name
+    // This post-state proves the order. The crash window itself is untestable at this seam.
+    // Exactly one declaration for the cell exists, and it declares the NEW name.
     expect(existsSync(join(repo, '.cells', 'c.cell.toml'))).toBe(true);
     expect(existsSync(join(repo, '.cells', 'a.cell.toml'))).toBe(false);
     expect(readFileSync(join(repo, '.cells', 'c.cell.toml'), 'utf8')).toMatch(/name = "c"/);
@@ -101,7 +107,7 @@ describe('removeCell — the seam interface', () => {
   it('a data-requires dependent blocks removal without --force; --force strips it', () => {
     setupRepo();
     writeFileSync(join(repo, '.cells', 'b.cell.toml'), 'name = "b"\npurpose = "p"\nprovides = ["y"]\nrequires = []\ndata-requires = ["a"]\n');
-    // a must own nothing — the owns-files refusal would otherwise mask the dependents refusal
+    // The cell a must own nothing. Otherwise the refusal for owned files would hide the refusal for dependents.
     writeFileSync(join(repo, '.cells', 'ownership.toml'), '[b]\nfiles = ["src/b.ts"]\n');
     expect(() => removeCell('a', false)).toThrow(/required by b/);
     const outcome = removeCell('a', true);

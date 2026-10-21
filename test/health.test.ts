@@ -8,8 +8,10 @@ import type { HealthValues } from '../src/view.js';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
 
-/** Base for healthVerdict tests: every gate input green (size/structure irrelevant to
- *  the rule — they are warnings). */
+/**
+ * The base for the healthVerdict tests: every gate input is green. The size and structure
+ * values do not affect the rule, because they are warnings.
+ */
 const green: HealthValues = {
   cellCount: 1,
   fileCount: 1,
@@ -76,7 +78,7 @@ describe('cells health', () => {
       expect(out).toContain('✓ validate');
       expect(out).toContain('✓ crossings');
       expect(out).toContain('✓ structure');
-      // size may be ⚠ (warning, not gate) — the repo's own size drifts as commands grow
+      // The size can be ⚠ (a warning and not a gate). The size of this repository changes as the commands grow.
       expect(out).toMatch(/(✓|⚠) size/);
       expect(out).toMatch(/All checks passed|Gate passed/);
     });
@@ -99,7 +101,7 @@ describe('cells health', () => {
 
       writeFileSync(join(dir, '.cells', 'config.toml'), `code-dirs = ["src"]\n`);
       writeFileSync(join(dir, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n`);
-      // b imports a but doesn't require it — undeclared crossing
+      // The cell b imports a, but it does not require a. The crossing is undeclared.
       writeFileSync(join(dir, '.cells', 'b.cell.toml'), `name = "b"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n`);
       writeFileSync(join(dir, '.cells', 'ownership.toml'), `[a]\nfiles = ["src/a.ts"]\n[b]\nfiles = ["src/b.ts"]\n`);
 
@@ -110,7 +112,6 @@ describe('cells health', () => {
       repo = setupBrokenRepo();
       try {
         execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
-        // should have thrown
         expect.unreachable('expected exit 1');
       } catch (err: any) {
         expect(err.status).toBe(1);
@@ -132,7 +133,7 @@ describe('cells health', () => {
       mkdirSync(join(repo, 'src'), { recursive: true });
       mkdirSync(join(repo, '.cells'), { recursive: true });
 
-      // one big file in one cell — no crossings, valid partition, but over the ceiling
+      // One large file in one cell. There are no crossings and the partition is valid, but the payload is over the ceiling.
       writeFileSync(join(repo, 'src', 'big.ts'), `export const pad = '${'x'.repeat(600)}';\n`);
       writeFileSync(join(repo, '.cells', 'config.toml'), `code-dirs = ["src"]\nmax-payload-tokens = 100\n`);
       writeFileSync(join(repo, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = []\nrequires = []\nlayer = 0\n`);
@@ -160,13 +161,13 @@ describe('cells health', () => {
 
       writeFileSync(join(repo, 'src', 'a.ts'), `export const x = 1;\n`);
       writeFileSync(join(repo, '.cells', 'config.toml'), `code-dirs = ["src"]\n`);
-      // a requires b but nothing imports b — stale only, must NOT fail the gate
+      // The cell a requires b, but nothing imports b. The requirement is stale only and must NOT fail the gate.
       writeFileSync(join(repo, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = ["b"]\n`);
       writeFileSync(join(repo, '.cells', 'b.cell.toml'), `name = "b"\npurpose = "p"\nprovides = []\nrequires = []\n`);
       writeFileSync(join(repo, '.cells', 'ownership.toml'), `[a]\nfiles = ["src/a.ts"]\n`);
 
       const res = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
-      expect(res.status).toBe(0); // stale is info — must not fail the gate
+      expect(res.status).toBe(0);
       expect(res.stderr).toContain('(info) 1 stale require');
       expect(res.stderr).not.toContain('Undeclared');
     });

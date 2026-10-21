@@ -23,7 +23,7 @@
     "build": "tsc && tsc -p tsconfig.test.json && node scripts/build-manifest.mjs && biome check .",
     "prepare": "tsc && chmod +x dist/cli.js && node scripts/build-manifest.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "test": "vitest run",
+    "test": "tsc && vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {

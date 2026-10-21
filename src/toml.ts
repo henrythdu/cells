@@ -1,13 +1,20 @@
 /**
- * TOML emission primitives shared by the domain serializers (Cell, Ownership).
- * Kept here so the two codecs stay DRY — a cross-cutting concern, not one
- * cell's private helper.
+ * TOML output helpers that both domain serializers use: the cell serializer and the
+ * ownership serializer. The helpers live here so the two serializers do not duplicate
+ * them. This is a shared concern, not a private helper of one cell.
  */
 
-/** Quote a string for TOML — escape backslash, double-quote, and control characters
- *  (basic strings forbid raw newlines/tabs/control bytes; `\uXXXX` keeps the round-trip
- *  through smol-toml). A purpose or signature containing a newline must not produce an
- *  unparseable .cell.toml. */
+/**
+ * Quote one string for TOML output.
+ *
+ * The function escapes backslashes, double quotes, and control characters. TOML basic
+ * strings do not permit raw newlines, tabs, or control bytes. Therefore a newline becomes
+ * `\n`, a tab becomes `\t`, and another control character becomes `\uXXXX`. The value
+ * keeps its exact form through smol-toml.
+ *
+ * A purpose or a signature can contain a newline. The function must not produce an
+ * invalid `.cell.toml` file for such a value.
+ */
 export function tomlString(s: string): string {
   let out = '"';
   for (const ch of s) {
@@ -23,7 +30,7 @@ export function tomlString(s: string): string {
   return `${out}"`;
 }
 
-/** Format a string array as a TOML inline array. */
+/** Format a string array as an inline TOML array. */
 export function tomlArray(arr: string[]): string {
   return `[${arr.map(tomlString).join(', ')}]`;
 }

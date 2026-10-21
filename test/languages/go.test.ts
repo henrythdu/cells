@@ -11,8 +11,9 @@ afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
 });
 
-/** Create a tmpdir holding a go.mod — the importer probes the FS for the module root (like
- *  rust's Cargo.toml walk), so extract-level tests need a real one on disk. */
+/** Create a temporary directory that holds a `go.mod`. The importer probes the file system for
+ *  the module root, the same way as the `Cargo.toml` walk of rust, so an extract-level test
+ *  needs a real file on disk. */
 function makeGoModule(modulePath: string): string {
   const dir = join(tmpdir(), `cells-go-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
@@ -21,7 +22,7 @@ function makeGoModule(modulePath: string): string {
   return dir;
 }
 
-/** Run the importer with cwd inside a tmpdir holding a go.mod. */
+/** Run the importer with the working directory inside a temporary directory that holds a `go.mod`. */
 async function extractInModule(modulePath: string, files: SourceFile[]) {
   const dir = makeGoModule(modulePath);
   const startCwd = process.cwd();
@@ -39,7 +40,7 @@ describe('fileToModule', () => {
     expect(fileToModule('main.go', undefined, repo)).toBe('example.com/proj');
     expect(fileToModule('pkg/foo.go', undefined, repo)).toBe('example.com/proj::pkg');
     expect(fileToModule('pkg/foo/bar.go', undefined, repo)).toBe('example.com/proj::pkg::foo');
-    expect(fileToModule('pkg/foo/z_test.go', undefined, repo)).toBe('example.com/proj::pkg::foo'); // same package
+    expect(fileToModule('pkg/foo/z_test.go', undefined, repo)).toBe('example.com/proj::pkg::foo'); // The same package.
     expect(fileToModule('internal/thing.go', undefined, repo)).toBe('example.com/proj::internal');
   });
 
@@ -56,7 +57,7 @@ describe('fileToModule', () => {
 });
 
 describe('resolvePackageImport', () => {
-  // a module'd repo — every key's first segment is the go.mod module path
+  // A repository with a module: the first segment of every key is the module path of `go.mod`.
   const m2f = new Map<string, string>([
     ['example.com/proj', 'main.go'],
     ['example.com/proj::pkg', 'pkg/foo.go'],
@@ -64,7 +65,7 @@ describe('resolvePackageImport', () => {
     ['example.com/proj::internal', 'internal/thing.go'],
   ]);
   const paths = modulePathsOf(m2f);
-  // a no-module (GOPATH) repo — first segments are top-level dirs
+  // A repository with no module (the GOPATH layout): the first segments are top-level directories.
   const gopathM2f = new Map<string, string>([['github.com::me::proj::pkg', 'github.com/me/proj/pkg/x.go']]);
   const gopathPaths = modulePathsOf(gopathM2f);
 
@@ -79,23 +80,24 @@ describe('resolvePackageImport', () => {
     });
     expect(resolvePackageImport('example.com/proj', 'example.com/proj', m2f, paths)).toEqual({
       toFile: 'main.go',
-      local: true, // importing the module's root package from within it
+      local: true, // An import of the root package of the module from inside it.
     });
   });
 
   it('flags local misses as unresolved, silently skips externals', () => {
     expect(resolvePackageImport('example.com/proj/pkg/missing', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: null,
-      local: true, // module-prefixed → a broken local import, the LLM's to read
+      local: true, // A module-prefixed path is a broken local import, which the LLM must read.
     });
     expect(resolvePackageImport('fmt', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false });
     expect(resolvePackageImport('github.com/other/x', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false });
-    expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false }); // cgo
+    expect(resolvePackageImport('C', 'example.com/proj::pkg', m2f, paths)).toEqual({ toFile: null, local: false }); // A cgo import.
   });
 
   it('resolves nested go.mod sub-module imports from any importer', () => {
-    // terraform shape: internal/legacy has its OWN go.mod → its files' keys carry the full
-    // module path as the first segment; a ROOT-module importer strips the root path only.
+    // The shape of terraform: `internal/legacy` has its OWN `go.mod`, so the keys of its files
+    // carry the full module path as the first segment. An importer of the ROOT module strips only
+    // the root path.
     const nested = new Map<string, string>([
       ['example.com/proj', 'main.go'],
       ['example.com/proj::cmd', 'cmd/cli.go'],
@@ -103,22 +105,22 @@ describe('resolvePackageImport', () => {
       ['example.com/proj/internal/backend/remote-state/aws', 'internal/backend/remote-state/aws/backend.go'],
     ]);
     const nestedPaths = modulePathsOf(nested);
-    // root-module file importing a sub-module package
+    // A file of the root module that imports a package of a sub-module.
     expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: 'internal/legacy/terraform/state.go',
       local: true,
     });
-    // root-module file importing a sub-module ROOT package (dir with go.mod = package too)
+    // A file of the root module that imports the ROOT package of a sub-module (a directory with a `go.mod` is a package too).
     expect(resolvePackageImport('example.com/proj/internal/backend/remote-state/aws', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: 'internal/backend/remote-state/aws/backend.go',
       local: true,
     });
-    // sub-module file importing another sub-module — still local, still resolves
+    // A file of a sub-module that imports another sub-module. The import is still local and still resolves.
     expect(resolvePackageImport('example.com/proj/internal/legacy/terraform', 'example.com/proj/internal/legacy::helper', nested, nestedPaths)).toEqual({
       toFile: 'internal/legacy/terraform/state.go',
       local: true,
     });
-    // a local miss inside a sub-module namespace → unresolved (honest)
+    // A local miss inside the namespace of a sub-module gives an unresolved import, which is honest.
     expect(resolvePackageImport('example.com/proj/internal/legacy/missing', 'example.com/proj::cmd', nested, nestedPaths)).toEqual({
       toFile: null,
       local: true,
@@ -131,14 +133,14 @@ describe('resolvePackageImport', () => {
       local: true,
     });
     expect(resolvePackageImport('./foo', 'example.com/proj::pkg', m2f, paths)).toEqual({
-      toFile: 'pkg/foo/bar.go', // ./foo from pkg/ → the pkg::foo package
+      toFile: 'pkg/foo/bar.go', // `./foo` from `pkg/` gives the `pkg::foo` package.
       local: true,
     });
     expect(resolvePackageImport('../internal', 'example.com/proj::pkg', m2f, paths)).toEqual({
       toFile: 'internal/thing.go',
       local: true,
     });
-    // escapes the root → no candidates, still local (broken — Go rejects it)
+    // The path escapes the root, so it has no candidates and stays local. The import is broken, and Go rejects it.
     expect(resolvePackageImport('../../../nope', 'example.com/proj', m2f, paths)).toEqual({ toFile: null, local: true });
   });
 
@@ -147,7 +149,7 @@ describe('resolvePackageImport', () => {
       toFile: null,
       local: false,
     });
-    // a top-dir prefix match is local even when it misses (broken own import under github.com/)
+    // A prefix match on a top-level directory is local even when it misses, so a broken own import under `github.com/` still flags.
     expect(resolvePackageImport('github.com/me/other', 'github.com::me::proj::pkg', gopathM2f, gopathPaths)).toEqual({
       toFile: null,
       local: true,
@@ -166,17 +168,17 @@ describe('go importer', () => {
     ];
 
     const { edges, unresolved } = await extractInModule('example.com/proj', files);
-    // grouped import → spec_list → spec per line; fmt/embed external
+    // A grouped import goes from spec_list to one spec per line. The `fmt` and `embed` packages are external.
     const pkg = edges.find((e) => e.import === 'example.com/proj/pkg');
     expect(pkg).toBeDefined();
     expect(pkg?.fromFile).toBe('main.go');
     expect(pkg?.toFile).toBe('pkg/foo.go');
-    // aliased + dot imports still resolve (alias/dot don't change the dependency)
+    // An aliased import and a dot import still resolve, because the alias and the dot do not change the dependency.
     expect(edges.find((e) => e.import === 'example.com/proj/pkg/foo')?.toFile).toBe('pkg/foo/bar.go');
     expect(edges.find((e) => e.import === 'example.com/proj/internal')?.toFile).toBe('internal/thing.go');
-    // a genuinely missing local package → unresolved (honest)
+    // A local package that is genuinely missing gives an unresolved import, which is honest.
     expect(unresolved.map((u) => u.import)).toContain('example.com/proj/pkg/nope');
-    // externals never appear anywhere
+    // An external import never appears anywhere.
     expect(edges.map((e) => e.import)).not.toContain('fmt');
     expect(unresolved.map((u) => u.import)).not.toContain('fmt');
   });
@@ -190,7 +192,18 @@ describe('go importer', () => {
     const files: SourceFile[] = [{ path: 'main.go', content }, ...['a', 'b', 'c', 'd', 'e'].map((n) => ({ path: `${n}/${n}.go`, content: `package ${n}\n` }))];
 
     const { edges } = await extractInModule('example.com/proj', files);
-    // single + grouped + aliased + blank + dot specs all extract; blank/dot still create the dep
+    // A single spec, a grouped spec, an aliased spec, a blank spec, and a dot spec all extract. A blank or dot spec still creates the dependency.
     expect(edges.map((e) => e.import).sort()).toEqual(['example.com/proj/a', 'example.com/proj/b', 'example.com/proj/c', 'example.com/proj/d', 'example.com/proj/e']);
+  });
+
+  it('extracts a raw-string import (backticks), not only a quoted one', async () => {
+    const files: SourceFile[] = [
+      { path: 'pkg/a/a.go', content: 'package a\n\nimport `example.com/proj/pkg/b`\n\nvar _ = b.X\n' },
+      { path: 'pkg/b/b.go', content: 'package b\n\nconst X = 1\n' },
+    ];
+    const { edges, unresolved } = await extractInModule('example.com/proj', files);
+    // `pkg/b` exists, so the dependency must be a real edge and not a diagnostic.
+    expect(edges.find((e) => e.import === 'example.com/proj/pkg/b')?.toFile).toBe('pkg/b/b.go');
+    expect(unresolved).toEqual([]);
   });
 });

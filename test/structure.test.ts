@@ -17,7 +17,7 @@ import {
   formatStructureSummary,
 } from '../src/structure.js';
 
-/** Build a minimal crossing (file/import fields are irrelevant to structure checks). */
+/** Build a minimal crossing. The file and import fields do not matter to the structure checks. */
 const c = (fromCell: string, toCell: string): Crossing => ({
   fromCell,
   toCell,
@@ -63,7 +63,8 @@ describe('detectCycles', () => {
 
 describe('cycleCutCandidates', () => {
   it('ranks internal cell-pair edges by file-crossing count (ascending)', () => {
-    // cycle a↔b↔c; a→b has 1 file, b→c has 3, c→a has 1 (plus an a→c edge)
+    // The cycle is a <-> b <-> c. a -> b has 1 file, b -> c has 3 files, and c -> a has 1
+    // file. There is also an a -> c edge.
     const cycle = { cells: ['a', 'b', 'c'] };
     const crossings = [c('a', 'b'), c('b', 'c'), c('b', 'c'), c('b', 'c'), c('c', 'a'), c('a', 'c')];
     const out = cycleCutCandidates(cycle, crossings);
@@ -115,7 +116,7 @@ describe('checkDirection', () => {
 });
 
 describe('checkSDP', () => {
-  /** Instability: I = fanOut / (fanIn + fanOut). 0 = stable, 1 = unstable. */
+  /** Instability I is fanOut divided by (fanIn + fanOut). A value of 0 is stable and a value of 1 is unstable. */
   const m = (instability: number): CellMetrics => ({ fanIn: 0, fanOut: 0, instability });
 
   it('flags a stable cell depending on a less-stable one (I(from) < I(to))', () => {
@@ -140,7 +141,7 @@ describe('checkSDP', () => {
 
   it('sorts violations by gap (worst inversion first)', () => {
     const metrics = { a: m(0.0), b: m(0.3), d: m(0.9), e: m(0.4) };
-    // a→d gap 0.9 (worst); b→e gap 0.1
+    // The gap of a -> d is 0.9, the worst. The gap of b -> e is 0.1.
     const out = checkSDP([c('a', 'd'), c('b', 'e')], metrics);
     expect(out[0]).toMatchObject({ fromCell: 'a', toCell: 'd' });
     expect(out[1]).toMatchObject({ fromCell: 'b', toCell: 'e' });
@@ -169,7 +170,7 @@ describe('formatSdpReport', () => {
     }
     const report = formatSdpReport(checkSDP(crossings, metrics));
     const lines = report!.split('\n');
-    expect(lines.length).toBe(1 + 20 + 1 + 1); // header + 20 capped + ellipsis + trailing
+    expect(lines.length).toBe(1 + 20 + 1 + 1); // One header line, 20 capped lines, one ellipsis line, and one trailing line.
     expect(lines[21]).toContain('10 more');
     expect(lines[21]).toContain('30 total');
   });
@@ -202,9 +203,9 @@ describe('formatStructureReport', () => {
     const cells = Array.from({ length: 60 }, (_, i) => `c${i}`);
     const out = formatStructureReport([{ cells }], [], true, {}, [{ fromCell: 'c1', toCell: 'c2', fromFile: 'x.ts', toFile: 'y.ts', import: "from 'x'" }]);
     expect(out).toContain('c0 ↔ c1');
-    expect(out).not.toContain('c59'); // tail folded
+    expect(out).not.toContain('c59'); // The tail is folded.
     expect(out).toContain('40 more cells');
-    expect(out).toContain('cheapest edges'); // actionable part survives the cap
+    expect(out).toContain('cheapest edges'); // The actionable part survives the cap.
   });
 
   it('reports a direction violation (raw numbers when no legend)', () => {
@@ -228,17 +229,17 @@ describe('formatStructureSummary', () => {
     const crossings = [
       c('a1', 'a2'),
       c('a2', 'a3'),
-      c('a3', 'a1'), // 3-cycle
+      c('a3', 'a1'), // This edge closes the 3-cycle.
       c('b1', 'b2'),
-      c('b2', 'b1'), // 2-cycle
+      c('b2', 'b1'), // This edge closes the 2-cycle.
     ];
     const out = formatStructureSummary([{ cells: ['a1', 'a2', 'a3'] }, { cells: ['b1', 'b2'] }], [], true, crossings, 7);
     const lines = out.split('\n');
     expect(lines[0]).toBe('ADP: 2 cycle(s) — 5 cells total:');
-    expect(lines[1]).toContain('3 cells'); // biggest first
+    expect(lines[1]).toContain('3 cells'); // The largest cycle comes first.
     expect(lines[1]).toContain('cheapest: a1→a2 (1)');
     expect(lines[2]).toContain('2 cells');
-    expect(lines[2]).not.toContain('↔'); // no full chain in summary
+    expect(lines[2]).not.toContain('↔'); // The summary shows no full chain.
     expect(lines[3]).toBe('Direction: OK — no edges point to a higher layer.');
     expect(lines[4]).toBe('SDP: 7 violation(s).');
   });
@@ -246,7 +247,7 @@ describe('formatStructureSummary', () => {
   it('direction violation collapses to a count', () => {
     const out = formatStructureSummary([], [{ fromCell: 'core', fromLayer: 0, toCell: 'periph', toLayer: 2 }], true);
     expect(out).toContain('Direction: 1 violation(s).');
-    expect(out).not.toContain('core [0]'); // no detail in summary
+    expect(out).not.toContain('core [0]'); // The summary gives no detail.
   });
 });
 
@@ -256,13 +257,13 @@ describe('formatLayerOverview', () => {
       domain: { name: 'domain', purpose: '', provides: [], requires: [], layer: 0 },
       infra: { name: 'infra', purpose: '', provides: [], requires: [], layer: 2 },
       app: { name: 'app', purpose: '', provides: [], requires: [], layer: 1 },
-      util: { name: 'util', purpose: '', provides: [], requires: [] }, // layerless
+      util: { name: 'util', purpose: '', provides: [], requires: [] }, // The cell has no layer.
     };
     const out = formatLayerOverview(decls);
     expect(out).toContain('Layers (0 = core; higher = peripheral):');
-    expect(out).toMatch(/0:.*domain/); // core tier
+    expect(out).toMatch(/0:.*domain/); // The core tier.
     expect(out).toMatch(/1:.*app/);
-    expect(out).toMatch(/2:.*infra/); // peripheral
+    expect(out).toMatch(/2:.*infra/); // The peripheral tier.
     expect(out).toMatch(/— \(layerless\):.*util/);
   });
 
@@ -279,7 +280,7 @@ describe('formatLayerOverview', () => {
 
 describe('computeImpact', () => {
   it('returns the direct dependent (1 hop)', () => {
-    // a→b: a depends on b, so changing b impacts a
+    // a -> b: a depends on b, so a change to b affects a.
     expect(computeImpact([c('a', 'b')], 'b')).toEqual({
       cell: 'b',
       affected: [{ cell: 'a', distance: 1 }],
@@ -301,7 +302,8 @@ describe('computeImpact', () => {
   });
 
   it('dedupes a diamond (a reached at its min distance, once)', () => {
-    // a→b, a→c, b→d, c→d: changing d impacts b,c (direct) then a (2 hops, once)
+    // The edges are a -> b, a -> c, b -> d, and c -> d. A change to d affects b and c
+    // directly, and then a at 2 hops, once.
     const impact = computeImpact([c('a', 'b'), c('a', 'c'), c('b', 'd'), c('c', 'd')], 'd');
     expect(impact.affected).toEqual([
       { cell: 'b', distance: 1 },
@@ -347,7 +349,7 @@ describe('formatLayerSuggestions', () => {
   it('flags a cell whose layer is below a dependency (Direction risk)', () => {
     const decls: Record<string, Cell> = {
       a: { name: 'a', purpose: '', provides: [], requires: [], layer: 2 },
-      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 1 }, // b(1) below a(2)
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'], layer: 1 }, // b has layer 1, below a at layer 2.
     };
     const out = formatLayerSuggestions(decls);
     expect(out).toContain('b: 1 → 2');
@@ -373,7 +375,7 @@ describe('formatLayerSuggestions', () => {
   it('skips layerless cells (only compares cells with a declared layer)', () => {
     const decls: Record<string, Cell> = {
       a: { name: 'a', purpose: '', provides: [], requires: [], layer: 0 },
-      b: { name: 'b', purpose: '', provides: [], requires: ['a'] }, // no layer
+      b: { name: 'b', purpose: '', provides: [], requires: ['a'] }, // The cell has no layer.
     };
     expect(formatLayerSuggestions(decls)).toBeNull();
   });
@@ -387,7 +389,7 @@ describe('formatLayerSuggestions', () => {
 });
 
 describe('classifyChangeCoupling', () => {
-  /** A commit touching the given files (hash is irrelevant to classification). */
+  /** A commit that touches the given files. The hash does not matter to the classification. */
   const commit = (files: string[]): { hash: string; files: string[] } => ({ hash: 'h', files });
   const ownership: Record<string, string[]> = {
     a: ['src/a.ts'],
@@ -395,7 +397,7 @@ describe('classifyChangeCoupling', () => {
     c: ['src/c.ts'],
     d: ['src/d.ts'],
   };
-  /** n commits each touching both a and b (the coupled pair), plus one untouched cell d. */
+  /** Return n commits that each touch a and b, the coupled pair. Cell d stays untouched. */
   const coupledCommits = (n: number) => {
     const out = [];
     for (let i = 0; i < n; i++) out.push(commit(['src/a.ts', 'src/b.ts']));
@@ -407,7 +409,7 @@ describe('classifyChangeCoupling', () => {
     expect(r.window).toBe(6);
     expect(r.pairs).toHaveLength(1);
     expect(r.pairs[0]).toMatchObject({ a: 'a', b: 'b', count: 6, union: 6, jaccard: 1, explained: false });
-    expect(r.pairs[0].sampleFiles).toEqual(['src/a.ts', 'src/b.ts']); // co-changed files, capped + sorted
+    expect(r.pairs[0].sampleFiles).toEqual(['src/a.ts', 'src/b.ts']); // The files that changed together, capped and sorted.
   });
 
   it('marks a pair explained when a crossing edge exists (dependency ripple is the null hypothesis)', () => {
@@ -421,22 +423,27 @@ describe('classifyChangeCoupling', () => {
   });
 
   it('drops pairs below the Jaccard threshold (rate, not raw count)', () => {
-    // 8 commits: 5 touch a+b, 10 more touch b alone → union 15, jaccard 5/15 = 0.33 — above.
-    // Push the union up: 12 b-only commits → union 17, jaccard 0.29 — below.
+    // With 8 commits, 5 touch a and b, and 10 more touch b alone, the union is 15 and the
+    // Jaccard value is 5/15 = 0.33, which is above the threshold. To increase the union, 12
+    // b-only commits give a union of 17 and a Jaccard value of 0.29, which is below the
+    // threshold.
     const commits = [...coupledCommits(5), ...Array.from({ length: 12 }, () => commit(['src/b.ts']))];
     expect(classifyChangeCoupling(commits, ownership, [])).toEqual({ pairs: [], window: 17 });
   });
 
   it('excludes wide commits (mass refactor/format) — but only above the absolute floor', () => {
-    // 40 owned files: a commit touching 15 of them (37.5%) with >10 files = wide → excluded.
+    // There are 40 owned files. A commit that touches 15 of them (37.5%) with more than 10
+    // files is wide, so the analysis excludes it.
     const bigOwnership: Record<string, string[]> = { a: ['src/a.ts'], b: ['src/b.ts'] };
     for (let i = 0; i < 38; i++) bigOwnership[`x${i}`] = [`src/x${i}.ts`];
     const wide = { hash: 'w', files: ['src/a.ts', 'src/b.ts', ...Array.from({ length: 13 }, (_, i) => `src/x${i}.ts`)] };
-    // 6 normal a+b commits + 1 wide a+b commit — if the wide one counted, count=7; excluded → 6.
+    // There are 6 normal a+b commits and 1 wide a+b commit. Without the exclusion the count
+    // would be 7, and with it the count is 6.
     const r = classifyChangeCoupling([...coupledCommits(6), wide], bigOwnership, []);
     expect(r.window).toBe(6);
     expect(r.pairs[0].count).toBe(6);
-    // but a small repo (3 owned files): a 2-file commit is 66% yet under the 10-file floor — kept
+    // In a small repository with 3 owned files, a commit of 2 files is 66%, but it is below
+    // the 10-file floor, so it stays.
     const small = classifyChangeCoupling(coupledCommits(6), ownership, []);
     expect(small.window).toBe(6);
   });
@@ -444,28 +451,28 @@ describe('classifyChangeCoupling', () => {
   it('excludes lockfile/generated-only commits (dependency bumps)', () => {
     const commits = [
       ...coupledCommits(6),
-      commit(['src/a.ts', 'src/b.ts', 'pnpm-lock.yaml']), // mixed: kept, not noise-only
-      commit(['pnpm-lock.yaml', 'package-lock.json']), // noise-only: excluded, touches no owned cell anyway
-      commit(['dist/app.wasm']), // generated: excluded (also unowned here)
+      commit(['src/a.ts', 'src/b.ts', 'pnpm-lock.yaml']), // The commit is mixed, so it stays: it is not noise-only.
+      commit(['pnpm-lock.yaml', 'package-lock.json']), // The commit contains only noise files. The analysis excludes it, and it touches no owned cell in any case.
+      commit(['dist/app.wasm']), // The file is generated, so the analysis excludes the commit. The file is also unowned here.
     ];
     const r = classifyChangeCoupling(commits, ownership, []);
-    expect(r.window).toBe(7); // 6 + the mixed one
+    expect(r.window).toBe(7); // Six commits and the mixed commit.
   });
 
   it('returns empty for no commits, no ownership, or nothing over threshold', () => {
     expect(classifyChangeCoupling([], ownership, [])).toEqual({ pairs: [], window: 0 });
     expect(classifyChangeCoupling(coupledCommits(6), {}, [])).toEqual({ pairs: [], window: 0 });
-    // c+d co-change twice only — below floor
+    // c and d change together only twice, which is below the floor.
     const r = classifyChangeCoupling([commit(['src/c.ts', 'src/d.ts']), commit(['src/c.ts', 'src/d.ts'])], ownership, []);
     expect(r.pairs).toEqual([]);
   });
 
   it('sorts unexplained first, then by count desc, then names', () => {
     const commits = [
-      ...coupledCommits(8), // a|b unexplained, count 8
-      ...Array.from({ length: 6 }, () => commit(['src/c.ts', 'src/d.ts'])), // c|d explained? no edge → unexplained count 6
+      ...coupledCommits(8), // The pair a|b is unexplained, with count 8.
+      ...Array.from({ length: 6 }, () => commit(['src/c.ts', 'src/d.ts'])), // The pair c|d has no edge, so it is unexplained with count 6.
     ];
-    const r = classifyChangeCoupling(commits, ownership, [c('a', 'b')]); // explain a|b
+    const r = classifyChangeCoupling(commits, ownership, [c('a', 'b')]); // This edge explains the pair a|b.
     expect(r.pairs.map((p) => `${p.a}|${p.b}`)).toEqual(['c|d', 'a|b']);
   });
 
@@ -475,7 +482,7 @@ describe('classifyChangeCoupling', () => {
     const report = formatChangeCouplingReport(r)!;
     expect(report).toContain('Change-coupled cells (6 analyzed commits;');
     expect(report).toContain('a ↔ b   explained — has import edge (6/6, 100%)');
-    // unexplained gets the warning mark
+    // The unexplained pair gets the warning mark.
     const r2 = classifyChangeCoupling(coupledCommits(6), ownership, []);
     expect(formatChangeCouplingReport(r2)!).toContain('⚠ a ↔ b   unexplained — no import edge (6/6, 100%)');
   });

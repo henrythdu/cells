@@ -1,8 +1,14 @@
-/** The gate family: size, structure, impact, health. The renderers live in view /
- *  structure; these shells gather I/O and delegate. The read/query commands (crossings,
- *  list, show, graph, owns, payload, surface) live in commands/read.ts; the shared pipeline
- *  (loadCrossings + guards) lives in pipeline.ts. The gate composes the four check
- *  cells into one verdict — the surface CI and external stress runs consume it. */
+/**
+ * The gate family: size, structure, impact, and health. The renderers live in `view` and
+ * `structure`. These functions collect the input and delegate.
+ *
+ * The read and query commands (crossings, list, show, graph, owns, payload, surface) live
+ * in `commands/read.ts`. The shared pipeline (`loadCrossings` and the guards) lives in
+ * `pipeline.ts`.
+ *
+ * The gate combines the four check cells into one verdict. The CI surface and the external
+ * stress runs consume this verdict.
+ */
 
 import { existsSync } from 'node:fs';
 import { checkLeakage, checkOffMembrane, computeMetrics } from './crossings.js';
@@ -29,22 +35,28 @@ import {
 import { providesDrift, type StaleProvide, validatePartition } from './validate.js';
 import { formatHealthReport, formatSizeReport, type HealthValues, type PeelCandidate } from './view.js';
 
-/** `cells size` — context-fit warning: payloads vs the configured ceiling. Non-blocking (exit 0). */
+/**
+ * `cells size` reports the context fit: the payload of each cell against the configured
+ * ceiling. This check does not block (exit 0).
+ */
 export async function cmdSize(ctx: CellsContext): Promise<void> {
   const { config, declarations, ownership } = ctx;
-  // warn=false: the blind-ext warning's own text says "Partition/size/validate are unaffected" —
-  // noise on `cells size`. (list/health keep their coverage: list's coupling columns ARE crossings-derived.)
+  // Pass warn=false. The text of the blind-extension warning itself says that
+  // "Partition/size/validate are unaffected", so the warning would be noise here. `list`
+  // and `health` keep their coverage, because the coupling columns of `list` come from
+  // crossings.
   const { edges } = await loadCrossings(ownership, false);
   const fileFanIn = new Map<string, number>();
   for (const e of edges) fileFanIn.set(e.toFile, (fileFanIn.get(e.toFile) ?? 0) + 1);
   const entries = Object.keys(declarations).map((name) => {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
-    const contents = readFiles(owned); // one read, shared by the size computation and peel candidates
+    const contents = readFiles(owned); // One read, shared by the size computation and the peel candidates.
     const size = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
-    const ceiling = cell.ceiling; // per-cell override (declared in the cell.toml); undefined = use global
-    // Peel candidates: for over-ceiling cells, rank owned files by size↓ + fan-in↑
-    // (a big file few others import is the cheapest chunk to carve out).
+    const ceiling = cell.ceiling; // The per-cell override from the cell.toml. When undefined, the global value applies.
+    // Peel candidates for a cell over the ceiling: rank the owned files by size, from high
+    // to low, then by fan-in, from low to high. A large file that few other files import is
+    // the cheapest part to move to another cell.
     let peel: PeelCandidate[] | undefined;
     if (size.tokens > (ceiling ?? config.maxPayloadTokens)) {
       peel = owned.map((f) => ({ file: f, tokens: estimateTokens((contents[f] ?? '').length), fanIn: fileFanIn.get(f) ?? 0 })).sort((a, b) => b.tokens - a.tokens || a.fanIn - b.fanIn);
@@ -54,8 +66,13 @@ export async function cmdSize(ctx: CellsContext): Promise<void> {
   process.stdout.write(formatSizeReport(entries, config.maxPayloadTokens));
 }
 
-/** `cells structure` — governance: ADP (cycles) + Direction (layering). Warnings only (exit 0).
- *  --summary: the triage view — one line per cycle + counts (for high-cycle repos). */
+/**
+ * `cells structure` reports the governance checks: ADP (cycles) and Direction (layering).
+ * These are warnings only (exit 0).
+ *
+ * With `--summary`, the command shows the triage view: one line for each cycle, plus
+ * counts. This view is for repositories with many cycles.
+ */
 export async function cmdStructure(ctx: CellsContext, summary = false): Promise<void> {
   const { declarations, ownership, config } = ctx;
   const { crossings } = await loadCrossings(ownership);
@@ -65,8 +82,9 @@ export async function cmdStructure(ctx: CellsContext, summary = false): Promise<
 
   const metrics = computeMetrics(crossings, Object.keys(declarations));
   const sdp = checkSDP(crossings, metrics);
-  // ADR 0002: change-coupled cells — advisory only (exit 0), history-derived signal
-  // with a past-tense bias, the opposite of the deterministic facts the gate is built on.
+  // ADR 0002: change-coupled cells. This is advisory only (exit 0). The signal comes from
+  // history and favors past changes, which is the opposite of the deterministic facts that
+  // the gate uses.
   const coupling = classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
 
   if (summary) {
@@ -93,19 +111,22 @@ export async function cmdStructure(ctx: CellsContext, summary = false): Promise<
   if (couplingReport !== null) process.stdout.write(`\n${couplingReport}`);
 }
 
-/** `cells impact <name>` — blast radius: who transitively depends on this cell? */
+/** `cells impact <name>` reports the blast radius: which cells depend on this cell, directly or transitively? */
 export async function cmdImpact(ctx: CellsContext, name: string): Promise<void> {
   const { declarations, ownership } = ctx;
-  requireCell(declarations, name); // guard: no cell named → die with the standard error
+  requireCell(declarations, name); // Guard: stop with the standard error when no cell has this name.
   const { crossings } = await loadCrossings(ownership);
   process.stdout.write(formatImpactReport(computeImpact(crossings, name)));
 }
 
-/** The strict-gate rule: what fails `cells health` (exit 1) — integrity violations,
- *  undeclared leakage, or a broken grammar bundle. Size and structure are warnings:
- *  they never fail the gate (the renderer draws their ⚠ lines). Pure — the exit-code
- *  conjunction lives here; view re-derives the per-check booleans it needs to draw
- *  its ✓/✗ lines. */
+/**
+ * The strict-gate rule: the conditions that fail `cells health` (exit 1). The gate fails on
+ * an integrity violation, an undeclared leakage, or a broken grammar bundle. Size and
+ * structure are warnings and never fail the gate. The renderer draws their warning lines.
+ *
+ * Pure. The exit-code rule lives here. The view re-derives the per-check booleans that it
+ * needs to draw its success and failure lines.
+ */
 export function healthVerdict(v: HealthValues): boolean {
   const valOk = v.violationCount === 0;
   const xOk = v.undeclaredCount === 0;
@@ -113,10 +134,15 @@ export function healthVerdict(v: HealthValues): boolean {
   return valOk && xOk && grammarsOk;
 }
 
-/** `health --summary`: collapse per-entry unresolved lines into per-FILE groups (the triage
- *  unit — llama.cpp's 161 OpenCL headers from ONE file become one line), sorted desc, with a
- *  representative specifier. Source-based, no language heuristics: the from-file is the honest
- *  key every unresolved entry carries. */
+/**
+ * `health --summary` groups the unresolved entries by file and collapses each group to
+ * one line. The file is the triage unit: the 161 OpenCL headers from one file in
+ * llama.cpp become one line. The function sorts the groups from high to low and shows
+ * one representative specifier for each group.
+ *
+ * The function uses the source file as the key and applies no language heuristics. Every
+ * unresolved entry carries the source file.
+ */
 export function groupUnresolved(unresolved: UnresolvedImport[]): string[] {
   const byFile = new Map<string, { count: number; example: string }>();
   for (const u of unresolved) {
@@ -127,15 +153,19 @@ export function groupUnresolved(unresolved: UnresolvedImport[]): string[] {
   return [...byFile.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).map(([f, g]) => `${f}: ${g.count} unresolved (e.g. "${g.example}")`);
 }
 
-/** `cells health` — all four checks at once (validate + crossings + structure + size).
- *  One command instead of four for the LLM's check step. Exit 1 if any check fails.
- *  --verbose names failing undeclared edges inline (saves the crossings round-trip). */
+/**
+ * `cells health` runs all four checks at once: validate, crossings, structure, and size. It
+ * is one command instead of four for the check step of a model.
+ *
+ * The command exits with code 1 when a check fails. With `--verbose`, it names the failing
+ * undeclared edges inline, which saves a second run of `crossings`.
+ */
 export async function cmdHealth(ctx: CellsContext, verbose = false, summary = false): Promise<void> {
   const started = performance.now();
   const { config, declarations, ownership } = ctx;
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
-  const orphanCount = codeFiles.length - new Set(Object.values(ownership).flat()).size; // census minus owned — the partition-coverage number
+  const orphanCount = codeFiles.length - new Set(Object.values(ownership).flat()).size; // The census count minus the owned count: the partition coverage number.
 
   const { crossings, edges, uncoveredExts, unresolved } = await loadCrossings(ownership, false);
   const visibleUncoveredExts = uncoveredExts.filter((e) => !config.ignoreBlindExts.includes(e));
@@ -155,22 +185,22 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   for (const name of cellNames) {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
-    const contents = readFiles(owned); // one read, shared by the size check and the provides-drift check
+    const contents = readFiles(owned); // One read, shared by the size check and the provides-drift check.
     Object.assign(allContents, contents);
     const pct = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? [])).tokens / (cell.ceiling ?? config.maxPayloadTokens);
     if (pct > maxPercent) maxPercent = pct;
   }
-  // Orphans aren't owned but can still suppress unread flags (string-literal readers live
-  // anywhere) — one extra read, usually near-empty.
+  // An orphan is not owned, but it can still suppress the unread flag, because a reader
+  // can be a string literal in any file. This extra read usually returns little content.
   const ownedSet = new Set(Object.keys(allContents));
   Object.assign(allContents, readFiles(codeFiles.filter((f) => !ownedSet.has(f))));
-  // One name, one verdict: unread subsumes stale (the drift helper splits them).
+  // One name, one verdict. Unread contains stale, and the drift helper splits the two cases.
   const drift = providesDrift(declarations, ownership, edges, allContents);
   staleProvides.push(...drift.stale);
 
-  // The strict-gate rule lives HERE (the gate module), not in the renderer: exit 1 on
-  // integrity violations, undeclared leakage, or a broken grammar bundle. Size/structure
-  // are warnings — the renderer draws their ✓/⚠ lines and the warning list itself.
+  // The strict-gate rule lives here, in the gate module, and not in the renderer. Exit 1
+  // on an integrity violation, an undeclared leakage, or a broken grammar bundle. Size and
+  // structure are warnings: the renderer draws their check lines and the warning list.
   const undeclared = leakage.filter((l) => l.kind === 'undeclared');
   const unresolvedFiles = summary ? groupUnresolved(unresolved) : undefined;
   const values: HealthValues = {
@@ -207,5 +237,5 @@ export async function cmdHealth(ctx: CellsContext, verbose = false, summary = fa
   };
   const gateOk = healthVerdict(values);
   process.stdout.write(formatHealthReport(values, verbose, gateOk));
-  if (!gateOk) process.exitCode = 1; // exitCode, not exit(): the report (esp. on failure) must flush before the process ends
+  if (!gateOk) process.exitCode = 1; // Use exitCode and not exit(). The report, especially on failure, must flush before the process ends.
 }

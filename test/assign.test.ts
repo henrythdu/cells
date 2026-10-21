@@ -89,7 +89,7 @@ describe('planAssignment', () => {
   });
 
   it('does no I/O — trusts the passed cellExists, not the filesystem or ownership', () => {
-    // cellExists=true even though 'ghost' is absent from ownership: the plan must use the boolean
+    // cellExists is true, but 'ghost' is absent from ownership. The plan must use the boolean value.
     const result = planAssignment({}, 'ghost', ['src/x.ts'], true);
     expect(result.stub).toBeNull();
     expect(result.ownership).toEqual({ ghost: ['src/x.ts'] });
@@ -118,13 +118,13 @@ describe('planGroups', () => {
     touch('test/x.ts');
     touch('root.ts');
     const g = planGroups(['src/a.ts', 'src/nested/b.ts', 'test/x.ts', 'root.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['src', 'src/nested', 'test']); // root.ts stays UNOWNED (no root catch-all)
+    expect([...g.keys()].sort()).toEqual(['src', 'src/nested', 'test']); // root.ts stays UNOWNED, because there is no root catch-all.
   });
 
   it('collapses Rust workspace crates to one cell each (uv)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('crates/uv/src/main.rs');
-    touch('crates/uv/benches/bench.rs'); // benches fold into the crate
+    touch('crates/uv/benches/bench.rs'); // The benches directory folds into the crate.
     touch('crates/uv-tools/src/lib.rs');
     touch('crates/uv/Cargo.toml', '[package]\n');
     touch('crates/uv-tools/Cargo.toml', '[package]\n');
@@ -152,9 +152,9 @@ describe('planGroups', () => {
     touch('crates/extra/src/lib.rs');
     touch('crates/extra/Cargo.toml', '[package]\n');
     const g = planGroups(['src/main.rs', 'crates/extra/src/lib.rs'], repo);
-    expect(g.has('crates/extra')).toBe(true); // the sub-crate is its own unit
-    expect(g.get('ripgrep')).toEqual(['src/main.rs']); // root crate = its own cell, named by package
-    expect(g.has('.')).toBe(false); // never the catch-all
+    expect(g.has('crates/extra')).toBe(true); // The sub-crate is its own unit.
+    expect(g.get('ripgrep')).toEqual(['src/main.rs']); // The root crate is its own cell, named after the package.
+    expect(g.has('.')).toBe(false); // The catch-all key never appears.
   });
 
   it('a LONE root crate (no workspace members) becomes one cell, not a dir explosion', () => {
@@ -174,7 +174,7 @@ describe('planGroups', () => {
     touch('src/lib.rs');
     const g = planGroups(['src/lib.rs'], repo);
     expect(g.has('cxx')).toBe(false);
-    expect([...g.keys()].sort()).toEqual(['src']); // dir-keyed, honest fallback
+    expect([...g.keys()].sort()).toEqual(['src']); // The fallback uses the directory as the key, which is honest.
   });
 
   it('collapses TS monorepo packages (vite packages/*)', () => {
@@ -203,7 +203,7 @@ describe('planGroups', () => {
   it('nested cargo crates stay separate (hard boundary, any size)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('crates/uv/src/main.rs');
-    touch('crates/uv/xtask/src/main.rs'); // nested crate under crates/uv
+    touch('crates/uv/xtask/src/main.rs'); // The crate is nested below crates/uv.
     touch('crates/uv/Cargo.toml', '[package]\n');
     touch('crates/uv/xtask/Cargo.toml', '[package]\n');
     const g = planGroups(['crates/uv/src/main.rs', 'crates/uv/xtask/src/main.rs'], repo);
@@ -231,7 +231,8 @@ describe('planGroups', () => {
     touch('zerver/views.py');
     touch('starlight_help/src/foo.ts');
     const g = planGroups(['zerver/views.py', 'starlight_help/src/foo.ts'], repo);
-    // zerver groups by its package, not the root manifest; starlight_help by its package
+    // zerver groups by its package and not by the root manifest. starlight_help groups by its
+    // package.
     expect([...g.keys()].sort()).toEqual(['starlight_help', 'zerver']);
     expect(g.get('zerver')).toEqual(['zerver/views.py']);
   });
@@ -240,7 +241,7 @@ describe('planGroups', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('mypkg/__init__.py');
     touch('mypkg/a.py');
-    touch('mypkg/sub/b.py'); // no __init__.py in sub — folds into mypkg
+    touch('mypkg/sub/b.py'); // The sub directory has no __init__.py, so it folds into mypkg.
     const g = planGroups(['mypkg/a.py', 'mypkg/sub/b.py'], repo);
     expect([...g.keys()].sort()).toEqual(['mypkg']);
   });
@@ -251,7 +252,7 @@ describe('planGroups', () => {
     touch('a.py');
     touch('sub/b.py');
     const g = planGroups(['a.py', 'sub/b.py'], repo);
-    expect([...g.keys()].sort()).toEqual(['sub']); // a.py at the package root stays unowned
+    expect([...g.keys()].sort()).toEqual(['sub']); // a.py at the package root stays unowned.
   });
 
   it('python bundled inside a crate stays in the crate (cargo owns its subtree)', () => {
@@ -266,12 +267,12 @@ describe('planGroups', () => {
   it('a python package with a co-located package.json stays a hard boundary (pyinit > pkg)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     touch('pkg/parent/package.json', '{}');
-    touch('pkg/parent/child/package.json', '{}'); // both a TS package AND a python package
+    touch('pkg/parent/child/package.json', '{}'); // The directory is both a TypeScript package and a Python package.
     touch('pkg/parent/child/__init__.py');
     touch('pkg/parent/child/mod.py');
     touch('pkg/parent/index.ts');
     const g = planGroups(['pkg/parent/child/__init__.py', 'pkg/parent/child/mod.py', 'pkg/parent/index.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['pkg/parent', 'pkg/parent/child']); // not folded into parent
+    expect([...g.keys()].sort()).toEqual(['pkg/parent', 'pkg/parent/child']); // The child does not fold into the parent.
   });
 
   it('a lone root manifest keeps directory grouping (no whole-repo collapse)', () => {
@@ -289,22 +290,22 @@ describe('planGroups', () => {
     touch('src/loose.rs');
     touch('crates/foo/Cargo.toml', '[package]\n');
     const g = planGroups(['crates/foo/src/lib.rs', 'src/loose.rs'], repo);
-    // the crate is a hard boundary; loose files fall back to their dir
+    // The crate is a hard boundary. A loose file falls back to its directory.
     expect([...g.keys()].sort()).toEqual(['crates/foo', 'src']);
   });
 
   it('folds invalid-name dirs to the nearest valid ancestor (Next.js routes)', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     const g = planGroups(['app/[[...slug]]/page.tsx', 'app/page.tsx', '[[x]]/y.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['app']); // [[x]]/y.ts folds to '.' → unowned, not a root cell
+    expect([...g.keys()].sort()).toEqual(['app']); // [[x]]/y.ts folds to '.', so it stays unowned and is not a root cell.
     expect(g.get('app')).toEqual(['app/[[...slug]]/page.tsx', 'app/page.tsx']);
   });
 
   it('folds dotted dirs too — every key must produce a creatable cell name', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-plan-'));
     const g = planGroups(['packages/foo.v2/src/x.ts', '.storybook/preview.ts', 'src/a.ts'], repo);
-    expect([...g.keys()].sort()).toEqual(['packages', 'src']); // .storybook folds to '.' → unowned
-    // the guarantee: every emitted name passes validCellName after escaping
+    expect([...g.keys()].sort()).toEqual(['packages', 'src']); // The .storybook directory folds to '.', so it stays unowned.
+    // The guarantee: every emitted name passes validCellName after the escape.
     for (const key of g.keys()) {
       expect(validCellName(cellNameOf(key))).toBe(true);
     }
@@ -320,9 +321,9 @@ describe('planApply', () => {
     ]);
     const r = planApply(ownership, proposed, new Set(['curated']));
     expect(r.stubs).toEqual([{ name: 'fresh', purpose: STUB_PURPOSE, provides: [], requires: [] }]);
-    expect(r.skipped).toBe(1); // curated exists — not overwritten
+    expect(r.skipped).toBe(1); // curated exists and is not overwritten.
     expect(r.adopted).toBe(3);
-    expect(r.kept).toBe(1); // src/kept.ts already owned — not stolen
+    expect(r.kept).toBe(1); // src/kept.ts is already owned and is not taken.
     expect(r.ownership).toEqual({ curated: ['src/kept.ts', 'src/new.ts'], fresh: ['src/a.ts', 'src/b.ts'] });
   });
 
@@ -355,7 +356,7 @@ describe('planApply', () => {
     );
     expect(r.ownership.x).toEqual(['src/shared.ts', 'src/x.ts']);
     expect(r.ownership.y).toEqual(['src/y.ts']);
-    expect(r.kept).toBe(1); // y's shared.ts was already adopted by x
+    expect(r.kept).toBe(1); // x already adopted shared.ts, so y does not own it.
   });
 });
 

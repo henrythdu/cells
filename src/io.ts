@@ -9,7 +9,7 @@ import { isUnsafePath } from './validate.js';
 
 export const CELLS_DIR = '.cells';
 
-/** Guard: ensure this is a Cells project (`.cells/` exists). Friendly exit if not. */
+/** Guard: make sure that this is a Cells project (the `.cells/` directory exists). Exit with a friendly message when it is not. */
 export function requireCells(): void {
   if (!existsSync(CELLS_DIR)) {
     console.error(`not a Cells project — no \`${CELLS_DIR}/\` here. Run \`cells init\` first.`);
@@ -17,9 +17,11 @@ export function requireCells(): void {
   }
 }
 
-/** Read a tracked file and parse it; on parse failure, attribute the error to the file —
- *  a bare smol-toml error doesn't say which `.cell.toml` is malformed, which strands an LLM
- *  (or human) that broke one of N declarations. */
+/**
+ * Read a tracked file and parse it. On a parse failure, add the file name to the error,
+ * because a bare smol-toml error does not say which `.cell.toml` is malformed. Without that
+ * name, a model or a person who broke one of N declarations has no starting point.
+ */
 function readParsed<T>(path: string, parse: (text: string) => T, label: string): T {
   try {
     return parse(readFileSync(path, 'utf8'));
@@ -28,18 +30,24 @@ function readParsed<T>(path: string, parse: (text: string) => T, label: string):
   }
 }
 
-/** Load every `.cell.toml` declaration in `.cells/`, keyed by cell name. The store's
- *  invariant: file `<name>.cell.toml` declares `name = "<name>"`, and no two declaration
- *  files name the same cell. A silent overwrite would hide a corrupt store (health would
- *  report green on half the partition) — detect both and die with the cause. */
+/**
+ * Load every `.cell.toml` declaration in `.cells/`, keyed by cell name.
+ *
+ * The invariant of the store: the file `<name>.cell.toml` declares `name = "<name>"`, and no
+ * two declaration files name the same cell.
+ *
+ * A silent overwrite would hide a corrupt store, and health would report success on half of
+ * the partition. The function detects both conditions and stops with the cause.
+ */
 export function loadDeclarations(): Record<string, Cell> {
   const parsed: { file: string; cell: Cell }[] = [];
   for (const file of readdirSync(CELLS_DIR)) {
     if (!file.endsWith('.cell.toml')) continue;
     parsed.push({ file, cell: readParsed(join(CELLS_DIR, file), parseCell, file) });
   }
-  // Duplicate names first: two files declaring the same cell is the worse corruption
-  // (a silent overwrite would hide half the partition). Then file/name mismatch.
+  // Duplicate names come first. Two files that declare the same cell are the worse
+  // corruption, because a silent overwrite would hide half of the partition. The file and
+  // name mismatch comes after that.
   const sourceBy = new Map<string, string>();
   for (const { file, cell } of parsed) {
     const other = sourceBy.get(cell.name);
@@ -59,16 +67,22 @@ export function loadDeclarations(): Record<string, Cell> {
   return decls;
 }
 
-/** `.cells/ignore` patterns (empty when the file is absent). Shared by the census (listCodeFiles)
- *  and ownership loading — one read/parse path for the ignore file. */
+/**
+ * The `.cells/ignore` patterns. The result is empty when the file is absent. The census
+ * (`listCodeFiles`) and the ownership loader both use this function, so the system reads and
+ * parses the ignore file in one place.
+ */
 function loadIgnorePatterns(): string[] {
   const ignorePath = join(CELLS_DIR, 'ignore');
   if (!existsSync(ignorePath)) return [];
   return parseIgnore(readFileSync(ignorePath, 'utf8'));
 }
 
-/** Filter an ownership map down to non-ignored files (the store's invariant: owned ⟺ not
- *  ignored). Shared by read and write so the two ends can't drift. */
+/**
+ * Filter an ownership map down to the files that are not ignored. This is the invariant of
+ * the store: a file is owned if and only if it is not ignored. The read path and the write
+ * path share this function, so the two ends cannot disagree.
+ */
 function filterIgnored(ownership: Ownership): Ownership {
   const patterns = loadIgnorePatterns();
   if (patterns.length === 0) return ownership;
@@ -84,32 +98,43 @@ export function loadOwnership(): Ownership {
   const path = join(CELLS_DIR, 'ownership.toml');
   if (!existsSync(path)) return {};
   const ownership = readParsed(path, parseOwnership, '.cells/ownership.toml');
-  // `.cells/ignore` means cell-free — owned-but-ignored files read as unowned
-  // (stale ownership.toml entries drop on the next write of the store; size/payload stop
-  // counting them without a manual unassign).
+  // A `.cells/ignore` match means that the file is free of cells. An owned but ignored file
+  // reads as unowned. A stale ownership.toml entry drops on the next write of the store, and
+  // size and payload stop counting the file without a manual unassign.
   return filterIgnored(ownership);
 }
 
-/** Persist the ownership map. Write side of the store's invariant: read filters ignored files,
- *  write drops them — the file on disk and what cells reads never disagree, and a stale entry
- *  (written before the ignore rule was added, or an ignored file handed to assign) drops here
- *  instead of lingering invisibly. All writers go through this one seam. */
+/**
+ * Save the ownership map. This function is the write side of the store invariant: the read
+ * path filters the ignored files out, and the write path drops them.
+ *
+ * Therefore the file on disk and the data that cells reads never disagree. A stale entry
+ * (written before the ignore rule was added, or an ignored file passed to `assign`) drops
+ * here instead of staying invisible. All writers use this one seam.
+ */
 export function writeOwnership(ownership: Ownership): void {
   writeFileSync(join(CELLS_DIR, 'ownership.toml'), serializeOwnership(filterIgnored(ownership)));
 }
 
-/** Load `.cells/config.toml` (optional — missing file → defaults). `parseConfig('')`
- *  is the empty-document parse — every key missing → every default — so the fallback
- *  shape lives in ONE place (parseConfig), not duplicated inline here. */
+/**
+ * Load `.cells/config.toml`. The file is optional, and a missing file gives the defaults.
+ *
+ * `parseConfig('')` parses an empty document, where every key is missing and every default
+ * applies. Therefore the fallback definition lives in ONE place (`parseConfig`) and is not
+ * duplicated here.
+ */
 export function loadConfig(): CellsConfig {
   const path = join(CELLS_DIR, 'config.toml');
   if (!existsSync(path)) return parseConfig('');
   return readParsed(path, parseConfig, '.cells/config.toml');
 }
 
-/** The three Cells stores, loaded once per command. Bundle them so cmd* functions stop
- *  hand-repeating the loadDeclarations/loadOwnership/loadConfig triple (the copy-paste
- *  drift surface). Eager: all three are tiny TOML reads, so the simplest shape wins. */
+/**
+ * The three Cells stores, loaded once for each command. The bundle removes the repeated
+ * `loadDeclarations`/`loadOwnership`/`loadConfig` triple from the `cmd*` functions, which was
+ * a place where behavior could drift through copy-paste. The bundle is eager: all three reads
+ * are small TOML files, so the simplest shape is the best.
+ */
 export interface CellsContext {
   declarations: Record<string, Cell>;
   ownership: Ownership;
@@ -120,17 +145,23 @@ export function loadContext(): CellsContext {
   return { declarations: loadDeclarations(), ownership: loadOwnership(), config: loadConfig() };
 }
 
-/** Shared directory-walk core: guarded readdir + realpath cycle-guard + stat per entry.
- *  `skip` drops names before stat (SKIP_DIRS-style); `visit` handles each surviving entry —
- *  dirs recurse via the caller, sharing `visited`, so a symlink loop back to an ancestor
- *  stops instead of re-walking forever. Census (listFiles) and detection (scan + root)
- *  ride this — one guard surface instead of three hand-rolled loops. */
+/**
+ * The shared core of the directory walk: guarded readdir, a realpath cycle guard, and stat
+ * for each entry.
+ *
+ * `skip` removes names before the stat call (the SKIP_DIRS style). `visit` handles each
+ * remaining entry, and a directory recurses through the caller, which shares `visited`.
+ * Therefore a symlink loop back to an ancestor stops and does not walk again.
+ *
+ * The census (`listFiles`) and the detection (`scan` and `root`) use this function, so there
+ * is one guard surface and not three hand-written loops.
+ */
 function walkDir(dir: string, visited: Set<string>, visit: (path: string, entry: string, isDir: boolean) => void, skip?: ReadonlySet<string>): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
   } catch {
-    return; // missing/unreadable dir — not code; a crash would sink the census
+    return; // The directory is missing or unreadable, so it is not code. A crash would stop the census.
   }
   let real: string;
   try {
@@ -138,7 +169,7 @@ function walkDir(dir: string, visited: Set<string>, visit: (path: string, entry:
   } catch {
     return;
   }
-  if (visited.has(real)) return; // symlink cycle — stop
+  if (visited.has(real)) return; // This is a symlink cycle. Stop.
   visited.add(real);
   for (const entry of entries) {
     if (skip?.has(entry)) continue;
@@ -147,19 +178,27 @@ function walkDir(dir: string, visited: Set<string>, visit: (path: string, entry:
     try {
       st = statSync(path);
     } catch {
-      continue; // dangling symlink / vanished entry — not code
+      continue; // The entry is a dangling symlink or a vanished file, so it is not code.
     }
     visit(path, entry, st.isDirectory());
   }
 }
 
-/** Recursively list files under a directory whose extension is in `exts` (relative paths).
- *  Follows symlinked dirs but stops on a cycle (a visited realpath) — a symlink loop
- *  can't grow the result, only re-walk forever. `skip` (default: the built-in SKIP_DIRS)
- *  never enter the census — a code-dirs ["."] config (flat repo) must not sweep
- *  node_modules/ dist/ into ownership, plan and size (detectProject already excludes
- *  them at init; this closes the same hole for hand-edited configs). Config skip-dirs
- *  REPLACES the default set — that's the unhide path for a real internal/build package. */
+/**
+ * Recursively list the files below a directory whose extension is in `exts`. The paths are
+ * relative.
+ *
+ * The function follows symlinked directories but stops on a cycle (a realpath that it already
+ * visited), so a symlink loop cannot grow the result and cannot walk again forever.
+ *
+ * `skip` (the default is the built-in SKIP_DIRS) never enters the census. Without this, a
+ * `code-dirs = ["."]` configuration for a flat repository would collect node_modules/ and
+ * dist/ into ownership, plan, and size. `detectProject` already excludes them at init, and
+ * this check closes the same hole for hand-edited configurations.
+ *
+ * The `skip-dirs` configuration value REPLACES the default set. That is the way to unhide a
+ * real internal or build package.
+ */
 function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visited = new Set<string>()): string[] {
   const out: string[] = [];
   walkDir(
@@ -167,47 +206,62 @@ function listFiles(dir: string, exts: string[], skip: ReadonlySet<string>, visit
     visited,
     (path, entry, isDir) => {
       if (isDir) out.push(...listFiles(path, exts, skip, visited));
-      else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path); // case-insensitive: some toolchains emit .TS/.Cpp — a case gap would blind-spot real code
+      else if (exts.some((e) => entry.toLowerCase().endsWith(e.toLowerCase()))) out.push(path); // The comparison is case-insensitive, because some toolchains write .TS or .Cpp. A case gap would miss real code.
     },
     skip,
   );
   return out;
 }
 
-/** All code files on disk (per config `code-dirs`/`code-exts`), excluding `.cells/ignore` matches.
- *  `baseDir` reads code from elsewhere (e.g. an extracted HEAD tree); paths stay repo-relative
- *  so ownership still resolves. `.cells/` (config/ownership/ignore) is always the working repo's. */
+/**
+ * All code files on disk (per the `code-dirs` and `code-exts` configuration), without the
+ * `.cells/ignore` matches.
+ *
+ * `baseDir` reads the code from another location, for example an extracted HEAD tree. The
+ * paths stay relative to the repository, so ownership still resolves. `.cells/` (config,
+ * ownership, ignore) is always the directory of the working repository.
+ */
 export function listCodeFiles(baseDir = '.'): string[] {
   const { codeDirs, codeExts, skipDirs } = loadConfig();
-  // Config skip-dirs REPLACES the defaults (repo convention: code-dirs/code-exts too) —
-  // the unhide path for a skip-named dir that holds real code (internal/build in Go).
+  // The `skip-dirs` configuration value REPLACES the defaults (as `code-dirs` and `code-exts`
+  // do). This is the way to unhide a skip-named directory that holds real code, such as an
+  // `internal/build` package in Go.
   const skip = new Set(skipDirs ?? SKIP_DIRS);
-  // Posix-normalize census paths: importer module keys and resolver string logic assume '/'
-  // separators (ts-resolution, python fileToModule, rust dirname probes). Node's fs accepts
-  // '/' on Windows, so one normalization here makes the whole pipeline platform-agnostic.
+  // Normalize the census paths to posix form. The importer module keys and the resolver
+  // string logic assume '/' separators (`ts-resolution`, `fileToModule` in python, the
+  // dirname probes in rust). Node's fs accepts '/' on Windows, so one normalization here
+  // makes the whole pipeline platform-independent.
   const all = [...new Set(codeDirs.flatMap((dir) => listFiles(join(baseDir, dir), codeExts, skip).map((f) => relative(baseDir, f).replace(/\\/g, '/'))))];
-  // Set: overlapping code-dirs (e.g. "." + "crates") must not double-list files — ownership,
-  // plan and size all count per file. Detection filters at init; this covers hand-edited configs.
+  // Use a Set. Overlapping code-dirs (for example "." and "crates") must not list a file
+  // twice, because ownership, plan, and size count each file. Detection filters at init, and
+  // this check covers hand-edited configurations.
   const patterns = loadIgnorePatterns();
   if (patterns.length === 0) return all;
   return all.filter((f) => !isIgnored(f, patterns));
 }
 
-/** Read files into a {path→content} map. Two guards make this the safe byte seam:
- *  - trust boundary: paths come from repo-controlled ownership/tests entries — an absolute
- *    or `..`-escaping path must not read outside the repo (validatePartition flags the
- *    same condition as an integrity violation). Lexical checks can't see symlinks, so the
- *    resolved target must also stay under the resolved baseDir — a repo-owned symlink
- *    must not smuggle an outside file into the payload.
- *  - never-silent-zero: a MISSING file is skipped (validate flags it as dangling), but a
- *    file that exists yet can't be read (EACCES/EISDIR/…) must not silently become empty
- *    content — importers would derive a zero-edge graph from it.
- *  `baseDir` lets callers read from elsewhere (e.g. an extracted HEAD tree for `--diff`). */
+/**
+ * Read files into a map from path to content. Two guards make this the safe byte seam.
+ *
+ * - Trust boundary: the paths come from ownership and tests entries, which the repository
+ *   controls. An absolute path or a path with `..` must not read outside the repository.
+ *   `validatePartition` reports the same condition as an integrity violation. A lexical
+ *   check cannot see symlinks, so the resolved target must also stay below the resolved
+ *   `baseDir`. A symlink in the repository must not bring an outside file into the payload.
+ *
+ * - Never zero silently: the function skips a MISSING file, and `validate` reports it as
+ *   dangling. But a file that exists and cannot be read (EACCES, EISDIR, and others) must not
+ *   become empty content without a warning, because importers would derive a graph with zero
+ *   edges from it.
+ *
+ * `baseDir` lets a caller read from another location, for example an extracted HEAD tree for
+ * `--diff`.
+ */
 export function readFiles(paths: string[], baseDir = '.'): Record<string, string> {
   const out: Record<string, string> = {};
-  // Resolve the root once: every target's realpath must stay under it (symlink escape).
-  // realpathSync fails on a missing root only if baseDir itself is gone — callers pass
-  // an existing repo, so fall back to the lexical path rather than crash on a race.
+  // Resolve the root once. The real path of every target must stay below it, which prevents
+  // a symlink escape. `realpathSync` fails on a missing root only when baseDir itself is gone.
+  // Callers pass an existing repository, so use the lexical path and do not crash on a race.
   let root: string;
   try {
     root = realpathSync(baseDir);
@@ -224,7 +278,7 @@ export function readFiles(paths: string[], baseDir = '.'): Record<string, string
     try {
       real = realpathSync(full);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // missing — validate flags as dangling
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // The file is missing. validate reports it as dangling.
       throw new Error(`cannot read ${p}: ${(e as Error).message}`);
     }
     if (real !== root && !real.startsWith(rootPrefix)) {
@@ -233,14 +287,14 @@ export function readFiles(paths: string[], baseDir = '.'): Record<string, string
     try {
       out[p] = readFileSync(full, 'utf8');
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // vanished between realpath and read
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // The file disappeared between realpath and read.
       throw new Error(`cannot read ${p}: ${(e as Error).message}`);
     }
   }
   return out;
 }
 
-/** Directories never scanned for code (deps, build output, tooling caches). */
+/** The directories that the system never scans for code: dependencies, build output, and tool caches. */
 export const SKIP_DIRS = new Set([
   '.git',
   'node_modules',
@@ -267,11 +321,17 @@ export const SKIP_DIRS = new Set([
   'eggs',
 ]);
 
-/** Skip-named dirs that hold census-eligible code or a build manifest (a real `build/` Go
- *  package, a crate dir literally named `build`). Plan reports them so "0 orphans" can't
- *  hide a swallowed package — the skip rule stays; the omission becomes visible.
- *  node_modules/.git/.cells are never source; the ambiguous names (dist/build/target/…)
- *  are exactly the ones worth a user's eye. Pure over the FS. */
+/**
+ * Skip-named directories that hold code which the census would count, or a build manifest.
+ * Examples are a real `build/` Go package and a crate directory named `build`.
+ *
+ * `plan` reports these directories, so "0 orphans" cannot hide a package that the census
+ * skipped. The skip rule stays, and the omission becomes visible.
+ *
+ * `node_modules`, `.git`, and `.cells` are never source. The ambiguous names (dist, build,
+ * target, and others) are exactly the ones that a person should inspect. Almost pure: the
+ * function reads the file system.
+ */
 export function skippedManifestDirs(codeExts: string[], baseDir = '.', skip: ReadonlySet<string> = SKIP_DIRS): string[] {
   const MANIFESTS = new Set(['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'build.gradle', 'pom.xml']);
   const out: string[] = [];
@@ -291,9 +351,9 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.', skip: Rea
         try {
           hasCode = readdirSync(p).some((f) => MANIFESTS.has(f) || codeExts.some((ext) => f.endsWith(ext)));
         } catch {
-          /* unreadable dir — nothing to report */
+          /* The directory is unreadable, so there is nothing to report. */
         }
-        if (hasCode) out.push(relative(baseDir, p).replace(/\\/g, '/')); // posix like the census — 'internal\build' would leak to users on Windows
+        if (hasCode) out.push(relative(baseDir, p).replace(/\\/g, '/')); // Use posix form, as the census does. On Windows, 'internal\\build' would reach the user.
         continue; // never recurse into a skipped dir
       }
       walk(join(dir, e.name));
@@ -303,15 +363,23 @@ export function skippedManifestDirs(codeExts: string[], baseDir = '.', skip: Rea
   return out.sort();
 }
 
-/** Extensions recognised as code (for census + ownership). Cells has importers for
- *  TS/JS, Python (incl. .pyx/.pxd), Rust, Go, C/C++, Java; others (.rb/.kt/.swift/.cs/...)
- *  are counted but BLIND (no crossing analysis) — surfaced by the blind-ext warning in health. */
+/**
+ * The extensions that the system recognizes as code (for the census and ownership). Cells has
+ * importers for TS/JS, Python (including .pyx and .pxd), Rust, Go, C/C++, and Java. The system
+ * counts the other extensions (.rb, .kt, .swift, .cs, and others) but is BLIND to them: there
+ * is no crossing analysis. The blind-extension warning in `health` reports them.
+ */
 const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyx', '.pxd', '.rs', '.go', '.rb', '.java', '.kt', '.swift', '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx', '.cs']);
 
-/** Detect the project's code languages + directories by scanning the repo (used by `cells init`
- *  so a Python/Rust repo doesn't ship TypeScript-only defaults). Scans top-level dirs (skipping
- *  deps/build/tooling), counts files by extension, collects top-level dirs holding code.
- *  Falls back to TS defaults ([".ts"], ["src","test"]) when no code is found. Pure (no config). */
+/**
+ * Detect the languages and directories of the project by scanning the repository. `cells init`
+ * uses the result, so a Python or a Rust repository does not get TypeScript-only defaults.
+ *
+ * The function scans the top-level directories, skips dependencies, build output, and tooling,
+ * counts the files for each extension, and collects the top-level directories that hold code.
+ * When it finds no code, it uses the TypeScript defaults: [".ts"] and ["src", "test"]. Pure,
+ * with no configuration.
+ */
 export function detectProject(root = '.'): { codeExts: string[]; codeDirs: string[] } {
   const extCounts = new Map<string, number>();
   const dirHasCode = new Set<string>();
@@ -331,7 +399,7 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
     });
   };
 
-  const visited = new Set<string>(); // one cycle-guard span across all top-level scans
+  const visited = new Set<string>(); // One cycle guard span across all top-level scans.
   walkDir(
     root,
     visited,
@@ -352,8 +420,8 @@ export function detectProject(root = '.'): { codeExts: string[]; codeDirs: strin
   if (extCounts.size === 0) return { codeExts: ['.ts'], codeDirs: ['src', 'test'] };
   const codeExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
   let codeDirs = [...dirHasCode].sort();
-  // Root code files make the list collapse to ["."] — otherwise every file
-  // double-counts in ownership/plan.
+  // Code files at the root make the list collapse to ["."]. Without this, every file would
+  // count twice in ownership and plan.
   if (dirHasCode.has('.')) codeDirs = ['.'];
   return { codeExts, codeDirs };
 }

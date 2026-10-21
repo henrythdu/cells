@@ -1,8 +1,15 @@
 #!/usr/bin/env node
-/** CLI entry: dispatch commands; wire the io layer + logic cells to argv.
- *  Read/analysis handlers live in commands/read.ts (plus gate.ts at the src root); mutation command
- *  bodies live in mutate.ts. This file stays a thin dispatcher: argv → COMMANDS row →
- *  handler, plus the arg-count/--dry-run/--help gates and EPIPE handling. */
+/**
+ * The CLI entry. The file dispatches the commands and connects the io layer and the logic
+ * cells to argv.
+ *
+ * The read and analysis handlers live in `commands/read.ts` and in `gate.ts` at the root of
+ * `src/`. The bodies of the mutation commands live in `mutate.ts`.
+ *
+ * This file stays a thin dispatcher: argv goes to a COMMANDS row and then to a handler. It
+ * also holds the argument-count checks, the `--dry-run` handling, the `--help` handling, and
+ * the EPIPE handling.
+ */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +20,7 @@ import { type CellsContext, loadContext, requireCells } from './io.js';
 import { cmdAssign, cmdConfig, cmdInit, cmdNew, cmdPlan, cmdPruneStale, cmdRemove, cmdRename, cmdUnassign } from './mutate.js';
 import { cmdImports } from './pipeline.js';
 
-/** Installed version, read lazily from package.json (works in dev + when npm-installed). */
+/** The installed version, read lazily from package.json. The read works in development and when npm installs the package. */
 function readVersion(): string {
   try {
     return (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')) as { version: string }).version;
@@ -30,9 +37,9 @@ interface Command {
   readonly run: (args: string[], dryRun: boolean, ctx?: CellsContext) => void | Promise<void>;
 }
 
-// One line per command. `usage` is the single source of truth: the error line
-// ("usage: cells …"), the dispatch help ("cells <cmd> --help"), and the
-// COMMANDS block in `cells help` are all derived from it (see renderHelp).
+// One line for each command. `usage` is the single source of truth: the error line
+// ("usage: cells ..."), the dispatch help ("cells <cmd> --help"), and the COMMANDS block
+// of `cells help` all come from it (see `renderHelp`).
 const COMMANDS: Record<string, Command> = {
   payload: { usage: 'cells payload <name>', desc: "print a cell's full payload (the context to work it)", minArgs: 1, needsCells: true, run: (a, _d, ctx) => cmdPayload(ctx!, a[0]) },
   crossings: {
@@ -141,17 +148,21 @@ const COMMANDS: Record<string, Command> = {
   },
 };
 
-/** Stderr-only refusal: print + exit(1) directly (nothing on stdout — the exit-code
- *  convention documented at the bottom). Never returns. */
+/**
+ * A refusal on stderr only. The function prints the message and exits with code 1 at once,
+ * and writes nothing to stdout. The exit-code convention is at the bottom of this file. The
+ * function never returns.
+ */
 function usageError(msg: string): never {
   console.error(msg);
   process.exit(1);
 }
 
 async function main(): Promise<void> {
-  // `cells X | head` closes the pipe early. Ignore EPIPE (the command's natural exit code still
-  // stands — no false-green from exiting 0 here); re-raise everything else (ENOSPC/EIO) so real
-  // stdout failures stay loud instead of being marked handled by this listener.
+  // A command such as `cells X | head` closes the pipe early. Ignore EPIPE, and keep the
+  // natural exit code of the command: do not exit with 0 here. Re-raise every other error
+  // (ENOSPC, EIO), so a real stdout failure stays visible and this listener does not mark it
+  // as handled.
   process.stdout.on('error', (e) => {
     if ((e as NodeJS.ErrnoException).code === 'EPIPE') return;
     throw e;
@@ -174,60 +185,78 @@ async function main(): Promise<void> {
         .join(' | ')}}`,
     );
   }
-  // `--` ends the flag zone; everything before it is flags, after it literal positionals.
+  // `--` ends the flag zone. Every token before it is a flag, and every token after it is a
+  // literal positional value.
   const sepIdx = args.indexOf('--');
   const flagZone = sepIdx === -1 ? args : args.slice(0, sepIdx);
   const rest = sepIdx === -1 ? [] : args.slice(sepIdx + 1);
-  // `cells <cmd> --help` must answer help, not run the command (minArgs:0 commands
-  // like plan/size would otherwise execute with --help silently ignored).
-  // Flag-zone-scoped: `--help` AFTER a `--` is a literal positional (a file named
-  // like a flag), not a help request.
+  // `cells <cmd> --help` must show the help and must not run the command. Without this
+  // check, a command with minArgs 0, such as plan or size, would run and ignore `--help`
+  // without a warning.
+  //
+  // The check applies to the flag zone only. A `--help` after a `--` is a literal positional
+  // value (a file with a name that looks like a flag), and not a help request.
   if (flagZone.includes('--help') || flagZone.includes('-h')) {
     process.stdout.write(`usage: ${command.usage}\n`);
     return;
   }
-  // Unknown-flag gate: the usage string is the single source of truth — every
-  // flag a command accepts appears in its usage (no second list to drift).
-  // Without this, an unknown flag silently flows into positional args
-  // (assign would treat `--verbose` as a filename). Single-dash tokens are gated
-  // too — `-x` previously bypassed the check entirely (misleading "no cell named -x"
-  // errors, or silent ignore under minArgs:0 commands). `--` ends the flag zone:
-  // everything after it is a literal positional (a file named like a flag).
+  // The check for an unknown flag. The usage string is the single source of truth: every
+  // flag that a command accepts appears in its usage, so there is no second list that can
+  // drift.
+  //
+  // Without this check, an unknown flag goes into the positional arguments without a
+  // warning, and `assign` would treat `--verbose` as a file name.
+  //
+  // Single-dash tokens are checked too. Before this check, `-x` went past it, which gave a
+  // misleading "no cell named -x" error, or no error for a command with minArgs 0.
+  //
+  // `--` ends the flag zone. Every token after it is a literal positional value (a file with
+  // a name that looks like a flag).
   const knownFlags: string[] = command.usage.match(/--[\w-]+/g) ?? [];
   const unknownFlag = flagZone.find((a) => a.startsWith('-') && a.length > 1 && !knownFlags.includes(a));
   if (unknownFlag !== undefined) {
     usageError(`unknown flag "${unknownFlag}" for cells ${cmd}\nusage: ${command.usage}`);
   }
   if (command.needsCells) requireCells();
-  // --dry-run is a pure boolean flag (never takes a value) — stripped from the arg-count
-  // gate's tally so `assign cell --dry-run` counts 1 positional (cell), not 2 raw args.
-  // Only the commands that declare it in their usage (init/assign/unassign/plan) accept
-  // it; the unknown-flag gate rejects it everywhere else. Flag-zone-scoped: after `--`
-  // it's a literal positional (same contract as --help above).
+  // `--dry-run` is a pure boolean flag and never takes a value. The count check removes it,
+  // so `assign cell --dry-run` counts 1 positional (the cell) and not 2 raw arguments.
+  //
+  // Only the commands whose usage declares `--dry-run` (init, assign, unassign, and plan)
+  // accept it. The unknown-flag check rejects it for every other command. The flag zone
+  // applies: after `--`, the token is a literal positional value, which is the same contract
+  // as for `--help` above.
   const dryRun = flagZone.includes('--dry-run');
-  // runArgs handed to a command's run closure: every non-`--dry-run` arg in the flag
-  // zone plus the literal positionals after `--`. Other flags (--verbose/--diff/--force/…)
-  // REMAIN in runArgs — each handler re-parses them via `a.includes('--flag')`; a truly
-  // positional array would need a second param, which the COMMANDS rows already avoid.
+  // The arguments that the run closure of a command receives: every argument in the flag
+  // zone except `--dry-run`, plus the literal positionals after `--`.
+  //
+  // The other flags (`--verbose`, `--diff`, `--force`, and others) stay in `runArgs`. Each
+  // handler parses them again with `a.includes('--flag')`. A truly positional array would
+  // need a second parameter, and the COMMANDS rows avoid that.
   const runArgs = [...flagZone.filter((a) => a !== '--dry-run'), ...rest];
   const realArgs = [...flagZone.filter((a) => !a.startsWith('-')), ...rest].length;
   if (realArgs < command.minArgs) {
     usageError(`usage: ${command.usage}`);
   }
-  // Load the three stores once per cells-command; read commands consume the bundle via
-  // their dispatch closures (ctx! — guaranteed present for needsCells:true). Mutation
-  // commands ignore it and re-load fresh — they write after reading, so a shared bundle
-  // would go stale. For needsCells:false commands (init/plan) there is no store; ctx is
-  // undefined and those closures never touch it.
+  // Load the three stores once for each cells command. The read commands use the bundle
+  // from their dispatch closures (`ctx!`, which is present because needsCells is true).
+  //
+  // The mutation commands ignore the bundle and load fresh data, because they write after
+  // they read and a shared bundle would be stale. A command with needsCells false (init,
+  // plan) has no store, so ctx is undefined and those closures never touch it.
   const ctx = command.needsCells ? loadContext() : undefined;
   await command.run(runArgs, dryRun, ctx);
 }
 
-// Exit convention (two deliberate patterns): report paths that wrote to stdout set
-// `process.exitCode = 1` so the stream drains before the process ends (piped output must
-// not lose its tail); stderr-only refusals with nothing on stdout may `process.exit(1)`
-// directly. Thrown errors (the seam contract: celledit/plan/assign throw refusal messages
-// verbatim) land here — printed with the `cells: ` prefix, exit 1.
+// The exit convention has two deliberate patterns.
+//
+// A report path that writes to stdout sets `process.exitCode = 1`, so the stream drains
+// before the process ends and piped output does not lose its tail.
+//
+// A refusal on stderr only, with nothing on stdout, can call `process.exit(1)` directly.
+//
+// A thrown error arrives here. The seam contract is that celledit, plan, and assign throw
+// their refusal messages unchanged. The handler prints the message with the `cells: ` prefix
+// and exits with code 1.
 main().catch((err) => {
   console.error(`cells: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);

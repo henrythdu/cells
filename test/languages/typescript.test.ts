@@ -34,8 +34,8 @@ afterEach(() => {
   fixtures.clear();
 });
 
-/** Extract with the census files read from the fixture (tree-sitter importers parse `files`,
- *  unlike dep-cruiser which cruised the FS). */
+/** Extract with the census files read from the fixture. The tree-sitter importers parse
+ *  `files`, unlike dep-cruiser, which cruised the file system. */
 async function extractAt(dir: string, importer = typescriptImporter, files?: SourceFile[]) {
   const known: SourceFile[] =
     files ??
@@ -63,7 +63,7 @@ describe('typescriptImporter (tree-sitter)', () => {
       { path: 'src/b.ts', content: readFileSync(join(dir, 'src', 'b.ts'), 'utf8') },
     ];
     const { edges } = await typescriptImporter.extract({ codeDirs: ['src'], files, baseDir: dir });
-    // one spec './b' → one edge, the four statements' named imports merged onto it
+    // One specifier `./b` gives one edge, and the named imports of the four statements merge onto it.
     const toB = edges.filter((e) => e.toFile === 'src/b.ts');
     expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['parse', 'stringify'] }]);
   });
@@ -80,7 +80,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     ];
     const { edges } = await typescriptImporter.extract({ codeDirs: ['src'], files, baseDir: dir });
     const toB = edges.filter((e) => e.toFile === 'src/b.ts');
-    // portions + first-tail sub; computed, default-attr, and non-binding bases excluded
+    // The portions and the first tail of the sub-chain. A computed access, a default attribute, and a non-binding base are excluded.
     expect(toB).toEqual([{ fromFile: 'src/a.ts', toFile: 'src/b.ts', import: './b.js', symbols: ['portions', 'sub'] }]);
   });
 
@@ -88,8 +88,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ts-shadow-'));
     fixtures.add(dir);
     mkdirSync(join(dir, 'src'), { recursive: true });
-    // the `views` param shadows the namespace import — the pilot attributes `fake` to the
-    // spec anyway (no scope tracking). Pinned as documented boundary, never a crash.
+    // The parameter `views` shadows the namespace import, and the pilot attributes `fake` to the specifier anyway, because there is no scope tracking. The test pins this documented boundary: the result is never a crash.
     writeFileSync(join(dir, 'src', 'a.ts'), "import * as views from './b.js';\nfunction f(views: any) { return views.fake; }\nf(null);\n");
     writeFileSync(join(dir, 'src', 'b.ts'), 'export const real = 1;\n');
     const files: SourceFile[] = [
@@ -106,22 +105,22 @@ describe('typescriptImporter (tree-sitter)', () => {
     const { edges, unresolved } = await extractAt(dir);
     const alias = edges.find((e) => e.import === '@/b');
     expect(alias).toBeDefined();
-    expect(alias!.toFile).toContain('src/b.ts'); // the alias target, not left dangling
-    expect(unresolved.some((u) => u.import === '@/b')).toBe(false); // resolved, not flagged
-    expect(unresolved.some((u) => u.import === './missing')).toBe(true); // real broken import still flagged
+    expect(alias!.toFile).toContain('src/b.ts'); // the alias target, and not a dangling import.
+    expect(unresolved.some((u) => u.import === '@/b')).toBe(false); // It resolves and is not flagged.
+    expect(unresolved.some((u) => u.import === './missing')).toBe(true); // A real broken import is still flagged.
   });
 
   it('flags failed `@/` specifiers as local-unresolved when tsconfig is missing (no silent drop)', async () => {
     const dir = makeFixture(false);
     const { edges, unresolved } = await extractAt(dir);
-    expect(edges.some((e) => e.import === '@/b')).toBe(false); // no tsconfig → cannot resolve
-    expect(unresolved.some((u) => u.import === '@/b')).toBe(true); // …but surfaced, not swallowed
+    expect(edges.some((e) => e.import === '@/b')).toBe(false); // There is no tsconfig, so the import cannot resolve.
+    expect(unresolved.some((u) => u.import === '@/b')).toBe(true); // But it is surfaced, not swallowed.
   });
 
   it('reads `paths` from a jsonc tsconfig (trailing comma — turborepo apps/web)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-tsc-jsonc-'));
     fixtures.add(dir);
-    // jsonc: trailing comma after the last `paths` entry — legal TS, invalid strict JSON
+    // JSONC allows a trailing comma after the last `paths` entry. This is legal TypeScript and invalid strict JSON.
     writeFileSync(
       join(dir, 'tsconfig.json'),
       `{
@@ -143,7 +142,7 @@ describe('typescriptImporter (tree-sitter)', () => {
       { path: 'src/b.ts', content: 'export const b = 1;\n' },
       { path: 'server/s.ts', content: 'export const s = 1;\n' },
     ]);
-    expect(edges.some((e) => e.import === '@/b')).toBe(true); // aliases resolve despite the trailing comma
+    expect(edges.some((e) => e.import === '@/b')).toBe(true); // The aliases resolve despite the trailing comma.
     expect(edges.some((e) => e.import === '~/s')).toBe(true);
     expect(unresolved.some((u) => u.import === '@/b' || u.import === '~/s')).toBe(false);
   });
@@ -151,13 +150,13 @@ describe('typescriptImporter (tree-sitter)', () => {
   it('resolves workspace package-name imports to the package entry source (monorepo)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cells-ws-ts-'));
     fixtures.add(dir);
-    // the workspace root: nested packages are local ONLY when the root declares them
+    // The workspace root: a nested package is local ONLY when the root declares it.
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'utils', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'utils', 'src', 'dir'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'create-turbo', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'legacy', 'src'), { recursive: true });
-    // dist-only main → must land on src/index.ts; exports subpath key → dir/index.default.js
+    // A dist-only main must land on `src/index.ts`. An exports subpath key gives `dir/index.default.js`.
     writeFileSync(join(dir, 'packages', 'utils', 'package.json'), JSON.stringify({ name: '@turbo/utils', main: './dist/index.js', exports: { '.': './dist/index.js', './with-module': './src/dir/index.default.js' } }));
     writeFileSync(join(dir, 'packages', 'create-turbo', 'package.json'), JSON.stringify({ name: '@turbo/create-turbo' }));
     writeFileSync(join(dir, 'packages', 'legacy', 'package.json'), JSON.stringify({ name: '@vitejs/plugin-legacy' }));
@@ -183,14 +182,14 @@ describe('typescriptImporter (tree-sitter)', () => {
     });
     const exact = edges.find((e) => e.import === '@turbo/utils');
     expect(exact).toBeDefined();
-    expect(exact!.toFile).toContain('packages/utils/src/index.ts'); // dist-only main → source via probes
+    expect(exact!.toFile).toContain('packages/utils/src/index.ts'); // A dist-only main reaches the source through the probes.
     const sub = edges.find((e) => e.import === '@turbo/utils/deep');
     expect(sub).toBeDefined();
-    expect(sub!.toFile).toContain('packages/utils/src/deep.ts'); // heuristic: entry dir + rest
+    expect(sub!.toFile).toContain('packages/utils/src/deep.ts'); // The heuristic of entry directory plus rest.
     const mod = edges.find((e) => e.import === '@turbo/utils/with-module');
     expect(mod).toBeDefined();
-    expect(mod!.toFile).toContain('packages/utils/src/dir/index.default.js'); // exports subpath key
-    expect(edges.some((e) => e.import === '@turbo/nope')).toBe(false); // unknown name → external, silent
+    expect(mod!.toFile).toContain('packages/utils/src/dir/index.default.js'); // An exports subpath key.
+    expect(edges.some((e) => e.import === '@turbo/nope')).toBe(false); // An unknown name is external and silent.
     expect(unresolved.some((u) => u.import === '@turbo/nope')).toBe(false);
   });
 
@@ -200,8 +199,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'turbo-utils', 'src'), { recursive: true });
     mkdirSync(join(dir, 'packages', 'eslint-plugin-turbo', 'lib', 'utils'), { recursive: true });
-    // NO exports field — an entry-dir-relative probe would look in src/src/ and flag this
-    // resolvable import as unresolved
+    // There is NO exports field. A probe relative to the entry directory would look in `src/src/` and flag this resolvable import as unresolved.
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'package.json'), JSON.stringify({ name: '@turbo/utils', main: 'src/index.ts' }));
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'index.ts'), 'export const a = 1;\n');
     writeFileSync(join(dir, 'packages', 'turbo-utils', 'src', 'get-turbo-configs.ts'), 'export const b = 2;\n');
@@ -227,8 +225,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
     mkdirSync(join(dir, 'packages', 'vite', 'src', 'module-runner'), { recursive: true });
     mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
-    // dist target not committed (real repos); entry resolves to source, and the entry-dir +
-    // rest heuristic finds the flattened source — the rollup-flatten guess is NOT needed
+    // The dist target is not committed, as in real repositories. The entry resolves to the source, and the heuristic of entry directory plus rest finds the flattened source. The rollup-flatten guess is NOT needed.
     writeFileSync(join(dir, 'packages', 'vite', 'package.json'), JSON.stringify({ name: '@vitejs/test', main: './dist/index.js', exports: { '.': './dist/index.js', './module-runner': './dist/node/module-runner.js' } }));
     writeFileSync(join(dir, 'packages', 'vite', 'src', 'index.ts'), 'export const vite = 1;\n');
     writeFileSync(join(dir, 'packages', 'vite', 'src', 'module-runner', 'index.ts'), 'export const mr = 1;\n');
@@ -278,11 +275,10 @@ describe('typescriptImporter (tree-sitter)', () => {
     mkdirSync(join(dir, 'lib', 'util'), { recursive: true });
     mkdirSync(join(dir, 'pkg', 'dist', 'node'), { recursive: true });
     mkdirSync(join(dir, 'pkg', 'src', 'node'), { recursive: true });
-    // directory import with an index file: require('..') → the dir's index.js
+    // A directory import with an index file: `require('..')` gives the `index.js` of the directory.
     writeFileSync(join(dir, 'lib', 'util', 'index.js'), 'module.exports = {};\n');
     writeFileSync(join(dir, 'lib', 'util', 'test', 'arrays.js'), 'const _ = require("..");\n');
-    // source importing its own dist artifact (dist/ not committed — like real repos): the
-    // probe's dist→src variants land on the source file
+    // The source imports its own dist artifact, and the dist directory is not committed, as in real repositories. The `dist` to `src` variants of the probe land on the source file.
     writeFileSync(join(dir, 'pkg', 'src', 'node', 'cli.ts'), 'export const cli = 1;\n');
     writeFileSync(join(dir, 'pkg', 'index.js'), 'require("./dist/node/cli");\n');
     const { edges, unresolved } = await javascriptImporter.extract({
@@ -297,10 +293,10 @@ describe('typescriptImporter (tree-sitter)', () => {
     });
     const dirImport = edges.find((e) => e.import === '..');
     expect(dirImport).toBeDefined();
-    expect(dirImport!.toFile).toContain('lib/util/index.js'); // require('..') → dir index
+    expect(dirImport!.toFile).toContain('lib/util/index.js'); // `require('..')` gives the directory index.
     const distImport = edges.find((e) => e.import === './dist/node/cli');
     expect(distImport).toBeDefined();
-    expect(distImport!.toFile).toContain('pkg/src/node/cli.ts'); // dist artifact → source
+    expect(distImport!.toFile).toContain('pkg/src/node/cli.ts'); // A dist artifact gives the source.
     expect(unresolved.some((u) => u.import === '..')).toBe(false);
     expect(unresolved.some((u) => u.import === './dist/node/cli')).toBe(false);
   });
@@ -314,7 +310,7 @@ describe('typescriptImporter (tree-sitter)', () => {
     writeFileSync(join(dir, 'src', 'reex.ts'), 'export const r = 1;\n');
     writeFileSync(join(dir, 'src', 'cjs.js'), 'module.exports = 1;\n');
     writeFileSync(join(dir, 'src', 'eq.ts'), 'export const e = 1;\n');
-    writeFileSync(join(dir, 'src', 'refs.d.ts'), 'declare const r: number;\n'); // triple-slash target — resolver probes disk, so it must exist for real
+    writeFileSync(join(dir, 'src', 'refs.d.ts'), 'declare const r: number;\n'); // A triple-slash target: the resolver probes the disk, so the file must exist for real.
     writeFileSync(join(dir, 'src', 'side.css'), 'body { color: red; }\n');
     const { edges, unresolved } = await typescriptImporter.extract({
       codeDirs: ['src'],
@@ -333,13 +329,13 @@ describe('typescriptImporter (tree-sitter)', () => {
     });
     expect(edges.some((e) => e.import === './b')).toBe(true); // named import
     expect(edges.some((e) => e.import === './reex')).toBe(true); // export * from
-    expect(edges.some((e) => e.import === './cjs')).toBe(true); // require()
-    expect(edges.some((e) => e.import === './eq')).toBe(true); // import x = require()
-    expect(edges.some((e) => e.import === './refs')).toBe(true); // triple-slash reference directive
-    expect(edges.some((e) => e.import === 'dynamic/m')).toBe(false); // dynamic → external, silent
+    expect(edges.some((e) => e.import === './cjs')).toBe(true); // A `require()` call.
+    expect(edges.some((e) => e.import === './eq')).toBe(true); // An `import x = require()` statement.
+    expect(edges.some((e) => e.import === './refs')).toBe(true); // A triple-slash reference directive.
+    expect(edges.some((e) => e.import === 'dynamic/m')).toBe(false); // A dynamic import is external and silent.
     expect(unresolved.some((u) => u.import === 'dynamic/m')).toBe(false);
-    expect(unresolved.some((u) => u.import === './side.css')).toBe(false); // existing non-code → silent, NOT flagged
-    expect(edges.some((e) => e.import === './side.css')).toBe(false); // …and not in the census → no edge
+    expect(unresolved.some((u) => u.import === './side.css')).toBe(false); // An existing non-code target is silent and NOT flagged.
+    expect(edges.some((e) => e.import === './side.css')).toBe(false); // A target that is not in the census gives no edge.
   });
 
   it('flags a broken relative import but stays silent on node builtins', async () => {
@@ -353,9 +349,9 @@ describe('typescriptImporter (tree-sitter)', () => {
       baseDir: dir,
     });
     expect(edges.length).toBe(0);
-    expect(unresolved.some((u) => u.import === 'node:fs')).toBe(false); // builtins silent
+    expect(unresolved.some((u) => u.import === 'node:fs')).toBe(false); // A builtin is silent.
     expect(unresolved.some((u) => u.import === 'path')).toBe(false);
-    expect(unresolved.some((u) => u.import === './nope')).toBe(true); // broken relative flagged
+    expect(unresolved.some((u) => u.import === './nope')).toBe(true); // A broken relative import is flagged.
   });
 
   it('drops self-imports and dedupes repeated specifiers', async () => {
@@ -372,7 +368,7 @@ describe('typescriptImporter (tree-sitter)', () => {
       ],
       baseDir: dir,
     });
-    expect(edges.filter((e) => e.import === './b').length).toBe(1); // deduped
-    expect(edges.some((e) => e.import === './a')).toBe(false); // self-loop dropped
+    expect(edges.filter((e) => e.import === './b').length).toBe(1); // The result is deduplicated.
+    expect(edges.some((e) => e.import === './a')).toBe(false); // A self-loop is dropped.
   });
 });

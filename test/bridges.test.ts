@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { applyBridges, buildBridgeMap } from '../src/bridges.js';
 
@@ -9,8 +9,9 @@ afterAll(() => {
   if (tmp) rmSync(tmp, { recursive: true, force: true });
 });
 
-/** A pyo3-shaped fixture: root pyproject.toml ([tool.maturin] module-name) + a cdylib
- *  crate at crates/headroom-py/ whose lib name is the module tail. Returns the tmpdir. */
+/** A fixture in the shape of pyo3: a root `pyproject.toml` with `[tool.maturin] module-name`,
+ *  and a cdylib crate at `crates/headroom-py/` whose lib name is the tail of the module name.
+ *  The function returns the temporary directory. */
 function setupPyo3Fixture(): string {
   tmp = mkdtempSync(join(tmpdir(), 'cells-bridge-'));
   mkdirSync(join(tmp, 'crates', 'headroom-py', 'src'), { recursive: true });
@@ -37,7 +38,7 @@ describe('buildBridgeMap', () => {
       require('node:fs').symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
       require('node:fs').symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
     } catch {
-      return; // no symlink permission (some CI) — skip
+      return; // There is no symlink permission (some CI), so skip the test.
     }
     expect(buildBridgeMap(['src'], dir)).toEqual(new Map());
   });
@@ -84,36 +85,54 @@ describe('applyBridges', () => {
 
   it('resolves a full-name match to the crate entry', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'headroom/transforms/diff_compressor.py', import: 'headroom._core' }], dir);
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'headroom/transforms/diff_compressor.py', import: 'headroom._core' }], new Set(['crates/headroom-py/src/lib.rs', 'src/lib.rs']), dir);
     expect(edges).toEqual([{ fromFile: 'headroom/transforms/diff_compressor.py', toFile: 'crates/headroom-py/src/lib.rs', import: 'headroom._core' }]);
     expect(unresolved).toEqual([]);
   });
 
   it('does not tail-match: an unrelated cdylib lib name colliding with an import tail stays unresolved', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'pkg/foo.py', import: 'myapp.native_ops' }], dir);
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'pkg/foo.py', import: 'myapp.native_ops' }], new Set(['crates/headroom-py/src/lib.rs', 'src/lib.rs']), dir);
     expect(edges).toEqual([]);
     expect(unresolved).toHaveLength(1);
   });
 
   it('does not touch imports that match nothing (broken local stays unresolved)', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'a.py', import: 'no_such_module' }], dir);
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'a.py', import: 'no_such_module' }], new Set(['crates/headroom-py/src/lib.rs', 'src/lib.rs']), dir);
     expect(edges).toEqual([]);
     expect(unresolved).toEqual([{ fromFile: 'a.py', import: 'no_such_module' }]);
   });
 
   it('drops the bridge when the entry file does not exist (honest — no dead edges)', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(new Map([['gone.mod', 'crates/none/src/lib.rs']]), [{ fromFile: 'a.py', import: 'gone.mod' }], dir);
+    const { edges, unresolved } = applyBridges(new Map([['gone.mod', 'crates/none/src/lib.rs']]), [{ fromFile: 'a.py', import: 'gone.mod' }], new Set(['crates/headroom-py/src/lib.rs', 'src/lib.rs']), dir);
     expect(edges).toEqual([]);
     expect(unresolved).toHaveLength(1);
   });
 
   it('empty map returns everything unresolved untouched', () => {
     const dir = tmpDir();
-    const { edges, unresolved } = applyBridges(new Map(), [{ fromFile: 'a.py', import: 'x.y' }], dir);
+    const { edges, unresolved } = applyBridges(new Map(), [{ fromFile: 'a.py', import: 'x.y' }], new Set(['crates/headroom-py/src/lib.rs', 'src/lib.rs']), dir);
     expect(edges).toEqual([]);
     expect(unresolved).toHaveLength(1);
+  });
+
+  it('keeps an entry that escapes the repository unresolved', () => {
+    const dir = tmpDir();
+    const outside = join(dirname(dir), `evil-${basename(dir)}.rs`);
+    writeFileSync(outside, '');
+    // The target exists, so only the containment check can reject it.
+    const { edges, unresolved } = applyBridges(new Map([['escape.mod', `../${basename(outside)}`]]), [{ fromFile: 'a.py', import: 'escape.mod' }], new Set([`../${basename(outside)}`]), dir);
+    expect(edges).toEqual([]);
+    expect(unresolved).toEqual([{ fromFile: 'a.py', import: 'escape.mod' }]);
+  });
+
+  it('keeps an entry outside the census unresolved, even when the file exists', () => {
+    const dir = tmpDir();
+    // src/lib.rs exists on disk but this census does not walk it.
+    const { edges, unresolved } = applyBridges(map, [{ fromFile: 'a.py', import: 'native_ops' }], new Set(['crates/headroom-py/src/lib.rs']), dir);
+    expect(edges).toEqual([]);
+    expect(unresolved).toEqual([{ fromFile: 'a.py', import: 'native_ops' }]);
   });
 });

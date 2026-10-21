@@ -42,8 +42,8 @@ describe('parseConfig', () => {
   });
 
   it('warns when a bare key lands inside [layers] (the module-root trap) instead of silently ignoring it', () => {
-    // `module-root = "src"` appended AFTER the `[layers]` header parses as a layer entry.
-    // It must not silently vanish — name the trap.
+    // `module-root = "src"` appended AFTER the `[layers]` header parses as a layer entry. It
+    // must not disappear without a warning. The check names the trap.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const cfg = parseConfig('[layers]\n0 = "core"\nmodule-root = "src"\n');
@@ -101,6 +101,16 @@ describe('parseConfig', () => {
   it('rejects a non-positive max-payload-tokens (would crash the size bar)', () => {
     expect(() => parseConfig('max-payload-tokens = 0')).toThrow(/max-payload-tokens/);
     expect(() => parseConfig('max-payload-tokens = -10')).toThrow(/max-payload-tokens/);
+  });
+
+  it('normalizes an extension to the dot form (a dotless value matches by suffix)', () => {
+    expect(parseConfig('code-exts = ["ts", ".py"]').codeExts).toEqual(['.ts', '.py']);
+    expect(parseConfig('ignore-blind-exts = ["h"]').ignoreBlindExts).toEqual(['.h']);
+  });
+
+  it('rejects an empty extension (it would match every file)', () => {
+    expect(() => parseConfig('code-exts = [""]')).toThrow(/empty extension/);
+    expect(() => parseConfig('code-exts = ["."]')).toThrow(/empty extension/);
   });
 });
 

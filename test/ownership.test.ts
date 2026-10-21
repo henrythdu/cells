@@ -3,7 +3,7 @@ import { type Ownership, owningCell, parseOwnership, serializeOwnership } from '
 
 describe('parseOwnership', () => {
   it('parses a cell→files ownership map', () => {
-    // Fixture — independent source of truth.
+    // The fixture is an independent source of truth.
     const toml = ['[parser]', 'files = ["src/declaration.ts", "src/parser.ts"]', '', '[ownership]', 'files = ["src/ownership.ts"]', ''].join('\n');
 
     expect(parseOwnership(toml)).toEqual({
@@ -29,7 +29,7 @@ describe('serializeOwnership', () => {
   it('serializes deterministically — sorted cells, sorted files, one per line (merge-friendly)', () => {
     const out = serializeOwnership({ zebra: ['b/z2.ts', 'b/z1.ts'], alpha: ['src/a.ts'], empty: [] });
     expect(out).toBe('[alpha]\nfiles = [\n  "src/a.ts",\n]\n\n[empty]\nfiles = []\n\n[zebra]\nfiles = [\n  "b/z1.ts",\n  "b/z2.ts",\n]\n');
-    // insertion order and file order in the input must not leak into the output
+    // The insertion order and the file order in the input must not change the output.
     expect(serializeOwnership({ zebra: ['b/z2.ts', 'b/z1.ts'], alpha: ['src/a.ts'] })).toBe(serializeOwnership({ alpha: ['src/a.ts'], zebra: ['b/z1.ts', 'b/z2.ts'] }));
   });
 

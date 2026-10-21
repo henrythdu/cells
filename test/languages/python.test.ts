@@ -33,27 +33,27 @@ describe('python importer', () => {
             'src.views.PORTIONS',
             'v._private',
             'src.pkg.sub.deep',
-            'src.attr', // plain-dotted top: no src edge → silence (os.path rule)
-            'mod.ITEM', // from-submodule: edge src.pkg.mod exists → attach
-            'PORTIONS.foo', // from-symbol: no src.views.PORTIONS edge → drop
-            "src.views['dyn']", // computed → excluded
+            'src.attr', // A plain dotted import at the top: there is no `src` edge, so the result is silence (the `os.path` rule).
+            'mod.ITEM', // A from-submodule import: the edge `src.pkg.mod` exists, so the name attaches.
+            'PORTIONS.foo', // A from-symbol import: there is no edge `src.views.PORTIONS`, so the name drops.
+            "src.views['dyn']", // A computed access is excluded.
             '',
           ].join('\n'),
         },
         {
           path: 'src/pkg/user.py',
-          content: 'from . import mod\nmod.ITEM\n', // relative-from submodule → attach
+          content: 'from . import mod\nmod.ITEM\n', // A relative from-submodule import attaches.
         },
       ],
     });
     const sym = new Map(edges.filter((e) => e.symbols?.length).map((e) => [`${e.fromFile} | ${e.import}`, e.symbols]));
     expect(sym.get('src/app.py | src.views')).toEqual(['PORTIONS', '_private']);
     expect(sym.get('src/app.py | src.pkg.mod')).toEqual(['ITEM']);
-    expect(sym.get('src/app.py | src.pkg')).toEqual(['sub']); // chain traverses a real edge — the attempt is honest visibility
+    expect(sym.get('src/app.py | src.pkg')).toEqual(['sub']); // The chain traverses a real edge, so the attempt is honest visibility.
     expect(sym.get('src/pkg/user.py | src.pkg.mod')).toEqual(['ITEM']);
-    // from-symbol edge carries its names by pre-existing mechanism (not the pilot)
+    // The edge of a from-symbol carries its names through the existing mechanism, and not through the pilot.
     expect(sym.get('src/pkg/user.py | src.pkg')).toEqual(['mod']);
-    // dotted-plain top, from-symbol tails, and computed access attach nothing anywhere
+    // A dotted plain import at the top, a from-symbol tail, and a computed access attach nothing anywhere.
     for (const [k, v] of sym) {
       expect(v).not.toContain('attr');
       expect(v).not.toContain('foo');
@@ -72,8 +72,7 @@ describe('python importer', () => {
         { path: 'src/app.py', content: 'import src.views\ndef f(src):\n    return src.views.FAKE\n' },
       ],
     });
-    // the `src` param shadows the module — the pilot attributes FAKE anyway (no scope
-    // tracking). Pinned as documented boundary, never a crash, never a false edge.
+    // The parameter `src` shadows the module, and the pilot still attributes FAKE, because there is no scope tracking. The test pins this documented boundary: the result is never a crash and never a false edge.
     const sym = edges.filter((e) => e.symbols?.length);
     expect(sym).toEqual([{ fromFile: 'src/app.py', toFile: 'src/views.py', import: 'src.views', symbols: ['FAKE'] }]);
   });
@@ -82,11 +81,11 @@ describe('python importer', () => {
     const set = new Set(edges.map((e) => `${e.fromFile} -> ${e.toFile} | ${e.import}`));
     expect(set).toEqual(
       new Set([
-        'src/domain/graph.py -> src/domain/symbol.py | src.domain.symbol', // internal domain
-        'src/stages/build.py -> src/domain/symbol.py | src.domain.symbol', // cross stages→domain (absolute)
-        'src/stages/build.py -> src/domain/graph.py | src.domain.graph', // cross stages→domain (import M)
-        'src/stages/rel.py -> src/stages/sibling.py | src.stages.sibling', // internal stages (from . import)
-        'src/stages/rel.py -> src/domain/symbol.py | src.domain.symbol', // cross stages→domain (from ..M)
+        'src/domain/graph.py -> src/domain/symbol.py | src.domain.symbol', // An internal domain import.
+        'src/stages/build.py -> src/domain/symbol.py | src.domain.symbol', // A cross import from stages to domain (absolute).
+        'src/stages/build.py -> src/domain/graph.py | src.domain.graph', // A cross import from stages to domain (`import M`).
+        'src/stages/rel.py -> src/stages/sibling.py | src.stages.sibling', // An internal import in stages (`from . import`).
+        'src/stages/rel.py -> src/domain/symbol.py | src.domain.symbol', // A cross import from stages to domain (`from ..M`).
       ]),
     );
   });
@@ -137,8 +136,8 @@ describe('python importer', () => {
           { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
         ],
       });
-      expect(unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
-      expect(unresolved.some((u) => u.import === 'headroom.transforms')).toBe(false); // resolves normally
+      expect(unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // The `.so` file exists on disk, so the result is silence.
+      expect(unresolved.some((u) => u.import === 'headroom.transforms')).toBe(false); // The import resolves normally.
     } finally {
       process.chdir(prev);
       rmSync(repo, { recursive: true, force: true });
@@ -146,9 +145,7 @@ describe('python importer', () => {
   });
 
   it('compiled-module probe is baseDir-scoped — two trees probing one cache cannot collide', async () => {
-    // same relative layout in two trees; only tree A has the compiled _core.so on disk.
-    // The probe cache is keyed by resolve(baseDir, dir) — a relative key would let tree B
-    // inherit tree A's hit and silently swallow a REAL unresolved import.
+    // The two trees have the same relative layout, and only tree A has the compiled `_core.so` on disk. The probe cache is keyed by `resolve(baseDir, dir)`. A relative key would let tree B inherit the hit of tree A and silently swallow a REAL unresolved import.
     const files: SourceFile[] = [
       { path: 'headroom/__init__.py', content: '\n' },
       { path: 'headroom/transforms/smart_crusher.py', content: 'from headroom._core import X\nfrom headroom.transforms import Y\n' },
@@ -164,8 +161,8 @@ describe('python importer', () => {
     try {
       const ra = await pythonImporter.extract({ codeDirs: ['headroom'], baseDir: a, files });
       const rb = await pythonImporter.extract({ codeDirs: ['headroom'], baseDir: b, files });
-      expect(ra.unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // .so on disk → silent
-      expect(rb.unresolved.some((u) => u.import === 'headroom._core')).toBe(true); // no .so in B → honest unresolved
+      expect(ra.unresolved.some((u) => u.import === 'headroom._core')).toBe(false); // The `.so` file exists on disk, so the result is silence.
+      expect(rb.unresolved.some((u) => u.import === 'headroom._core')).toBe(true); // There is no `.so` file in B, so the result is an honest unresolved import.
     } finally {
       rmSync(a, { recursive: true, force: true });
       rmSync(b, { recursive: true, force: true });
@@ -205,9 +202,7 @@ describe('module-root in importer (src-layout)', () => {
   });
 
   it('WITHOUT module-root, an unambiguous src-layout import still resolves (physical target, unique, same code-dir family)', async () => {
-    // The probe proves src/domain/symbol.py exists; the map has exactly one '.domain.symbol'
-    // key in the importer's family — the resolution is provable, so the tool takes it
-    // instead of flagging (module-root stays the answer for ambiguous cases).
+    // The probe proves that `src/domain/symbol.py` exists, and the map has exactly one key `.domain.symbol` in the family of the importer. The resolution is provable, so the tool takes it instead of flagging. `module-root` stays the answer for an ambiguous case.
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src'],
       files: [
@@ -264,11 +259,12 @@ describe('unresolved local imports', () => {
   });
 
   it('src-layout WITHOUT module-root: unambiguous imports resolve; cross-family ones stay flagged', async () => {
-    // src-layout: fileToModule derives src.util, imports say util → first segment
-    // not a local package → previously classified external → silently dropped → gate shows
-    // "0 edges" on a repo full of imports. Physical existence under a code-dir beats the
-    // map's silence: same-family unique → resolved; cross-family (tests → src.core.engine)
-    // → still unresolved (the view hints module-root) instead of guessing.
+    // The src layout: `fileToModule` derives `src.util`, while the import says `util`. The first
+    // segment is not a local package, so the old code classified the import as external and
+    // silently dropped it, and the gate showed "0 edges" on a repository full of imports.
+    // Physical existence under a code directory beats the silence of the map. A unique match in
+    // the same family resolves, and a match in a different family (`tests` to `src.core.engine`)
+    // stays unresolved with a hint about module-root, instead of a guess.
     const { edges, unresolved } = await pythonImporter.extract({
       codeDirs: ['src', 'tests'],
       files: [
@@ -331,16 +327,15 @@ describe('unresolved local imports', () => {
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
-          'sibling -> sibling.pyx', // absolute
-          'util -> util.pxd', // relative from .util — resolves to the .pxd
-          'inner -> inner.pyx', // inside def body
+          'sibling -> sibling.pyx', // An absolute import.
+          'util -> util.pxd', // A relative import from `.util`, which resolves to the `.pxd` file.
+          'inner -> inner.pyx', // Inside a function body.
         ]),
       );
     });
 
     it('keeps cimport blind AND does not swallow neighboring real imports', async () => {
-      // regression for the error-recovery swallow: tree-sitter-python merges `from X cimport Y`
-      // into one erroring import_from_statement that EATS the next real from-import.
+    // A regression test for the swallow by error recovery: tree-sitter-python merges `from X cimport Y` into one erroring import_from_statement, and that statement EATS the next real from-import.
       const cy: SourceFile[] = [
         { path: 'impl.pyx', content: 'from libc.stdlib cimport malloc\ncimport numpy as cnp\nfrom mypkg.utils import helper\nimport sibling\n' },
         { path: 'sibling.pyx', content: 'x = 1\n' },
@@ -353,11 +348,11 @@ describe('unresolved local imports', () => {
       });
       expect(new Set(edges.map((e) => `${e.import} -> ${e.toFile}`))).toEqual(
         new Set([
-          'mypkg.utils -> mypkg/utils.py', // survived the cimport swallow
+          'mypkg.utils -> mypkg/utils.py', // The import survived the swallow of the cimport.
           'sibling -> sibling.pyx',
         ]),
       );
-      expect(unresolved).toHaveLength(0); // cimport lines: no edges, no unresolved noise
+      expect(unresolved).toHaveLength(0); // The cimport lines give no edges and no unresolved noise.
     });
 
     it('resolves Python imports of Cython modules — .pyx impl wins over .pxd (pandas case)', async () => {

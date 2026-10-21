@@ -40,7 +40,7 @@ describe('assemblePayload', () => {
       },
     ];
 
-    // Expected doc — hand-written literal (independent of the formatter).
+    // The expected document is a literal written by hand and is independent of the formatter.
     const expected = [
       '# Cell: parser',
       '',
@@ -85,17 +85,17 @@ describe('assemblePayload', () => {
   it('includes context section with direct dependents count when provided', () => {
     const cell: Cell = { name: 'core', purpose: 'p', provides: [], requires: [] };
 
-    // with dependents
+    // The cell has dependents.
     const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 3 });
     expect(result).toContain('## Context');
     expect(result).toContain('impact: 3 cell(s) directly depend on this cell');
     expect(result).toContain('`cells impact core`');
 
-    // zero dependents
+    // The cell has zero dependents.
     const leaf = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 0 });
     expect(leaf).toContain('impact: no cells depend on this cell (leaf)');
 
-    // not provided — no context section
+    // The count is not provided, so there is no context section.
     const noCtx = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [] });
     expect(noCtx).not.toContain('## Context');
   });
@@ -109,9 +109,9 @@ describe('assemblePayload', () => {
     const result = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 2, dependents });
     expect(result).toContain('## Cells that depend on you');
     expect(result).toContain('### Cell: commands');
-    expect(result).toContain('requires: [io, crossings]'); // what commands expects from io (and others)
+    expect(result).toContain('requires: [io, crossings]'); // The requires list shows what commands expects from io and from other cells.
     expect(result).toContain('### Cell: cli');
-    // no dependents → no section
+    // There are no dependents, so there is no section.
     const none = assemblePayload({ cell, ownedFiles: [], fileContents: {}, neighbors: [], dependedByCount: 0 });
     expect(none).not.toContain('## Cells that depend on you');
   });
@@ -146,6 +146,6 @@ describe('change coupling hint', () => {
     });
     expect(withHint).toContain('## Change coupling');
     expect(withHint).toContain("⚠ b co-changes with you (42/200 commits, no import edge) — pull b's payload before touching its code, its context is invisible to you; co-changing files: src/b.py, src/c.py");
-    expect(withHint).toContain("⚠ c co-changes with you (17/200 commits, no import edge) — pull c's payload before touching its code, its context is invisible to you"); // no files → no suffix
+    expect(withHint).toContain("⚠ c co-changes with you (17/200 commits, no import edge) — pull c's payload before touching its code, its context is invisible to you"); // The entry for `c` lists no files, so the message has no file suffix.
   });
 });

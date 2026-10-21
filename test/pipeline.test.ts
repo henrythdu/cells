@@ -40,11 +40,11 @@ describe('pipeline — the gather-and-guard seam every analysis command routes t
     writeFileSync(join(repo, '.cells', 'a.cell.toml'), 'name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = []\nlayer = 0\n');
     writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["src/a.py", "src/owned.py"]\n');
     writeFileSync(join(repo, 'src', 'a.py'), 'x = 1\n');
-    writeFileSync(join(repo, 'src', 'owned.py'), 'import a.zzz\n'); // local-looking, submodule missing → unresolved
-    writeFileSync(join(repo, 'src', 'loose.py'), 'import a.zzz\n'); // same, but UNOWNED → filtered
+    writeFileSync(join(repo, 'src', 'owned.py'), 'import a.zzz\n'); // The import looks local, but the submodule is missing, so the import is unresolved.
+    writeFileSync(join(repo, 'src', 'loose.py'), 'import a.zzz\n'); // The import is the same, but this file is UNOWNED, so the pipeline filters the import out.
 
     const ctx = loadContext();
     const { unresolved } = await loadCrossings(ctx.ownership);
-    expect(unresolved.map((u) => u.fromFile)).toEqual(['src/owned.py']); // loose.py dropped
+    expect(unresolved.map((u) => u.fromFile)).toEqual(['src/owned.py']); // The pipeline drops the entry from loose.py.
   });
 });

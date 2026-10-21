@@ -2,7 +2,7 @@ import type { Cell } from './declaration.js';
 import type { ImportEdge } from './imports.js';
 import { type Ownership, owningCell } from './ownership.js';
 
-/** A cross-cell crossing: cell A's code imports cell B's code. */
+/** A crossing between cells: the code of cell A imports the code of cell B. */
 export interface Crossing {
   fromCell: string;
   toCell: string;
@@ -11,10 +11,16 @@ export interface Crossing {
   import: string;
 }
 
-/** One cell pair's named-consumption audit result (warning-level, never gate): what
- *  fromCell's imports consume by name from toCell, and which names toCell's membrane
- *  doesn't offer. `emptyProvides` marks the stronger form - the pair consumes named
- *  things but the target cell's provides list is empty (membrane incomplete). */
+/**
+ * The result of the named-consumption check for one pair of cells. This warning never
+ * fails the gate.
+ *
+ * `missing` holds the names that `fromCell` imports from `toCell`, and that `toCell` does
+ * not offer in its membrane.
+ *
+ * `emptyProvides` is the stronger case. The importing cell uses names from the target
+ * cell, but the target cell has an empty `provides` list.
+ */
 export interface OffMembraneImport {
   fromCell: string;
   toCell: string;
@@ -23,13 +29,20 @@ export interface OffMembraneImport {
   emptyProvides: boolean;
 }
 
-/** The provides contract check: aggregate symbol-bearing edges per cell pair and test the
- *  consumed names against the target cell's `provides` (the offer surface that justifies
- *  others' requires). Only symbol-bearing edges participate: module dependencies,
- *  namespace imports, and importers without symbol retention are exempt by construction
- *  (their edges carry no symbols - the honest gap, listed per language in the README's
- *  blind-spot table). Warning-only: provides lists are authored prose that converges
- *  over time; firing the gate on day one would punish authoring them at all. Pure. */
+/**
+ * The provides contract check. The function groups the symbol-bearing edges by cell pair
+ * and compares the consumed names with the `provides` list of the target cell. The
+ * `provides` list is the offer surface that justifies the `requires` entries of other
+ * cells.
+ *
+ * Only symbol-bearing edges participate. Module dependencies, namespace imports, and
+ * importers that do not keep symbols are exempt by construction, because their edges
+ * carry no symbols. That gap is honest, and the README lists it for each language.
+ *
+ * This is a warning only. A `provides` list is authored prose that improves over time. A
+ * gate failure on the first day would discourage authors from writing the list at all.
+ * Pure.
+ */
 export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, declarations: Record<string, Cell>): OffMembraneImport[] {
   const agg = new Map<string, { fromCell: string; toCell: string; symbols: Set<string> }>();
   for (const e of edges) {
@@ -46,8 +59,9 @@ export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, decl
   for (const { fromCell, toCell, symbols } of agg.values()) {
     const decl = declarations[toCell];
     if (!decl) continue;
-    // provides entries may be authored prose ("checkGrammars() - the grammar-bundle check") -
-    // the leading identifier is the offered symbol; the prose after it is documentation.
+    // A `provides` entry can be prose, for example "checkGrammars() - the grammar-bundle
+    // check". The leading identifier is the offered symbol, and the text after it is
+    // documentation.
     const offered = new Set(decl.provides.map((p) => p.match(/^[$\w]+/)?.[0] ?? p));
     const missing = [...symbols].filter((s) => !offered.has(s));
     if (missing.length > 0) out.push({ fromCell, toCell, importedCount: symbols.size, missing, emptyProvides: decl.provides.length === 0 });
@@ -55,11 +69,13 @@ export function checkOffMembrane(edges: ImportEdge[], ownership: Ownership, decl
   return out;
 }
 
-/** Map file→file import edges to cell→cell crossings.
- *  Drops internal imports (same cell) and edges into unowned files
- *  (no target cell to attribute). Pure — the IO layer supplies the edges. */
+/**
+ * Map file-to-file import edges to cell-to-cell crossings. The function drops imports
+ * inside one cell and edges into unowned files, because there is no target cell to
+ * attribute. Pure. The IO layer supplies the edges.
+ */
 export function deriveCrossings(edges: ImportEdge[], ownership: Ownership): Crossing[] {
-  // Invert ownership: file → cell.
+  // Invert the ownership map, file -> cell.
   const fileToCell = new Map<string, string>();
   for (const [cell, files] of Object.entries(ownership)) {
     for (const file of files) fileToCell.set(file, cell);
@@ -69,8 +85,8 @@ export function deriveCrossings(edges: ImportEdge[], ownership: Ownership): Cros
   for (const edge of edges) {
     const fromCell = fileToCell.get(edge.fromFile);
     const toCell = fileToCell.get(edge.toFile);
-    if (!fromCell || !toCell) continue; // unowned endpoint — not a crossing
-    if (fromCell === toCell) continue; // internal — not a crossing
+    if (!fromCell || !toCell) continue; // An endpoint is unowned, so this is not a crossing.
+    if (fromCell === toCell) continue; // The edge is internal to one cell, so it is not a crossing.
     crossings.push({
       fromCell,
       toCell,
@@ -92,9 +108,14 @@ export interface Leakage {
 }
 
 /**
- * Diff real crossings against declared `requires`.
- * - undeclared: A imports B, but B ∉ A.requires (hidden dependency).
- * - stale: A requires B, but A never imports B (dead/declared-but-unused).
+ * Compare the real crossings with the declared `requires` entries.
+ *
+ * An undeclared leakage is a crossing where A imports B, but the `requires` list of A
+ * does not contain B. This is a hidden dependency.
+ *
+ * A stale leakage is a `requires` entry where A requires B, but A never imports B. The
+ * dependency is declared and not used.
+ *
  * Pure.
  */
 export function checkLeakage(crossings: Crossing[], declarations: Record<string, Cell>): Leakage[] {
@@ -129,16 +150,16 @@ export function checkLeakage(crossings: Crossing[], declarations: Record<string,
   return out;
 }
 
-/** Dependency metrics for a cell — peers of `size`, computed from the crossing graph. */
+/** Dependency metrics for one cell. These are peers of the `size` value, and the crossing graph provides them. */
 export interface CellMetrics {
-  fanIn: number; // # distinct cells that depend on this one (afferent)
-  fanOut: number; // # distinct cells this one depends on (efferent)
-  instability: number; // fanOut / (fanIn + fanOut): 0 stable, 1 unstable; 0 if isolated
+  fanIn: number; // The number of distinct cells that depend on this cell (afferent).
+  fanOut: number; // The number of distinct cells that this cell depends on (efferent).
+  instability: number; // fanOut / (fanIn + fanOut). A value of 0 is stable and a value of 1 is unstable. An isolated cell has 0.
 }
 
 /**
- * Compute fan-in / fan-out / instability per cell from the crossing graph.
- * Counts distinct cells (a cell-pair reached via many files counts once). Pure.
+ * Compute fan-in, fan-out, and instability for each cell from the crossing graph. The
+ * function counts distinct cells, so a cell pair that many files reach counts once. Pure.
  */
 export function computeMetrics(crossings: Crossing[], cells: string[]): Record<string, CellMetrics> {
   const fanIn = new Map<string, Set<string>>();
@@ -160,20 +181,21 @@ export function computeMetrics(crossings: Crossing[], cells: string[]): Record<s
   return out;
 }
 
-/** A change in crossings between two states (working tree vs HEAD). */
+/** A change in the crossings between two states: the working tree and HEAD. */
 export interface CrossingsDelta {
   added: Crossing[];
   removed: Crossing[];
 }
 
-/** Identity of a crossing edge (cells are constant under fixed ownership). */
+/** The identity of a crossing edge. Cells do not change while ownership is fixed. */
 function crossingKey(c: Crossing): string {
   return `${c.fromFile}\0${c.toFile}\0${c.import}`;
 }
 
 /**
- * Diff two crossing sets: added = in `working` not `head`; removed = vice versa.
- * Keyed by file-edge; de-duped; sorted for stable output. Pure — unit-testable.
+ * Compare two sets of crossings. `added` contains the crossings that are in `working` and
+ * not in `head`. `removed` contains the reverse. The function uses the file edge as the
+ * key, removes duplicates, and sorts the output for stability. Pure and unit-testable.
  */
 export function diffCrossings(working: Crossing[], head: Crossing[]): CrossingsDelta {
   const workMap = new Map(working.map((c) => [crossingKey(c), c]));

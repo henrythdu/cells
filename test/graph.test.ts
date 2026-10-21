@@ -14,14 +14,14 @@ describe('formatCellGraph', () => {
   it('emits a Mermaid flowchart of unique cell->cell edges', () => {
     const crossings: Crossing[] = [
       { fromCell: 'cli', toCell: 'io', fromFile: 'f', toFile: 't', import: 'i' },
-      { fromCell: 'cli', toCell: 'io', fromFile: 'g', toFile: 'u', import: 'j' }, // dup pair -> one edge
+      { fromCell: 'cli', toCell: 'io', fromFile: 'g', toFile: 'u', import: 'j' }, // The duplicate pair gives one edge.
       { fromCell: 'io', toCell: 'config', fromFile: 'f', toFile: 't', import: 'i' },
     ];
     const out = formatCellGraph(crossings);
     expect(out).toContain('flowchart LR');
     expect(out).toContain('cli --> io');
     expect(out).toContain('io --> config');
-    expect(out.split('cli --> io').length).toBe(2); // deduped: appears exactly once
+    expect(out.split('cli --> io').length).toBe(2); // The function removes duplicates, so the edge appears exactly once.
   });
 
   it('handles empty crossings', () => {
@@ -36,8 +36,8 @@ describe('formatCellGraph', () => {
 
   it('does not duplicate a cell that already has edges', () => {
     const out = formatCellGraph([e('cli', 'io')], ['cli', 'io', 'orphan']);
-    expect(out.split('cli --> io').length).toBe(2); // the edge, once
-    expect(out).not.toMatch(/\n {2}cli\n/); // no extra bare 'cli' node line
+    expect(out.split('cli --> io').length).toBe(2); // The edge appears once.
+    expect(out).not.toMatch(/\n {2}cli\n/); // There is no extra bare 'cli' node line.
     expect(out).toContain('  orphan');
   });
 });
@@ -57,7 +57,7 @@ describe('formatCellGraphAscii', () => {
   });
 
   it('marks a back-edge to a node on the DFS stack as ↻ cycle (not ↩)', () => {
-    // a→b→a is a 2-cycle; the second a is on the stack → ↻ cycle, not ↩
+    // a -> b -> a is a 2-cycle. The second a is on the stack, so it gets the cycle mark ↻ and not the shared mark ↩.
     const out = formatCellGraphAscii([e('a', 'b'), e('b', 'a')]);
     expect(out).toContain('a ↻ cycle');
     expect(out).not.toContain('a ↩');
@@ -68,8 +68,9 @@ describe('formatCellGraphAscii', () => {
   });
 
   it('a root tree plus an unreachable cycle — the cycle is still emitted (not dropped)', () => {
-    // roots=[c] reach only c→d; the isolated a↔b SCC has no root path into it. The old
-    // root-only start list ended without emitting a/b at all — the graph lost a component.
+    // The roots (c) reach only c -> d. No root path reaches the isolated a <-> b component.
+    // The earlier start list contained the roots only, so it ended without printing a or b,
+    // and the graph lost a component.
     const out = formatCellGraphAscii([e('a', 'b'), e('b', 'a'), e('c', 'd')], ['a', 'b', 'c', 'd']);
     expect(out).toContain('a');
     expect(out).toContain('↻ cycle');

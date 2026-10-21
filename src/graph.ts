@@ -1,9 +1,12 @@
 import type { Crossing } from './crossings.js';
 
 /**
- * Format the cell graph as a Mermaid flowchart (for HUMAN visualization — renders
- * natively in GitHub READMEs; the model reads `list`/`crossings` instead).
- * Dedupes file-level crossings to unique cell->cell edges. Pure.
+ * Format the cell graph as a Mermaid flowchart. The flowchart is for human
+ * visualization and renders directly in GitHub README files. A model reads `list` or
+ * `crossings` instead.
+ *
+ * The function removes duplicate file-level crossings and keeps unique cell-to-cell
+ * edges. Pure.
  */
 export function formatCellGraph(crossings: Crossing[], allCells: string[] = []): string {
   const edges = new Set<string>();
@@ -18,15 +21,18 @@ export function formatCellGraph(crossings: Crossing[], allCells: string[] = []):
   }
   const lines = ['flowchart LR'];
   for (const e of [...edges].sort()) lines.push(`  ${e}`);
-  // cells with no crossings still render — an empty diagram hides them (both endpoints count)
+  // A cell with no crossing must still appear. An empty diagram would hide it. Both endpoints count.
   for (const n of [...nodes].sort()) if (!hasEdge.has(n)) lines.push(`  ${n}`);
   return `${lines.join('\n')}\n`;
 }
 
 /**
- * Render the cell graph as an in-terminal ASCII tree (default — no external tool
- * needed). DFS from roots (cells nothing depends on); shared dependents are
- * marked ↩ and not re-expanded. Pure.
+ * Render the cell graph as an ASCII tree in the terminal. This is the default format and
+ * does not need an external tool.
+ *
+ * The function walks the graph depth-first from the root cells. A root cell is a cell
+ * that no other cell depends on. A dependent that an earlier branch already printed gets
+ * a ↩ mark and is not expanded again. Pure.
  */
 export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] = []): string {
   const adj = new Map<string, string[]>();
@@ -43,7 +49,8 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
   for (const deps of adj.values()) deps.sort();
 
   const roots = [...nodes].filter((n) => !incoming.has(n)).sort();
-  const start = roots; // empty when fully cyclic — the isolated-SCC sweep below covers that case identically
+  // This list is empty when the whole graph is cyclic. The sweep for isolated components below handles that case in the same way.
+  const start = roots;
   const visited = new Set<string>();
   const onStack = new Set<string>();
   const lines: string[] = [];
@@ -54,7 +61,7 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
       const last = i === siblings.length - 1;
       const connector = last ? '└── ' : '├── ';
       if (visited.has(node)) {
-        // on the current DFS stack = a back-edge = part of a cycle; else a DAG cross-edge (diamond)
+        // The node is on the current stack when the edge is a back edge and part of a cycle. Otherwise the edge is a cross edge in a directed acyclic graph (a diamond).
         lines.push(`${prefix}${connector}${node} ${onStack.has(node) ? '↻ cycle' : '↩'}`);
         continue;
       }
@@ -77,10 +84,10 @@ export function formatCellGraphAscii(crossings: Crossing[], allCells: string[] =
     if (visited.has(root)) continue;
     emitRoot(root);
   }
-  // Roots only reach what points at them. A cycle with no root path into it (an
-  // isolated SCC, or reachable only through another cycle) never got a start entry and the
-  // old loop ended without emitting it — the graph silently lost components. Sweep every
-  // still-unvisited node as a start of its own.
+  // The roots reach only the nodes that point to them. A cycle that no root path reaches
+  // (an isolated component, or a component reachable only through another cycle) has no
+  // start entry. The first loop ended without printing it, so the graph silently lost
+  // components. The loop below starts at every node that is still unvisited.
   for (const node of [...nodes].sort()) {
     if (visited.has(node)) continue;
     emitRoot(node);

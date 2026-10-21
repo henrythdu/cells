@@ -51,10 +51,10 @@ describe('loadOwnership (ignored files are unowned)', () => {
     const prev = process.cwd();
     process.chdir(repo);
     try {
-      writeOwnership({ a: ['src/a.ts', 'dist/b.js'], b: ['dist/c.js'] }); // whole cell ignored → dropped
+      writeOwnership({ a: ['src/a.ts', 'dist/b.js'], b: ['dist/c.js'] }); // The whole cell is ignored, so the entry drops.
       expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).toContain('src/a.ts');
       expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).not.toContain('dist/');
-      expect(loadOwnership()).toEqual({ a: ['src/a.ts'] }); // disk and read model agree
+      expect(loadOwnership()).toEqual({ a: ['src/a.ts'] });
     } finally {
       process.chdir(prev);
       rmSync(repo, { recursive: true, force: true });
@@ -95,13 +95,13 @@ describe('detectProject', () => {
     mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true });
     mkdirSync(join(dir, 'dist'));
     mkdirSync(join(dir, 'src'));
-    // node_modules has 100 .js files — must be ignored
+    // node_modules has 100 .js files, which must not count.
     for (let i = 0; i < 100; i++) writeFileSync(join(dir, 'node_modules', 'pkg', `m${i}.js`), 'x');
     writeFileSync(join(dir, 'dist', 'out.js'), 'x');
     writeFileSync(join(dir, 'src', 'real.ts'), 'export{}');
     const { codeExts, codeDirs } = detectProject(dir);
-    expect(codeDirs).toEqual(['src']); // node_modules + dist excluded
-    expect(codeExts).toEqual(['.ts']); // not drowned by node_modules .js
+    expect(codeDirs).toEqual(['src']); // node_modules and dist are excluded.
+    expect(codeExts).toEqual(['.ts']); // The .js files in node_modules do not become the dominant extension.
   });
 
   it('sorts extensions by frequency (polyglot repo)', () => {
@@ -111,7 +111,7 @@ describe('detectProject', () => {
     writeFileSync(join(dir, 'src', 'c.py'), 'x');
     writeFileSync(join(dir, 'src', 'd.ts'), 'export{}');
     const { codeExts } = detectProject(dir);
-    expect(codeExts).toEqual(['.py', '.ts']); // .py first (more files)
+    expect(codeExts).toEqual(['.py', '.ts']); // .py comes first because there are more .py files.
   });
 
   it('detects code files at the repo root', () => {
@@ -122,7 +122,7 @@ describe('detectProject', () => {
   });
 
   it('collapses subdirs when root code files exist ("." covers them)', () => {
-    // regression: ['.', 'src'] double-counted every file in ownership/plan
+    // This is a regression test: ['.', 'src'] counted every file twice in ownership and plan.
     writeFileSync(join(dir, 'tool.py'), 'x = 1');
     mkdirSync(join(dir, 'src'));
     writeFileSync(join(dir, 'src', 'app.py'), 'x = 2');
@@ -142,12 +142,12 @@ describe('detectProject', () => {
   it('survives a symlink cycle instead of recursing forever (listFiles precedent)', () => {
     mkdirSync(join(dir, 'src', 'real'), { recursive: true });
     writeFileSync(join(dir, 'src', 'real', 'a.ts'), 'x');
-    // a loop: src/loop -> src/real, and real/back -> src
+    // The loop is src/loop -> src/real and src/real/back -> src.
     try {
       symlinkSync(join(dir, 'src', 'real'), join(dir, 'src', 'loop'));
       symlinkSync(join(dir, 'src'), join(dir, 'src', 'real', 'back'));
     } catch {
-      return; // no symlink permission (some CI) — skip
+      return; // Skip: some CI systems do not permit symlinks.
     }
     const { codeExts, codeDirs } = detectProject(dir);
     expect(codeExts).toEqual(['.ts']);
@@ -192,7 +192,7 @@ describe('readFiles (the byte seam — trust boundary + never-silent-zero)', () 
     try {
       symlinkSync(outside, link);
     } catch {
-      return; // no symlink permission (some CI) — skip
+      return; // Skip: some CI systems do not permit symlinks.
     }
     try {
       expect(() => readFiles(['evil-link.ts'], dir)).toThrow(/resolves outside the repo root/);
@@ -207,7 +207,7 @@ describe('readFiles (the byte seam — trust boundary + never-silent-zero)', () 
     try {
       symlinkSync(join(dir, 'real.ts'), link);
     } catch {
-      return; // no symlink permission (some CI) — skip
+      return; // Skip: some CI systems do not permit symlinks.
     }
     expect(readFiles(['alias.ts'], dir)).toEqual({ 'alias.ts': 'export const a = 1;' });
   });
@@ -296,8 +296,9 @@ describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] mus
     const prev = process.cwd();
     process.chdir(repo);
     try {
-      // dist is a top-level scan root — never skipped (a hand-configured code dir is
-      // explicit intent; SKIP_DIRS only prunes dirs NESTED under a scan root)
+      // dist is a top-level scan root, so the walk never skips it. A hand-configured code
+      // directory is explicit intent, and SKIP_DIRS removes only directories below a scan
+      // root.
       expect(listCodeFiles()).toEqual(['dist/b.ts']);
     } finally {
       process.chdir(prev);
@@ -313,7 +314,7 @@ describe('listCodeFiles (SKIP_DIRS applies to the census — code-dirs ["."] mus
     try {
       symlinkSync('/nonexistent/target', join(repo, 'dangling-link'));
     } catch {
-      return; // no symlink permission (some CI) — skip
+      return; // Skip: some CI systems do not permit symlinks.
     }
     const prev = process.cwd();
     process.chdir(repo);
@@ -334,7 +335,7 @@ describe('malformed TOML attribution (CLI integration)', () => {
   it('names the offending .cell.toml file in the error', () => {
     repo = mkdtempSync(join(tmpdir(), 'cells-toml-attr-'));
     mkdirSync(join(repo, '.cells'), { recursive: true });
-    writeFileSync(join(repo, '.cells', 'a.cell.toml'), '[a\nbroken toml\n'); // malformed
+    writeFileSync(join(repo, '.cells', 'a.cell.toml'), '[a\nbroken toml\n'); // The TOML is malformed.
     writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\n');
     const bin = join(__dirname, '..', 'dist', 'cli.js');
     try {

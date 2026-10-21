@@ -3,33 +3,40 @@ import { dirname, join, relative, sep } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import type { ImportEdge, UnresolvedImport } from './imports.js';
 import { SKIP_DIRS } from './io.js';
+import { isUnsafePath } from './validate.js';
 
 /**
- * Bridge crossings (ADR 0001): resolve FFI extension-module imports (maturin-declared
- * pyo3 modules) to the
- * binding crate's entry source file. A pyo3 module like headroom._core is a compiled
- * artifact — no .py/.so in a source-only repo, so the python importer reports it
- * unresolved. The bridge map (declaration-derived, ownership-derived — reads the repo's
- * own Cargo.toml/pyproject.toml, no per-repo config) says which crate produces it, and the
- * import becomes a real edge: from .py → to .rs, a crossing that marks the language change.
+ * Bridge crossings (ADR 0001). This module resolves imports of FFI (foreign function
+ * interface) extension modules to the entry source file of the binding crate. It handles
+ * the pyo3 modules that maturin declares. pyo3 is a set of Rust bindings for Python, and
+ * maturin builds and packages the Rust crate.
  *
- * The map keys are module names, declared explicitly: pyproject.toml [tool.maturin]
- * module-name ("headroom._core"), linked to the binding crate by its cdylib lib name
- * (maturin builds the crate whose [lib] name is the module's last segment). Declaration-only
- * by design: a bare-tail convention fallback (lib name == import tail) false-positived on
- * uv's deptry_reproducer test fixture — an unrelated cdylib crate whose lib name collided
- * with an unresolved import's tail. Maturin-built crates always declare module-name, so
- * the fallback bought nothing. No declaration = no bridge = stays unresolved (honest).
+ * A pyo3 module such as `headroom._core` is a compiled artifact. A source-only repository
+ * contains no `.py` or `.so` file for it, so the Python importer reports the import as
+ * unresolved. The bridge map tells which crate produces the module. Then the import
+ * becomes a real edge, from the `.py` file to the `.rs` file. That edge is a crossing, so
+ * it marks the language change.
  *
- * Known ceiling (in the ADR): a BUILT repo that silences .so imports never reports them as
- * unresolved, so they don't reach this pass. Source-only repos — the analysis case — are
- * fully served.
+ * The map keys are module names, and each name is declared explicitly. The source is
+ * `pyproject.toml [tool.maturin] module-name` (for example `"headroom._core"`). The last
+ * segment of the module name links the module to the binding crate, because maturin builds
+ * the crate whose `[lib]` name is that segment. The map is declaration-only by design. A
+ * fallback convention (lib name equals the import tail) reported a false positive on uv's
+ * `deptry_reproducer` test fixture. That fixture is an unrelated cdylib crate whose lib
+ * name collided with the tail of an unresolved import. A maturin-built crate always
+ * declares `module-name`, so the fallback added nothing. No declaration means no bridge,
+ * and the import stays unresolved. That result is honest.
+ *
+ * The ADR records a known ceiling. A built repository silences `.so` imports, so it never
+ * reports them as unresolved, and they never reach this pass. Source-only repositories,
+ * which are the analysis case, are fully served.
  */
 
 interface CrateEntry {
-  /** The module tail the crate's [lib] name produces (pyo3 convention). */
+  /** The last segment of the module name. The crate `[lib]` name produces this segment
+   *  (pyo3 convention). */
   tail: string;
-  /** Repo-relative path to the crate's lib entry file. */
+  /** The repository-relative path to the lib entry file of the crate. */
   entry: string;
 }
 
@@ -38,18 +45,20 @@ interface ManifestWalk {
   pyproject: string[];
 }
 
-/** One walk over code-dirs collecting both manifest kinds (the bridge needs cdylib crates
- *  AND their pyproject module-name overrides — two full walks wasted the scan). Skips
- *  SKIP_DIRS (io's single source of truth for deps/build/tooling dirs). Symlink-cycle
- *  guard: realpath-visited set, same as io.listFiles (a loop must not re-walk forever). */
+/** Walk the code directories one time and collect both kinds of manifest. The bridge needs
+ *  the cdylib crates and their `pyproject.toml` module-name overrides, so two full walks
+ *  would waste the scan. The walk skips `SKIP_DIRS`, which is the single source of truth in
+ *  `io` for dependency, build, and tooling directories. The walk guards against symlink
+ *  cycles with a set of visited real paths, the same way as `io.listFiles`, because a loop
+ *  must not walk forever. */
 function walkManifests(dir: string, out: ManifestWalk, visited = new Set<string>()): void {
   let real: string;
   try {
     real = realpathSync(dir);
   } catch {
-    return; // vanished dir — nothing to walk
+    return; // The directory vanished, so there is nothing to walk.
   }
-  if (visited.has(real)) return; // symlink cycle — stop
+  if (visited.has(real)) return; // A symlink cycle, so stop.
   visited.add(real);
   let entries: string[];
   try {
@@ -80,7 +89,8 @@ function parseTomlFile(path: string): Record<string, unknown> {
   }
 }
 
-/** Parse the cdylib crates out of a collected Cargo.toml list. */
+/** Read the cdylib crates from the collected `Cargo.toml` files. A cdylib is a Cargo crate
+ *  type that produces a shared library. */
 function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   const crates: CrateEntry[] = [];
   for (const file of cargoFiles) {
@@ -98,10 +108,11 @@ function cratesFromCargo(cargoFiles: string[], baseDir: string): CrateEntry[] {
   return crates;
 }
 
-/** The bridge map: pyproject.toml [tool.maturin] module-name ("headroom._core") explicitly
- *  names the produced module. Linked to a crate by its tail (maturin builds the crate whose
- *  lib name is the module's last segment). Declaration-only — a bare-tail convention fallback
- *  false-positived on uv's deptry_reproducer fixture. */
+/** Build the bridge map. The `pyproject.toml [tool.maturin] module-name` key (for example
+ *  `"headroom._core"`) names the produced module explicitly. The tail of the module name
+ *  links the module to a crate, because maturin builds the crate whose lib name is that
+ *  last segment. The map is declaration-only, because a fallback convention (lib name
+ *  equals the import tail) reported a false positive on uv's `deptry_reproducer` fixture. */
 function readModuleNameOverrides(pyprojectFiles: string[], crates: CrateEntry[]): Map<string, string> {
   const overrides = new Map<string, string>();
   for (const file of pyprojectFiles) {
@@ -118,9 +129,10 @@ function readModuleNameOverrides(pyprojectFiles: string[], crates: CrateEntry[])
   return overrides;
 }
 
-/** The full bridge map — one key per [tool.maturin] module-name override (see above for
- *  why the bare-tail convention fallback is gone). Empty when no cdylib crate or no
- *  declaration exists: zero behavior change. One manifest walk, shared by both halves. */
+/** Build the full bridge map, with one key per `[tool.maturin]` module-name override. The
+ *  text above explains why the bare-tail convention fallback is gone. The map is empty
+ *  when no cdylib crate exists or no declaration exists, so the behavior does not change.
+ *  One manifest walk serves both halves. */
 export function buildBridgeMap(codeDirs: readonly string[], baseDir: string): Map<string, string> {
   const found: ManifestWalk = { cargo: [], pyproject: [] };
   for (const dir of codeDirs) walkManifests(join(baseDir, dir), found);
@@ -129,15 +141,22 @@ export function buildBridgeMap(codeDirs: readonly string[], baseDir: string): Ma
   return readModuleNameOverrides(found.pyproject, crates);
 }
 
-/** Resolve unresolved imports through the bridge map. Returns the new edges + the
- *  unresolved entries that remain. Pure over its inputs (reads the FS once, via the map). */
-export function applyBridges(map: Map<string, string>, unresolved: readonly UnresolvedImport[], baseDir = '.'): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
+/** Resolve the unresolved imports through the bridge map. The function returns the new
+ *  edges and the unresolved entries that remain. The function is pure over its inputs. It
+ *  reads the file system one time, through the map.
+ *
+ *  A bridge target must pass three checks: it must stay inside the repository, it must be a
+ *  file that the census walks, and it must exist. The entry in the map comes from a manifest
+ *  in the repository, so a `[lib] path` that escapes the root, or a path that the census
+ *  excludes, would otherwise become an edge to a file that no cell can own. The import then
+ *  stays unresolved, which is the honest result. */
+export function applyBridges(map: Map<string, string>, unresolved: readonly UnresolvedImport[], census: ReadonlySet<string>, baseDir = '.'): { edges: ImportEdge[]; unresolved: UnresolvedImport[] } {
   if (map.size === 0) return { edges: [], unresolved: [...unresolved] };
   const edges: ImportEdge[] = [];
   const rest: UnresolvedImport[] = [];
   for (const u of unresolved) {
-    const entry = map.get(u.import); // exact full-name match only — declaration-derived, conservative
-    if (entry && existsSync(join(baseDir, entry))) {
+    const entry = map.get(u.import); // Exact full-name match only. The match comes from a declaration, so it stays conservative.
+    if (entry !== undefined && !isUnsafePath(entry) && census.has(entry) && existsSync(join(baseDir, entry))) {
       edges.push({ fromFile: u.fromFile, toFile: entry, import: u.import });
     } else {
       rest.push(u);

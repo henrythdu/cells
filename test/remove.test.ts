@@ -27,7 +27,7 @@ describe('cells remove', () => {
 
   it('errors on a nonexistent cell', () => {
     repo = setupRepo();
-    writeFileSync(join(repo, '.cells', 'ownership.toml'), ''); // initialized store (cells init always creates this)
+    writeFileSync(join(repo, '.cells', 'ownership.toml'), ''); // The store is initialized. `cells init` always creates this file.
     try {
       cells(['remove', 'ghost'], repo);
       expect.unreachable('expected exit 1');

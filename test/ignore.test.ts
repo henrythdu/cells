@@ -22,7 +22,7 @@ describe('isIgnored', () => {
 
   it('matches a suffix glob', () => {
     expect(isIgnored('notes.tmp', patterns)).toBe(true);
-    expect(isIgnored('.notes.tmp', patterns)).toBe(false); // `*` keeps gitignore's leading-dot rule (dot only for ** patterns)
+    expect(isIgnored('.notes.tmp', patterns)).toBe(false); // `*` keeps the gitignore rule for a leading dot. Only a `**` pattern gets `dot`.
   });
 
   it('matches an exact path', () => {
@@ -30,10 +30,10 @@ describe('isIgnored', () => {
   });
 
   it('last matching pattern wins — `!` re-includes (gitignore negation semantics)', () => {
-    expect(isIgnored('keep.ts', ['*.ts', '!keep.ts'])).toBe(false); // re-included by the later negation
-    expect(isIgnored('other.ts', ['*.ts', '!keep.ts'])).toBe(true); // only keep.ts is exempt
-    expect(isIgnored('keep.ts', ['!keep.ts', '*.ts'])).toBe(true); // order matters — a later positive re-ignores
-    expect(isIgnored('dist/keep.js', ['dist/', '!dist/keep.js'])).toBe(false); // dir pattern + file negation
+    expect(isIgnored('keep.ts', ['*.ts', '!keep.ts'])).toBe(false); // The later negation includes the file again.
+    expect(isIgnored('other.ts', ['*.ts', '!keep.ts'])).toBe(true); // Only keep.ts is exempt.
+    expect(isIgnored('keep.ts', ['!keep.ts', '*.ts'])).toBe(true); // The order matters. A later positive pattern ignores the file again.
+    expect(isIgnored('dist/keep.js', ['dist/', '!dist/keep.js'])).toBe(false); // A directory pattern and a file negation.
     expect(isIgnored('dist/x.js', ['dist/', '!dist/keep.js'])).toBe(true);
   });
 

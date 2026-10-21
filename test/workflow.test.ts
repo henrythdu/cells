@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const cellsBin = join(__dirname, '..', 'dist', 'cli.js');
 
-/** Minimal fixture: .cells + one src file owned by cell "a". Returns repo dir. */
+/** A minimal fixture: a .cells directory and one source file that cell "a" owns. The function returns the repository directory. */
 function setupRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'cells-workflow-'));
   mkdirSync(join(dir, 'src'), { recursive: true });
@@ -38,7 +38,8 @@ export const y = x + nope;
     );
     const out = execSync(`node ${cellsBin} imports --json`, { cwd: repo, encoding: 'utf8' });
     const { edges, unresolved } = JSON.parse(out);
-    // same-cell edge present (a.ts → b.ts is one cell) — the validation surface, not crossings
+    // The same-cell edge is present, because a.ts and b.ts are in one cell. This is the
+    // validation surface and not the crossings.
     expect(edges).toContainEqual({ fromFile: 'src/b.ts', toFile: 'src/a.ts', import: './a', symbols: ['x'] });
     expect(unresolved).toContainEqual({ fromFile: 'src/b.ts', import: './nope' });
   });
@@ -76,12 +77,12 @@ describe('cells new', () => {
 
   it('rejects flags before the name and non-decimal --layer', () => {
     repo = setupRepo();
-    // flag value must never become the cell name
+    // A flag value must never become the cell name.
     const flagFirst = spawnSync(`node`, [cellsBin, 'new', '--layer', '2', 'db'], { cwd: repo, encoding: 'utf8' });
     expect(flagFirst.status).toBe(1);
     expect(flagFirst.stderr).toContain('usage: cells new');
     expect(existsSync(join(repo, '.cells', '2.cell.toml'))).toBe(false);
-    // Number() laxness: hex/exponent/empty must not pass
+    // The loose behavior of Number() must not accept hex, exponent, or empty values.
     for (const badLayer of ['0x10', '1e3', '']) {
       const r = spawnSync(`node`, [cellsBin, 'new', 'db', '--layer', badLayer], { cwd: repo, encoding: 'utf8' });
       expect(r.status).toBe(1);
@@ -99,7 +100,7 @@ describe('cells prune-stale', () => {
 
   function setupStaleRepo(): string {
     const dir = setupRepo();
-    // a requires b but nothing imports b — stale
+    // The cell a requires b, but nothing imports b. The requirement is stale.
     writeFileSync(join(dir, '.cells', 'a.cell.toml'), `name = "a"\npurpose = "p"\nprovides = ["x"]\nrequires = ["b"]\n`);
     writeFileSync(join(dir, '.cells', 'b.cell.toml'), `name = "b"\npurpose = "p"\nprovides = []\nrequires = []\n`);
     return dir;
@@ -135,7 +136,7 @@ describe('cells config', () => {
   it('reads the effective config', () => {
     repo = setupRepo();
     const out = execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' });
-    expect(out).toContain('max-payload-tokens = 16000'); // default where the fixture omits it
+    expect(out).toContain('max-payload-tokens = 16000'); // The default value, because the fixture omits the key.
     expect(out).toContain('code-dirs = ["src"]');
   });
 
@@ -145,10 +146,10 @@ describe('cells config', () => {
     const out = execSync(`node ${cellsBin} config set max-payload-tokens 24000`, { cwd: repo, encoding: 'utf8' });
     expect(out).toContain('24000 (was 16000)');
     const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
-    expect(next).toContain('# keep me'); // comment survived
+    expect(next).toContain('# keep me'); // The comment stays.
     expect(next).toContain('max-payload-tokens = 24000');
-    expect(next).toContain('code-dirs = ["src"]'); // other keys survived
-    // and health now reports against the new ceiling
+    expect(next).toContain('code-dirs = ["src"]'); // The other keys stay.
+    // The config command now reports the new ceiling.
     expect(execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' })).toContain('max-payload-tokens = 24000');
   });
 
@@ -161,6 +162,69 @@ describe('cells config', () => {
     expect(bad.status).toBe(1);
     expect(bad.stderr).toContain('positive integer');
   });
+
+  it('replaces an indented or commented key instead of appending a duplicate', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'config.toml'), '  max-payload-tokens = 16_000 # budget\ncode-dirs = ["src"]\n');
+    execSync(`node ${cellsBin} config set max-payload-tokens 20000`, { cwd: repo, encoding: 'utf8' });
+    const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    expect(next.match(/max-payload-tokens/g)).toHaveLength(1);
+    expect(next).toContain('code-dirs = ["src"]');
+    expect(execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' })).toContain('max-payload-tokens = 20000');
+  });
+
+  it('inserts above a trailing [layers] table and repairs a duplicated key', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\nmax-payload-tokens = 16000\nmax-payload-tokens = 17000\n\n[layers]\n0 = "core"\n');
+    execSync(`node ${cellsBin} config set max-payload-tokens 20000`, { cwd: repo, encoding: 'utf8' });
+    const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    expect(next.match(/max-payload-tokens/g)).toHaveLength(1);
+    expect(next).toContain('[layers]');
+    // The key must not sit inside the layers table, where it would be an unknown layer name.
+    expect(next.indexOf('max-payload-tokens')).toBeLessThan(next.indexOf('[layers]'));
+    const read = execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' });
+    expect(read).toContain('max-payload-tokens = 20000');
+    expect(read).toContain('layers');
+  });
+
+  it('moves a key that an older version wrote inside the [layers] table back to the top level', () => {
+    repo = setupRepo();
+    // This is the exact residue of the old append: the only key sits under the header, so the
+    // effective ceiling stayed at the default while `set` reported success.
+    writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["src"]\n\n[layers]\n0 = "core"\nmax-payload-tokens = 16000\n');
+    // The warning that the repair must not print goes to stderr, so capture it: stdout alone
+    // would make the last assertion below unable to fail.
+    const set = spawnSync('node', [cellsBin, 'config', 'set', 'max-payload-tokens', '20000'], { cwd: repo, encoding: 'utf8' });
+    expect(set.status).toBe(0);
+    expect(set.stderr).not.toContain('non-numeric key');
+    const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    expect(next.match(/max-payload-tokens/g)).toHaveLength(1);
+    expect(next.indexOf('max-payload-tokens')).toBeLessThan(next.indexOf('[layers]'));
+    const read = execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' });
+    expect(read).toContain('max-payload-tokens = 20000');
+  });
+
+  it('refuses with exit 1 and leaves the file untouched when the result does not parse', () => {
+    repo = setupRepo();
+    // An unclosed array is not something this command repairs, so it must not report success,
+    // and a failed command must not change the file.
+    const original = 'code-dirs = ["src"\nmax-payload-tokens = 16000\n';
+    writeFileSync(join(repo, '.cells', 'config.toml'), original);
+    const set = spawnSync('node', [cellsBin, 'config', 'set', 'max-payload-tokens', '20000'], { cwd: repo, encoding: 'utf8' });
+    expect(set.status).toBe(1);
+    expect(set.stderr).toContain('still invalid');
+    expect(readFileSync(join(repo, '.cells', 'config.toml'), 'utf8')).toBe(original);
+  });
+
+  it('strips a byte-order mark and writes a config that parses', () => {
+    repo = setupRepo();
+    writeFileSync(join(repo, '.cells', 'config.toml'), '\uFEFFmax-payload-tokens = 16000\ncode-dirs = ["src"]\n');
+    const set = spawnSync('node', [cellsBin, 'config', 'set', 'max-payload-tokens', '20000'], { cwd: repo, encoding: 'utf8' });
+    expect(set.status).toBe(0);
+    const next = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
+    expect(next.startsWith('max-payload-tokens')).toBe(true);
+    expect(execSync(`node ${cellsBin} config`, { cwd: repo, encoding: 'utf8' })).toContain('max-payload-tokens = 20000');
+  });
 });
 
 describe('python src-layout cold start', () => {
@@ -170,7 +234,7 @@ describe('python src-layout cold start', () => {
     if (repo) rmSync(repo, { recursive: true, force: true });
   });
 
-  /** Fresh fixture: src-layout python with real cross-module imports, NO module-root. */
+  /** A new fixture: a Python src layout with real imports between modules and NO module-root. */
   function setupPythonRepo(): string {
     const dir = mkdtempSync(join(tmpdir(), 'cells-pysrc-'));
     mkdirSync(join(dir, 'src/core'), { recursive: true });
@@ -178,7 +242,7 @@ describe('python src-layout cold start', () => {
     writeFileSync(join(dir, 'src/core/engine.py'), 'from util import setup\n\ndef run():\n    return setup()\n');
     writeFileSync(join(dir, 'src/util.py'), 'def setup():\n    return True\n');
     writeFileSync(join(dir, 'tests/test_engine.py'), 'from core.engine import run\n\ndef test_run():\n    assert run()\n');
-    // init writes the config template; module-root stays commented (the default)
+    // init writes the config template. The module-root key stays commented, which is the default.
     execSync(`node ${cellsBin} init`, { cwd: dir, encoding: 'utf8' });
     execSync(`node ${cellsBin} plan --apply`, { cwd: dir, encoding: 'utf8' });
     return dir;
@@ -201,18 +265,20 @@ describe('python src-layout cold start', () => {
 
   it('never reports a silent 0-edge green gate: same-family imports resolve to REAL edges (gated), cross-family stay unresolved with a module-root hint', () => {
     repo = setupPythonRepo();
-    // src-layout cold start, checked twice over: `from util import setup` now RESOLVES (the
-    // probe proved src/util.py exists; unique in the importer's family) — the resulting
-    // crossing is undeclared, so crossings exits 1 demanding requires. The cross-family
-    // `core.engine` (tests → src) stays unresolved with the module-root hint.
+    // This is a src-layout cold start, checked in two ways. `from util import setup` now
+    // RESOLVES: the probe proved that src/util.py exists and is unique in the family of the
+    // importer. The crossing is therefore undeclared, and `crossings` exits with code 1 and
+    // demands requires. The cross-family import `core.engine` (tests -> src) stays unresolved
+    // with the module-root hint.
     const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
-    expect(r.status).toBe(1); // undeclared crossing — the edge is real and the gate demands it be declared
-    expect(out).toContain('src/core/engine.py'); // the real edge renders
+    expect(r.status).toBe(1); // The crossing is undeclared. The edge is real, and the gate demands a declaration.
+    expect(out).toContain('src/core/engine.py'); // The real edge appears.
     expect(out).toContain('Unresolved imports that look local');
-    expect(out).toContain('module-root'); // the hint, not a bare list
-    // The lie is dead: no "0 edges → All checks passed" on a repo full of imports —
-    // the gate is now RED on the undeclared crossing, and the unresolved remain visible.
+    expect(out).toContain('module-root'); // The hint appears, not a bare list.
+    // The false success is gone: no "0 edges -> All checks passed" in a repository full of
+    // imports. The gate now FAILS on the undeclared crossing, and the unresolved imports stay
+    // visible.
     const h = spawnSync(`node`, [cellsBin, 'health'], { cwd: repo, encoding: 'utf8' });
     expect(h.status).toBe(1);
     expect(h.stdout + h.stderr).toContain('unresolved');
@@ -222,9 +288,9 @@ describe('python src-layout cold start', () => {
     repo = setupPythonRepo();
     const r = spawnSync(`node`, [cellsBin, 'crossings', '--warnings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
-    expect(r.status).toBe(1); // the gate still fires on undeclared crossings
-    expect(out).not.toContain('Cross-cell imports'); // no listing
-    expect(out).toContain('Undeclared crossings'); // actionable tail only
+    expect(r.status).toBe(1); // The gate still fails on undeclared crossings.
+    expect(out).not.toContain('Cross-cell imports'); // There is no listing.
+    expect(out).toContain('Undeclared crossings'); // Only the actionable tail appears.
     expect(out).toContain('Unresolved imports that look local');
     expect(out).toContain('module-root');
   });
@@ -233,11 +299,12 @@ describe('python src-layout cold start', () => {
     repo = setupPythonRepo();
     const cfg = readFileSync(join(repo, '.cells', 'config.toml'), 'utf8');
     writeFileSync(join(repo, '.cells', 'config.toml'), cfg.replace('# module-root = "src"', 'module-root = "src"'));
-    // Edges exist now — undeclared crossings are a GATE (exit 1): spawnSync, assert on the report.
+    // The edges exist now. An undeclared crossing is a GATE (exit 1), so the test uses
+    // spawnSync and asserts on the report.
     const r = spawnSync(`node`, [cellsBin, 'crossings'], { cwd: repo, encoding: 'utf8' });
     const out = r.stdout + r.stderr;
-    expect(r.status).toBe(1); // undeclared crossings are a gate — the resolved edges must FAIL it
-    expect(out).toContain('src/core/engine.py'); // edges now exist (undeclared-crossings rows)
+    expect(r.status).toBe(1); // Undeclared crossings are a gate, so the resolved edges must FAIL it.
+    expect(out).toContain('src/core/engine.py'); // The edges exist now, and the undeclared-crossing rows show them.
     expect(out).not.toContain('Unresolved imports that look local');
   });
 });
@@ -258,7 +325,7 @@ describe('cells health --verbose', () => {
     expect(res.status).toBe(1);
     expect(res.stdout).toContain('1 undeclared');
     expect(res.stdout).toContain('b imports a (src/b.ts → src/a.ts)');
-    // default stays terse — no inline edges
+    // The default stays terse, with no inline edges.
     const terse = spawnSync(`node`, [cellsBin, 'health'], { cwd: repo, encoding: 'utf8' });
     expect(terse.stdout).not.toContain('imports a (');
   });
@@ -298,22 +365,22 @@ describe('cells show per-file tokens', () => {
 
   it('assign dedupes symlink aliases — same inode owned twice is impossible', () => {
     repo = setupRepo();
-    // census sees both paths (file symlink); ownership holds the real one
+    // The census sees both paths, because the file is a symlink. Ownership holds the real path.
     mkdirSync(join(repo, 'real'), { recursive: true });
     mkdirSync(join(repo, 'alias'), { recursive: true });
     writeFileSync(join(repo, 'real', 'atom.ts'), 'export const atom = 1;\n');
     symlinkSync(join(repo, 'real', 'atom.ts'), join(repo, 'alias', 'atom.ts'));
     writeFileSync(join(repo, '.cells', 'config.toml'), 'code-dirs = ["."]\n');
     writeFileSync(join(repo, '.cells', 'ownership.toml'), '[a]\nfiles = ["real/atom.ts"]\n');
-    // assigning the alias path must reuse the real-path entry, not double-own
+    // To assign the alias path must reuse the real-path entry and must not create a second owner.
     const out = execSync(`node ${cellsBin} assign b alias/atom.ts`, { cwd: repo, encoding: 'utf8' });
     expect(out).toContain('symlink alias');
     const own = readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8');
     expect(own).not.toContain('alias/atom.ts');
     expect(own).toContain('real/atom.ts');
-    expect(own.match(/real\/atom\.ts/g)).toHaveLength(1); // one entry, moved to b
+    expect(own.match(/real\/atom\.ts/g)).toHaveLength(1); // There is one entry, and it moved to b.
     expect(execSync(`node ${cellsBin} health`, { cwd: repo, encoding: 'utf8' })).toContain('All checks passed');
-    // assigning the already-owned alias again: no-op note, still one entry
+    // A second assign of the alias does nothing and writes a note. The entry is still one.
     const again = execSync(`node ${cellsBin} assign b alias/atom.ts`, { cwd: repo, encoding: 'utf8' });
     expect(again).toContain('already owned');
     expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8').match(/real\/atom\.ts/g)).toHaveLength(1);
@@ -327,9 +394,9 @@ describe('cells show per-file tokens', () => {
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('is a directory');
     expect(res.stderr).toContain('assign takes files');
-    // nothing was written — ownership unchanged, no dangling entry
+    // Nothing was written, so ownership is unchanged and there is no dangling entry.
     expect(readFileSync(join(repo, '.cells', 'ownership.toml'), 'utf8')).not.toContain('web/');
-    // missing paths are refused too
+    // The function also refuses a missing path.
     const miss = spawnSync(`node`, [cellsBin, 'assign', 'a', 'nope.ts'], { cwd: repo, encoding: 'utf8' });
     expect(miss.status).toBe(1);
     expect(miss.stderr).toContain('no such file');
@@ -359,7 +426,7 @@ describe('cli dispatcher', () => {
 
   it('treats everything after -- as a literal positional (end-of-flags)', () => {
     repo = setupRepo();
-    // a file literally named like a flag — unreachable without `--`
+    // The file has a name that looks like a flag, and it is unreachable without `--`.
     const res = spawnSync(`node`, [cellsBin, 'owns', '--', 'src/a.ts'], { cwd: repo, encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('a');
@@ -368,6 +435,6 @@ describe('cli dispatcher', () => {
   it('a bare trailing `--` is an empty positional tail (accepted, harmless)', () => {
     repo = setupRepo();
     const res = spawnSync(`node`, [cellsBin, 'list', '--'], { cwd: repo, encoding: 'utf8' });
-    expect(res.status).toBe(0); // bare separator after all flags = empty positional tail, harmless
+    expect(res.status).toBe(0);
   });
 });

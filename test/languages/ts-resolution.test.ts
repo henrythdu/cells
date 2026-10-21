@@ -6,9 +6,10 @@ import type { ResolveCtx } from '../../src/languages/tree-sitter.js';
 import { factsOf, resolveOne } from '../../src/languages/ts-resolution.js';
 
 /**
- * Direct tests for the TS resolution core — no parser, no WASM: a specifier + a fixture
- * repo on disk + a ResolveCtx over its census. These are the resolution semantics the
- * external import-graph oracles judge, tested at the decision point.
+ * Direct tests for the resolution core of TypeScript. There is no parser and no WASM. Each
+ * test gives a specifier, a fixture repository on disk, and a `ResolveCtx` over the census of
+ * the fixture. These are the resolution semantics that the external import-graph oracles
+ * judge, and the tests exercise them at the decision point.
  */
 
 let tmp: string | null = null;
@@ -19,7 +20,7 @@ afterEach(() => {
   }
 });
 
-/** Write a fixture repo; return a ResolveCtx over the given census files. */
+/** Write a fixture repository and return a `ResolveCtx` over the given census files. */
 function fixture(files: string[], extra?: Record<string, string>): { ctx: ResolveCtx; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'ts-res-'));
   tmp = dir;
@@ -118,8 +119,7 @@ describe('tsconfig paths aliases', () => {
       'tsconfig.json': '{"compilerOptions":{"paths":{"@/*":["src/*"]}}}',
       'packages/a/tsconfig.json': '{"extends":"../../tsconfig.json"}',
     });
-    // inherited targets stay relative to the config that DECLARED them (the root) —
-    // tsc semantics: @/* → repo-root src/*
+    // An inherited target stays relative to the config that DECLARED it, which is the root. This is the tsc rule: `@/*` maps to `src/*` at the repository root.
     expect(resolve('@/util', 'packages/a/src/app.ts', ctx)).toEqual({ toFile: 'src/util.ts', local: true });
   });
 
@@ -129,23 +129,20 @@ describe('tsconfig paths aliases', () => {
       'tsconfig.json': '{"compilerOptions":{"paths":{"@/*":["src/*"]}}}',
       'packages/a/tsconfig.json': '{"compilerOptions":{"paths":{"@/*":["src/*"]}}}',
     });
-    // root alias would land on src/util.ts (root-relative); the nested config's targets
-    // are relative to ITS dir → packages/a/src/util.ts
+    // The root alias would land on `src/util.ts`, because that path is relative to the root. The target of the nested config is relative to ITS directory, so it gives `packages/a/src/util.ts`.
     expect(resolve('@/util', 'packages/a/src/app.ts', ctx)).toEqual({ toFile: 'packages/a/src/util.ts', local: true });
   });
 
   it('a nested tsconfig WITHOUT paths terminates the walk — root aliases must NOT apply', () => {
-    // Before: the root's @/* applied → a FABRICATED edge to src/util.ts (cross-project
-    // contamination). After: the nested config owns the file; no alias maps — '@/util' is
-    // an honestly-flagged broken local (L507 convention), never a false edge.
+    // Before the fix, the root `@/*` applied and created a FABRICATED edge to `src/util.ts` (cross-project contamination). After the fix, the nested config owns the file and has no alias map, so `@/util` is an honestly flagged broken local import (the L507 convention), and never a false edge.
     const files = ['packages/a/src/app.ts', 'src/util.ts'];
     const { ctx } = fixture(files, {
       'tsconfig.json': '{"compilerOptions":{"paths":{"@/*":["src/*"]}}}',
       'packages/a/tsconfig.json': '{"compilerOptions":{}}',
     });
     const r = resolve('@/util', 'packages/a/src/app.ts', ctx);
-    expect(r.toFile).toBe(null); // NOT src/util.ts — the root alias must not reach in
-    expect(r.local).toBe(true); // unmapped @/ stays a flagged broken local
+    expect(r.toFile).toBe(null); // NOT `src/util.ts`, because the root alias must not reach in
+    expect(r.local).toBe(true); // an unmapped `@/` stays a flagged broken local import
   });
 
   it('jsonc tolerance: comments + trailing commas parse', () => {
@@ -182,8 +179,7 @@ describe('workspace package map', () => {
   });
 
   it('`**` glob matches any depth — a nested member package enters the map', () => {
-    // `packages/**` + member at packages/a/b (depth 2). The chained split/join translation
-    // turned `.*` into `.[^/]*` — one level only — and the package silently stayed external.
+    // A `packages/**` glob with a member at `packages/a/b` (depth 2). The chained split and join translation turned `.*` into `.[^/]*`, which matches one level only, so the package silently stayed external.
     const { ctx } = fixture(['packages/a/b/x.ts', 'apps/web/src/index.ts'], {
       'package.json': '{"workspaces":["packages/**"]}',
       'packages/a/b/package.json': '{"name":"b"}',
@@ -200,15 +196,14 @@ describe('workspace package map', () => {
   });
 
   it('glob metacharacters in a workspace path are escaped — a literal dot must not act as a wildcard', () => {
-    // `packages/v1.2/*` must match ONLY packages/v1.2/… — if the `.` were translated as a
-    // regex wildcard, the decoy packages/v1x2/… would enter the map too (or hijack the name).
+    // The glob `packages/v1.2/*` must match ONLY `packages/v1.2/...`. If the `.` were translated as a regex wildcard, the decoy `packages/v1x2/...` would enter the map too, or hijack the name.
     const { ctx } = fixture(['packages/v1.2/app/x.ts', 'packages/v1x2/other/y.ts', 'apps/web/src/index.ts'], {
       'package.json': '{"workspaces":["packages/v1.2/*"]}',
       'packages/v1.2/app/package.json': '{"name":"app"}',
       'packages/v1x2/other/package.json': '{"name":"other"}',
     });
     expect(resolve('app/x', 'apps/web/src/index.ts', ctx)).toEqual({ toFile: 'packages/v1.2/app/x.ts', local: true });
-    expect(resolve('other/y', 'apps/web/src/index.ts', ctx)).toEqual({ toFile: null, local: false }); // decoy: not a member
+    expect(resolve('other/y', 'apps/web/src/index.ts', ctx)).toEqual({ toFile: null, local: false }); // The decoy is not a member.
   });
 
   it('dist entry remaps to source: a resolves via dist/index.js → src/index.ts', () => {
@@ -239,7 +234,7 @@ describe('workspace package map', () => {
 
   it('no workspace config at all — nested package.json still NOT local', () => {
     const { ctx } = fixture(['legacy/src/index.ts', 'src/app.ts'], {
-      'package.json': '{"name":"root"}', // no workspaces field
+      'package.json': '{"name":"root"}', // There is no `workspaces` field.
       'legacy/package.json': '{"name":"legacy"}',
     });
     expect(resolve('legacy', 'src/app.ts', ctx)).toEqual({ toFile: null, local: false });

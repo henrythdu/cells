@@ -1,8 +1,9 @@
-/** Read/analysis command handlers for the CLI (the payload-shaped half): crossings, list,
- *  show, owns, payload, surface, graph. cli.ts keeps the dispatcher + mutation commands;
- *  the size/structure/impact/health report commands live in gate.ts; the shared read
- *  pipeline (loadCrossings, guards, cmdImports) lives in pipeline.ts. Pure-ish: gathers
- *  I/O, delegates rendering to view. */
+/** The read and analysis command handlers for the CLI, which form the payload-shaped half:
+ *  `crossings`, `list`, `show`, `owns`, `payload`, `surface`, and `graph`. `cli.ts` keeps the
+ *  dispatcher and the mutation commands. The report commands for size, structure, impact,
+ *  and health live in `gate.ts`. The shared read pipeline (`loadCrossings`, the guards,
+ *  `cmdImports`) lives in `pipeline.ts`. The handlers are mostly pure: they gather I/O and
+ *  delegate the rendering to `view`. */
 
 import { type Crossing, type CrossingsDelta, checkLeakage, checkOffMembrane, computeMetrics } from '../crossings.js';
 import type { Cell } from '../declaration.js';
@@ -16,11 +17,14 @@ import { classifyChangeCoupling } from '../structure.js';
 import { providesDrift } from '../validate.js';
 import { type CellSmell, formatCellList, formatCellShow } from '../view.js';
 
-/** `cells crossings [--diff] [--verbose] [--json]` — real cross-cell imports + leakage.
- *  Default: cell-pair summary (the overview question: "which cells are coupled?");
- *  `--verbose` shows every file→file edge; `--diff` shows what your uncommitted edits
- *  added/removed (working tree vs HEAD); `--json` emits raw JSON (stdout stays machine-clean;
- *  human notes go to stderr). */
+/** `cells crossings [--diff] [--verbose] [--json]`, which shows the real cross-cell imports
+ *  and the leakage.
+ *
+ *  By default the command prints a summary per pair of cells, which answers the overview
+ *  question "which cells are coupled?". `--verbose` shows every edge from file to file.
+ *  `--diff` shows what your uncommitted edits added and removed (the working tree against
+ *  HEAD). `--json` writes raw JSON, so stdout stays machine-clean and the human notes go to
+ *  stderr. */
 export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; verbose?: boolean; json?: boolean; warnings?: boolean } = {}): Promise<void> {
   const { ownership, declarations } = ctx;
   const { crossings, edges, unresolved } = await loadCrossings(ownership);
@@ -28,9 +32,10 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   if (opts.diff) {
     const delta = await crossingsDelta(crossings, ownership);
     if (delta !== null) {
-      // Flag leakage introduced by these edits. Only UNDECLARED is meaningful on a
-      // delta subset ("did I add a crossing the from-cell doesn't require?"); stale
-      // (declared-but-unused) is a full-tree property an added-subset can't answer.
+      // Flag the leakage that these edits introduce. On a delta subset only UNDECLARED is
+      // meaningful: "did I add a crossing that the from-cell does not require?". Stale
+      // (declared but unused) is a property of the full tree, and an added subset cannot
+      // answer it.
       const leakage = checkLeakage(delta.added, declarations).filter((l) => l.kind === 'undeclared');
       const undeclaredKeys = new Set(leakage.map((l) => `${l.fromCell}|${l.toCell}`));
       if (opts.json) {
@@ -41,17 +46,18 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
       if (leakage.length > 0) {
         console.error(`\nUndeclared crossings (${leakage.length}) — the [UNDECLARED] edges above need a requires entry (or remove the import):`);
         for (const l of leakage) console.error(`  ${l.detail}`);
-        process.exitCode = 1; // exitCode, not exit(): let stdout drain — piped output must not lose the tail
+        process.exitCode = 1; // Set `exitCode` and do not call `exit()`, so stdout can drain. Piped output must not lose the tail.
         return;
       }
       return;
     }
-    console.error('⚠ --diff unavailable (need a git repo with at least one commit) — showing current crossings instead.');
+    console.error('⚠ --diff unavailable (need a git repo with at least one commit, and `tar` on PATH) — showing current crossings instead.');
   }
 
   if (!opts.warnings) {
-    // skip the listing entirely under --warnings: leakage + unresolved only (the agent's
-    // "just the warnings" — on a big repo the pair list drowns the actionable tail)
+    // Under `--warnings`, skip the listing entirely and show only the leakage and the
+    // unresolved imports. These are the "just the warnings" output for an agent. On a big
+    // repository the pair list drowns the actionable tail.
     if (crossings.length === 0) {
       if (opts.json) {
         writeJson([]);
@@ -61,7 +67,8 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
     } else if (opts.json) {
       writeJson(crossings);
     } else {
-      // default: aggregate summary; --verbose: every file→file edge under its cell pair
+      // By default, an aggregate summary. With `--verbose`, every edge from file to file
+      // under its cell pair.
       const byPair = new Map<string, { from: string; to: string; files: [string, string][] }>();
       for (const c of crossings) {
         const k = `${c.fromCell}|${c.toCell}`;
@@ -91,21 +98,23 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   const stale = leakage.filter((l) => l.kind === 'stale');
   const undeclared = leakage.filter((l) => l.kind === 'undeclared');
   if (opts.json && opts.warnings) {
-    // --warnings --json: the actionable tail AS data (stdout must always be valid JSON
-    // under --json — the listing is skipped by design, so emit leakage + unresolved here)
+    // `--warnings --json`: the actionable tail as data. Under `--json`, stdout must always
+    // be valid JSON. The listing is skipped by design, so emit the leakage and the
+    // unresolved imports here.
     writeJson({ leakage, unresolved });
-    if (undeclared.length > 0) process.exitCode = 1; // gate parity with the text path
+    if (undeclared.length > 0) process.exitCode = 1; // The exit code matches the text path.
     return;
   }
   if (stale.length > 0) {
-    // stale = declared-but-never-imported — info (exit 0), same as health. Gate fails on undeclared only.
+    // A stale require is declared but never imported. This is information, so the exit code
+    // is 0, the same as `health`. Only an undeclared crossing fails the gate.
     console.error(`(info) ${stale.length} stale require(s) — declared but no import found (maybe a data dependency or future plan):`);
     for (const l of stale) console.error(`  ${l.detail}`);
   }
   if (undeclared.length > 0) {
     console.error(`\nUndeclared crossings (${undeclared.length}) — add a requires entry (or remove the import):`);
     for (const l of undeclared) console.error(`  ${l.detail}`);
-    process.exitCode = 1; // exitCode, not exit(): keep the unresolved report below, then drain stdout before exit
+    process.exitCode = 1; // Set `exitCode` and do not call `exit()`, so the unresolved report below can print and stdout can drain before exit.
   }
 
   if (unresolved.length > 0) {
@@ -118,13 +127,13 @@ export async function cmdCrossings(ctx: CellsContext, opts: { diff?: boolean; ve
   }
 }
 
-/** Emit an object as pretty JSON on stdout. Under `--json` stdout stays machine-clean
- *  (human notes go to stderr) — machine consumers always get valid JSON. */
+/** Write an object as pretty JSON on stdout. Under `--json`, stdout stays machine-clean and
+ *  the human notes go to stderr, so a machine consumer always gets valid JSON. */
 function writeJson(obj: unknown): void {
   process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`);
 }
 
-/** Render a crossings delta: +/− edges, then a summary. */
+/** Render a crossings delta: the added and removed edges, then a summary. */
 function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string>, declarations: Record<string, Cell>): void {
   if (delta.added.length === 0 && delta.removed.length === 0) {
     console.log('No crossing changes since HEAD.');
@@ -136,17 +145,20 @@ function showCrossingsDelta(delta: CrossingsDelta, undeclared: Set<string>, decl
     console.log(`  +${flag} ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
   }
   for (const c of delta.removed) {
-    // Removed edge to a cell still declared in requires = the change invalidated a
-    // declared contract (mirror of [UNDECLARED] on the added side).
+    // A removed edge to a cell that `requires` still lists means that the change
+    // invalidated a declared contract. This is the mirror of [UNDECLARED] on the added
+    // side.
     const flag = declarations[c.fromCell]?.requires.includes(c.toCell) ? ' [REQUIRES NOW STALE]' : '';
     console.log(`  −${flag} ${c.fromCell} → ${c.toCell}   (${c.fromFile} → ${c.toFile})`);
   }
   console.log(`${delta.added.length} added, ${delta.removed.length} removed.`);
 }
 
-/** `cells list [--verbose]` — partition overview: each cell's files/size/requires/fan-in-out + orphans.
- *  --verbose adds a per-cell health line (size%, stale provides, unresolved, dead files, tests) —
- *  the one-screen orientation scan. All signals reuse data the overview already loads. */
+/** `cells list [--verbose]`, which gives the partition overview: the files, size, requires,
+ *  and fan-in and fan-out of each cell, plus the orphans. `--verbose` adds a health line per
+ *  cell (size percentage, stale provides, unresolved imports, dead files, tests), which is
+ *  the one-screen orientation scan. All signals reuse data that the overview already
+ *  loads. */
 export async function cmdList(ctx: CellsContext, verbose = false): Promise<void> {
   const { declarations, ownership, config } = ctx;
   const sizes: Record<string, CellSize> = {};
@@ -163,13 +175,14 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   for (const name of Object.keys(declarations)) {
     const cell = declarations[name];
     const owned = ownership[name] ?? [];
-    const contents = readFiles(owned); // one read — reused for size, stale provides, dead files
+    const contents = readFiles(owned); // One read, reused for the size, the stale provides, and the dead files.
     sizes[name] = computePayloadSize(cell, owned, contents, neighborsOf(cell, declarations), readFiles(cell.tests ?? []));
     if (verbose) allContents.push(contents);
   }
   if (verbose) {
-    // Drift needs the whole repo in hand (owned accumulated above, orphans read once) —
-    // one name, one verdict: unread subsumes stale in both the smell counts below.
+    // Drift needs the whole repository in hand. The owned contents accumulate above, and
+    // the orphans are read one time. Each name gets one verdict, because `unread` includes
+    // `stale` in both smell counts below.
     const merged = Object.assign({}, ...allContents);
     const ownedAll = new Set(Object.keys(merged));
     const orphans = listCodeFiles().filter((f) => !ownedAll.has(f));
@@ -193,8 +206,9 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   const codeFiles = listCodeFiles();
   warnIfNoCodeFiles(config, codeFiles);
   const orphanFiles = codeFiles.filter((f) => !owned.has(f));
-  // Orphan magnets: inbound imports into unowned files (edges survive to imports level;
-  // deriveCrossings drops them — an orphan has no cell). The adoption queue, prioritized.
+  // Orphan magnets are the unowned files that other files import. These edges survive to
+  // the imports level, and `deriveCrossings` drops them, because an orphan has no cell. This
+  // is the adoption queue, in priority order.
   const magnetCounts = new Map<string, number>();
   for (const e of edges) {
     if (!owned.has(e.toFile)) magnetCounts.set(e.toFile, (magnetCounts.get(e.toFile) ?? 0) + 1);
@@ -202,15 +216,15 @@ export async function cmdList(ctx: CellsContext, verbose = false): Promise<void>
   process.stdout.write(formatCellList(declarations, sizes, metrics, orphanFiles, verbose ? smells : undefined, magnetCounts));
 }
 
-/** ADR 0002 change-coupling classification over recent git history — the shared step
- *  behind show's co-change list and payload's coupling hint. */
+/** Classify the change coupling over the recent git history (ADR 0002). This shared step
+ *  runs behind the co-change list of `show` and the coupling hint of `payload`. */
 function changeCoupling(ownership: Ownership, crossings: Crossing[]) {
   return classifyChangeCoupling(recentCommitFiles(Object.values(ownership).flat()), ownership, crossings);
 }
 
-/** `cells show <name> [--verbose]` — one cell's detail with its in/out crossings.
- *  High-fan-in/out crossings (>8 edges) collapse to a per-cell aggregate;
- *  `--verbose` shows every per-file edge. */
+/** `cells show <name> [--verbose]`, which prints the detail of one cell with its incoming
+ *  and outgoing crossings. A crossing with high fan-in or fan-out (more than 8 edges)
+ *  collapses to an aggregate per cell. `--verbose` shows every edge per file. */
 export async function cmdShow(ctx: CellsContext, name: string, verbose = false): Promise<void> {
   const { declarations, ownership } = ctx;
   const cell = requireCell(declarations, name);
@@ -221,16 +235,19 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   const out = crossings.filter((c) => c.fromCell === name);
   const inc = crossings.filter((c) => c.toCell === name);
   const metrics = computeMetrics(crossings, Object.keys(declarations));
-  // Dead at the cell boundary: owned files no file OUTSIDE the cell imports (static view —
-  // internal edges don't count; entry points may still load them, see impact's caveat).
+  // A file is dead at the cell boundary when no file outside the cell imports it. This is a
+  // static view, so internal edges do not count. An entry point can still load the file,
+  // and the caveat in `impact` explains this.
   const ownedSet = new Set(ownedFiles);
   const externallyImported = new Set<string>();
   for (const e of edges) if (!ownedSet.has(e.fromFile)) externallyImported.add(e.toFile);
   const deadFiles = ownedFiles.filter((f) => !externallyImported.has(f));
-  // Unresolved imports FROM this cell's files (loadCrossings already filtered to owned files).
+  // The unresolved imports FROM the files of this cell. `loadCrossings` already filtered to
+  // the owned files.
   const cellUnresolved = unresolved.filter((u) => ownedSet.has(u.fromFile)).map((u) => u.import);
-  // Change coupling (ADR 0002): cell pairs that co-change with this cell in git
-  // history, classified against the crossing graph (explained = has import edge).
+  // Change coupling (ADR 0002): the cell pairs that change together with this cell in the
+  // git history, classified against the crossings graph. A pair is explained when it has an
+  // import edge.
   const coupling = changeCoupling(ownership, crossings);
   const coChange = coupling.pairs
     .filter((p) => p.a === name || p.b === name)
@@ -242,9 +259,9 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
       jaccard: p.jaccard,
       explained: p.explained,
     }));
-  // Membrane drift for this cell: whole-repo contents in hand (owned of every cell +
-  // orphans) so the unread refinement scans the same population as health — one name,
-  // one verdict on both surfaces.
+  // The membrane drift for this cell. The whole-repository contents are in hand (the owned
+  // files of every cell and the orphans), so the unread refinement scans the same
+  // population as `health`. Each name gets one verdict on both surfaces.
   const repoContents: Record<string, string> = { ...contents };
   for (const files of Object.values(ownership)) Object.assign(repoContents, readFiles(files.filter((f) => !(f in repoContents))));
   const drift = providesDrift(declarations, ownership, edges, repoContents);
@@ -270,7 +287,8 @@ export async function cmdShow(ctx: CellsContext, name: string, verbose = false):
   );
 }
 
-/** `cells graph [--mermaid]` — render the cell graph (ASCII tree default; --mermaid for source). */
+/** `cells graph [--mermaid]`, which renders the cell graph. The default is an ASCII tree,
+ *  and `--mermaid` writes the Mermaid source. */
 export async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<void> {
   const { ownership } = ctx;
   const { crossings } = await loadCrossings(ownership);
@@ -278,25 +296,37 @@ export async function cmdGraph(ctx: CellsContext, mermaid: boolean): Promise<voi
   process.stdout.write(mermaid ? formatCellGraph(crossings, allCells) : formatCellGraphAscii(crossings, allCells));
 }
 
-/** Export-ish declaration lines, per language — the raw material for a cell's `signatures`
- *  membrane field. A rough line regex, not a parser: the LLM curates the output (adapting
- *  to type annotations) before pasting it into the .cell.toml. Pure. */
-export function extractSurface(content: string): { line: number; text: string }[] {
-  // TS/JS export decls; Rust pub items; Python top-level def/class; Go top-level decls; Java types.
-  // Matched against the RAW line — the ^ anchors mean column-0 (top-level) only, so indented
-  // methods/statements (Python defs inside a class, indented consts) are correctly skipped.
-  const RE =
-    /^(?:export\s+(?:async\s+)?function|export\s+(?:const|class|interface|type|enum)\s|pub\s+(?:fn|struct|enum|trait|type|const|mod|use)\s|(?:async\s+)?def\s|class\s|func\s|type\s|const\s|var\s|public\s+(?:class|interface|enum|record)\s)/;
+/** The export-like declaration lines per language. These lines are the raw material for the
+ *  `signatures` membrane field of a cell. The function uses a rough line regex, not a
+ *  parser. The LLM curates the output, including the type annotations, before it pastes
+ *  the lines into the `.cell.toml` file. The function is pure. */
+export function extractSurface(content: string, path = ''): { line: number; text: string }[] {
+  // A JS or TS file exports an item with an `export` line only, so a bare `const` or `class` at
+  // column 0 is module-private there. The bare forms apply to the languages that declare at
+  // column 0, and only those: a file with an unknown extension (a script, a template) is
+  // skipped rather than guessed. The empty path is the caller that passes no file, and keeps
+  // the permissive behavior for a direct call. The `^` anchors mean column 0 only, so indented
+  // methods and statements (Python defs inside a class, indented consts) are properly skipped.
+  const dot = path.lastIndexOf('.');
+  const ext = dot === -1 ? '' : path.slice(dot).toLowerCase();
+  // No path, no guess: a direct call keeps the permissive behavior. A real path with an
+  // unknown or missing extension is skipped, because its language is unknown. The list mirrors
+  // the extensions of the non-JS importers (python with its Cython forms, go, rust, java, cpp).
+  const bareLang = path === '' || /^\.(?:py|pyx|pxd|go|rs|java|c|h|cc|cpp|cxx|hpp|hh|hxx)$/.test(ext);
+  const exported = /^(?:export\s|pub\s+(?:fn|struct|enum|trait|type|const|mod|use|static)\s|(?:public|protected)\s+(?:[\w$]+\s+)*(?:class|interface|enum|record|@interface)\s)/;
+  const bare = /^(?:(?:async\s+)?def\s|class\s|func\s|type\s|const\s|var\s)/;
   const out: { line: number; text: string }[] = [];
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    if (RE.test(lines[i])) out.push({ line: i + 1, text: lines[i].trim() });
+    const line = lines[i];
+    if (exported.test(line) || (bareLang && bare.test(line))) out.push({ line: i + 1, text: line.trim() });
   }
   return out;
 }
 
-/** `cells surface <name>` — print the cell's export-ish declaration lines (file:line), the
- *  starting point for populating the membrane `signatures` field. Groups by owned file. */
+/** `cells surface <name>`, which prints the export-like declaration lines of the cell as
+ *  `file:line`. These lines are the starting point for the `signatures` field of the
+ *  membrane. The output groups by owned file. */
 export function cmdSurface(ctx: CellsContext, name: string): void {
   const { declarations, ownership } = ctx;
   const cell = requireCell(declarations, name);
@@ -304,7 +334,7 @@ export function cmdSurface(ctx: CellsContext, name: string): void {
   const contents = readFiles(ownedFiles);
   let any = false;
   for (const f of ownedFiles) {
-    const hits = extractSurface(contents[f] ?? '');
+    const hits = extractSurface(contents[f] ?? '', f);
     if (hits.length === 0) continue;
     any = true;
     process.stdout.write(`## ${f}\n`);
@@ -314,7 +344,8 @@ export function cmdSurface(ctx: CellsContext, name: string): void {
   process.stdout.write(`\nPopulate the membrane: add these to \`signatures\` in .cells/${cell.name}.cell.toml (adapt with types).\n`);
 }
 
-/** `cells owns <file>` — which cell owns this file? (terse: name + purpose; orphan if unowned) */
+/** `cells owns <file>`, which answers which cell owns this file. The output is terse: the
+ *  name and the purpose. An unowned file is an orphan. */
 export function cmdOwns(ctx: CellsContext, file: string): void {
   const { ownership, declarations } = ctx;
   const cell = owningCell(ownership, file);
@@ -326,7 +357,7 @@ export function cmdOwns(ctx: CellsContext, file: string): void {
   console.log(`${file} → ${cell} — ${purpose}`);
 }
 
-/** `cells payload <name>` — assemble and print a cell's payload to stdout. */
+/** `cells payload <name>`, which assembles the payload of a cell and prints it to stdout. */
 export async function cmdPayload(ctx: CellsContext, name: string): Promise<void> {
   const { declarations, ownership } = ctx;
   const cell = requireCell(declarations, name);
@@ -345,8 +376,9 @@ export async function cmdPayload(ctx: CellsContext, name: string): Promise<void>
   }
 
   const dependents = Object.values(declarations).filter((d) => d.requires.includes(name));
-  // ADR 0002: the payload's change-coupling hint — unexplained partners only, so the
-  // model knows its context is incomplete (zero tokens when the cell is clean).
+  // ADR 0002: the change-coupling hint in the payload. The hint lists the unexplained
+  // partners only, so the model knows that its context is incomplete. The hint costs zero
+  // tokens when the cell is clean.
   const { crossings } = await loadCrossings(ownership);
   const coupling = changeCoupling(ownership, crossings);
   const coupled = coupling.pairs

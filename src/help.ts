@@ -1,12 +1,12 @@
 /**
- * `cells help` — the tool's self-documentation. This is how a model (or human)
- * dropped into ANY repo with a `.cells/` dir onboards: run `cells help` and the
- * tool teaches itself. The README lives in the Cells repo; THIS text is what
- * reaches foreign repos (it ships with the installed `cells` command).
+ * `cells help` prints the tool's self-documentation. A model or a human who starts in any
+ * repository with a `.cells/` directory can run `cells help` to learn the tool. The README
+ * lives in the Cells repository. This text reaches foreign repositories, because it ships
+ * with the installed `cells` command.
  *
- * The COMMANDS block is rendered by renderHelp() from the dispatch table in
- * cli.ts — the table's `usage` strings are the only source of truth for command
- * names + flags (they drifted 3× in one session when help was hand-maintained).
+ * `renderHelp()` builds the COMMANDS block from the dispatch table in `cli.ts`. The `usage`
+ * strings in that table are the only source of truth for command names and flags. When the
+ * help text was maintained by hand, it drifted three times in one session.
  */
 const HELP_TEMPLATE = `cells — code organized into context-bounded cells, for LLMs coding alongside humans.
 Work one cell at a time instead of drowning in the whole codebase.
@@ -100,12 +100,12 @@ runs on source you're just reading, nothing to build or install.
 Drop into any repo with a .cells/ dir and follow the loop above.
 `;
 
-/** Usage column width in the rendered COMMANDS block (2 indent + 28 usage). */
+/** The width of the usage column in the rendered COMMANDS block: 2 spaces of indent plus 28 characters of usage. */
 const USAGE_COL = 30;
 
-/** Greedy word-wrap `text` to 100 cols with continuation lines indented to `indent`. */
+/** Wrap `text` at 100 columns on word boundaries. Continuation lines are indented by `indent` spaces. */
 function wrap(text: string, indent: number): string {
-  const cap = 100 - indent; // every rendered line starts at col `indent` (first line carries the usage pad)
+  const cap = 100 - indent; // Every rendered line starts at column `indent`. The first line carries the usage padding.
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let cur = '';
@@ -123,9 +123,10 @@ function wrap(text: string, indent: number): string {
 }
 
 /**
- * The full `cells help` text. Commands are taken from the dispatch table (a
- * structural `{ usage, desc }[]` — help imports nothing, cli.ts feeds it the
- * rows), so a new/changed command can't drift from the help output.
+ * Return the full `cells help` text. The function takes the commands from the dispatch
+ * table, which is a `{ usage, desc }[]` structure. Help imports nothing, and `cli.ts`
+ * supplies the rows. Therefore a new or a changed command cannot drift from the help
+ * output.
  */
 export function renderHelp(commands: ReadonlyArray<{ usage: string; desc: string }>): string {
   const block = commands
